@@ -1,0 +1,52 @@
+main.main
+main.sqrtOf1e39
+main.sqrtOf1e18
+strict digraph DAG {
+  // Node definitions.
+  -9122114370808296242 [
+    label="runtime.main\n0.0%"
+    style=filled
+    fillcolor="0 0.0 0.9"
+    fontsize=12.000
+    width=0.000
+    height=0.000
+  ];
+  -8579648176369523141 [
+    label="main.main\n0.6%"
+    style=filled
+    fillcolor="0 0.0 0.9"
+    fontsize=12.629
+    width=0.063
+    height=0.063
+  ];
+  -3233409868820034553 [
+    label="runtime.goexit.abi0\n0.0%"
+    style=filled
+    fillcolor="0 0.0 0.9"
+    fontsize=12.000
+    width=0.000
+    height=0.000
+  ];
+  5563516427745253615 [
+    label="main.sqrtOf1e39\n65.4%"
+    style=filled
+    fillcolor="0 0.7 0.9"
+    fontsize=77.409
+    width=6.541
+    height=6.541
+  ];
+  5565481255024488222 [
+    label="main.sqrtOf1e18\n34.0%"
+    style=filled
+    fillcolor="0 0.3 0.9"
+    fontsize=45.962
+    width=3.396
+    height=3.396
+  ];
+
+  // Edge definitions.
+  -9122114370808296242 -> -8579648176369523141;
+  -9122114370808296242 -> 5563516427745253615;
+  -9122114370808296242 -> 5565481255024488222;
+  -3233409868820034553 -> -9122114370808296242;
+}

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events" style="overflow: hidden; " viewBox="21.97 232.36 575.99 298.88"><g id="viewport-20250202181502385" class="svg-pan-zoom_viewport" transform="matrix(0.7116641771738197,0,0,0.7116641771738197,21.968113367142696,232.36108557769967)" style="transform: matrix(0.711664, 0, 0, 0.711664, 21.9681, 232.361);">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 415.97)">
+<title>DAG</title>
+<polygon fill="white" stroke="none" points="-4,4 -4,-415.97 805.36,-415.97 805.36,4 -4,4"/>
+<!-- &#45;9122114370808296242 -->
+<g id="node1" class="node">
+<title>-9122114370808296242</title>
+<ellipse fill="#ffffff" stroke="black" cx="326.63" cy="-328.45" rx="56.79" ry="15.84"/>
+<text text-anchor="middle" x="326.63" y="-324.85" font-family="Times,serif" font-size="12.00">runtime.main</text>
+</g>
+<!-- &#45;8579648176369523141 -->
+<g id="node2" class="node">
+<title>-8579648176369523141</title>
+<ellipse fill="#e5e5e5" stroke="black" cx="49.63" cy="-138.31" rx="49.63" ry="27.3"/>
+<text text-anchor="middle" x="49.63" y="-142.13" font-family="Times,serif" font-size="12.75">main.main</text>
+<text text-anchor="middle" x="49.63" y="-126.83" font-family="Times,serif" font-size="12.75">0.8%</text>
+</g>
+<!-- &#45;9122114370808296242&#45;&gt;&#45;8579648176369523141 -->
+<g id="edge1" class="edge">
+<title>-9122114370808296242-&gt;-8579648176369523141</title>
+<path fill="none" stroke="black" d="M275.93,-320.99C219.72,-312.92 133.66,-297.57 108.63,-276.61 78.51,-251.4 63.38,-207.98 56.04,-176.71"/>
+<polygon fill="black" stroke="black" points="59.54,-176.31 54,-167.28 52.69,-177.79 59.54,-176.31"/>
+</g>
+<!-- 5563516427745253615 -->
+<g id="node4" class="node">
+<title>5563516427745253615</title>
+<ellipse fill="#e54444" stroke="black" cx="326.63" cy="-138.31" rx="209.32" ry="138.31"/>
+<text text-anchor="middle" x="326.63" y="-161.76" font-family="Times,serif" font-size="78.17">main.foo</text>
+<text text-anchor="middle" x="326.63" y="-67.96" font-family="Times,serif" font-size="78.17">66.2%</text>
+</g>
+<!-- &#45;9122114370808296242&#45;&gt;5563516427745253615 -->
+<g id="edge2" class="edge">
+<title>-9122114370808296242-&gt;5563516427745253615</title>
+<path fill="none" stroke="black" d="M326.63,-312.37C326.63,-305.92 326.63,-297.71 326.63,-288.4"/>
+<polygon fill="black" stroke="black" points="330.13,-288.5 326.63,-278.5 323.13,-288.5 330.13,-288.5"/>
+</g>
+<!-- 5565481255024488222 -->
+<g id="node5" class="node">
+<title>5565481255024488222</title>
+<ellipse fill="#e5a0a0" stroke="black" cx="677.63" cy="-138.31" rx="123.73" ry="82.17"/>
+<text text-anchor="middle" x="677.63" y="-151.83" font-family="Times,serif" font-size="45.08">main.bar</text>
+<text text-anchor="middle" x="677.63" y="-97.73" font-family="Times,serif" font-size="45.08">33.1%</text>
+</g>
+<!-- &#45;9122114370808296242&#45;&gt;5565481255024488222 -->
+<g id="edge3" class="edge">
+<title>-9122114370808296242-&gt;5565481255024488222</title>
+<path fill="none" stroke="black" d="M380.79,-323.4C426.89,-318.02 493.56,-305.53 544.63,-276.61 570.12,-262.18 593.85,-241.37 614,-220.3"/>
+<polygon fill="black" stroke="black" points="616.53,-222.72 620.79,-213.02 611.41,-217.94 616.53,-222.72"/>
+</g>
+<!-- &#45;3233409868820034553 -->
+<g id="node3" class="node">
+<title>-3233409868820034553</title>
+<ellipse fill="#ffffff" stroke="black" cx="326.63" cy="-396.13" rx="77.77" ry="15.84"/>
+<text text-anchor="middle" x="326.63" y="-392.53" font-family="Times,serif" font-size="12.00">runtime.goexit.abi0</text>
+</g>
+<!-- &#45;3233409868820034553&#45;&gt;&#45;9122114370808296242 -->
+<g id="edge4" class="edge">
+<title>-3233409868820034553-&gt;-9122114370808296242</title>
+<path fill="none" stroke="black" d="M326.63,-379.9C326.63,-372.77 326.63,-364.07 326.63,-355.91"/>
+<polygon fill="black" stroke="black" points="330.13,-356.12 326.63,-346.12 323.13,-356.12 330.13,-356.12"/>
+</g>
+</g>
+</g></svg>

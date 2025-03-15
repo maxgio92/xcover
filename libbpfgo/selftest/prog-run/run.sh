@@ -1,1 +1,0 @@
-../common/run-4.12.sh

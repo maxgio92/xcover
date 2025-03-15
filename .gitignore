@@ -1,4 +1,4 @@
-/profiler
+/utrace
 .idea
 /output
 *.o

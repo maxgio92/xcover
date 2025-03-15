@@ -8,15 +8,16 @@ import (
 	"path"
 	"strings"
 
+	"github.com/maxgio92/utrace/pkg/cmd"
+
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra/doc"
 
-	"github.com/maxgio92/utrace/cmd"
 	"github.com/maxgio92/utrace/internal/commands/options"
 )
 
 const (
-	cmdline      = "yap"
+	cmdline      = "utrace"
 	docsDir      = "docs"
 	fileTemplate = `---
 title: %s
@@ -35,7 +36,7 @@ var (
 	}
 	linkHandler = func(filename string) string {
 		if filename == cmdline+".md" {
-			return "_index.md"
+			return "README.md"
 		}
 		return filename
 	}
@@ -52,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err := os.Rename(path.Join(docsDir, cmdline+".md"), path.Join(docsDir, "_index.md"))
+	err := os.Rename(path.Join(docsDir, cmdline+".md"), path.Join(docsDir, "README.md"))
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

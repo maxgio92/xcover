@@ -1,6 +1,6 @@
 module github.com/maxgio92/utrace
 
-go 1.24.0
+go 1.23.6
 
 require (
 	github.com/aquasecurity/libbpfgo v0.6.0-libbpf-1.3
@@ -8,6 +8,7 @@ require (
 	github.com/rs/zerolog v1.32.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.8.4
+	golang.org/x/sync v0.12.0
 	golang.org/x/sys v0.14.0
 	gonum.org/v1/gonum v0.15.1
 )

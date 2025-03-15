@@ -1,4 +1,4 @@
-PROGRAM := yap
+PROGRAM := utrace
 
 # dependencies
 
@@ -45,7 +45,7 @@ $(PROGRAM): $(LIBBPFGO) | $(PROGRAM)/bpf
 		go build -v -o ${PROGRAM} .
 
 .PHONY: docs
-docs: $(LIBBPFGO)
+docs:
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
@@ -55,7 +55,7 @@ docs: $(LIBBPFGO)
 .PHONY: $(PROGRAM)/bpf
 $(PROGRAM)/bpf: $(VMLINUXH)
 	clang $(CFLAGS) -g -O2 -c -target bpf \
-		-o $(OUTPUT)/profile.bpf.o bpf/profile.bpf.c
+		-o $(OUTPUT)/trace.bpf.o bpf/trace.bpf.c
 
 .PHONY: $(LIBBPFGO)
 $(LIBBPFGO):

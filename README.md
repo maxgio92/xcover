@@ -1,4 +1,4 @@
-## utracer
+## utrace
 
 Trace user-defined functions without instrumentation.
 

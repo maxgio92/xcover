@@ -7,19 +7,20 @@ import (
 )
 
 var (
+	ErrSymNotFound   = errors.New("symbol not found")
 	ErrSymTableEmpty = errors.New("symtable is empty")
 )
 
 // ELFSymTab is one of the possible abstractions around executable
 // file symbol tables, for ELF files.
 type ELFSymTab struct {
-	symtab []elf.Symbol
+	Symtab []elf.Symbol
 	cache  *symcache.SymCache
 }
 
 func NewELFSymTab() *ELFSymTab {
 	tab := new(ELFSymTab)
-	tab.symtab = make([]elf.Symbol, 0)
+	tab.Symtab = make([]elf.Symbol, 0)
 	tab.cache = symcache.NewSymCache()
 
 	return tab
@@ -29,7 +30,7 @@ func NewELFSymTab() *ELFSymTab {
 // with debug/elf.Open and stores it in the ELFSymTab struct.
 func (e *ELFSymTab) Load(pathname string) error {
 	// Skip load if file elf.File has already been loaded.
-	if e.symtab != nil && len(e.symtab) > 0 {
+	if e.Symtab != nil && len(e.Symtab) > 0 {
 		return nil
 	}
 
@@ -43,24 +44,35 @@ func (e *ELFSymTab) Load(pathname string) error {
 		return errors.Wrap(err, "error reading ELF symtable section")
 	}
 
-	e.symtab = syms
+	e.Symtab = syms
 
 	return nil
 }
 
 // GetName returns symbol name from an instruction pointer address.
-func (e *ELFSymTab) GetName(ip uint64) (string, error) {
+func (e *ELFSymTab) GetName(ip uint64, cache bool) (string, error) {
+	if !cache {
+		for _, s := range e.Symtab {
+			if ip >= s.Value && ip < (s.Value+s.Size) {
+				return s.Name, nil
+			}
+		}
+		return "", ErrSymNotFound
+	}
 	// Try from cache.
 	sym, err := e.cache.Get(ip)
 	if err != nil {
 		// Cache miss.
-		if e.symtab == nil || len(e.symtab) == 0 {
+		if e.Symtab == nil || len(e.Symtab) == 0 {
 			return "", ErrSymTableEmpty
 		}
-		for _, s := range e.symtab {
+		for _, s := range e.Symtab {
 			if ip >= s.Value && ip < (s.Value+s.Size) {
 				sym = s.Name
 			}
+		}
+		if sym == "" {
+			return "", ErrSymNotFound
 		}
 		if e.cache != nil {
 			e.cache.Set(sym, ip)

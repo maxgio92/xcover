@@ -6,11 +6,11 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/maxgio92/utrace/internal/output"
 	"strings"
-	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/maxgio92/utrace/internal/output"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
@@ -58,7 +58,7 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 	if err = p.attachSampler(prog); err != nil {
 		return nil, errors.Wrap(err, "error attaching the sampler")
 	}
-	p.logger.Info().Msg("collecting data")
+	p.logger.Debug().Msg("collecting data")
 	p.logger.Debug().Msg("getting the stack traces BPF map")
 
 	stackTracesMap, err := bpfModule.GetMap(p.mapStackTraces)
@@ -85,29 +85,6 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 	p.logger.Debug().Msg("iterating over the retrieved histogramMap items")
 
 	// Try to load symbols.
-	symbolizationWG := &sync.WaitGroup{}
-	symbolizationWG.Add(1)
-	go func() {
-		defer symbolizationWG.Done()
-
-		// TODO: Get real PID when not specified.
-		// The source of truth is the BPF map.
-		//
-		// Get process executable path on filesystem.
-		exePath, err := p.getExePath(binprmInfo, int32(p.pid))
-		if err != nil {
-			p.logger.Debug().Int("pid", p.pid).Msg("error getting executable path for symbolization")
-			return
-		}
-		p.logger.Debug().Str("path", *exePath).Int("pid", p.pid).Msg("executable path found")
-
-		// Try to load ELF symbol table, if it's an ELF executable.
-		if err = p.symTabELF.Load(*exePath); err != nil {
-			p.logger.Debug().Err(err).Msg("error loading the ELF symbol table")
-			return
-		}
-		p.logger.Debug().Str("path", *exePath).Int("pid", p.pid).Msg("ELF symbol table loaded")
-	}()
 
 	// For each function being sampled.
 	traceWG, ctx := errgroup.WithContext(ctx)
@@ -145,18 +122,16 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 						continue
 					}
 
-					comm := string(cleanComm(key.Comm))
 					// When filtering by comm, skip unwanted tasks.
+					comm := string(cleanComm(key.Comm))
 					if p.comm != "" && !strings.Contains(comm, p.comm) {
 						continue
 					}
+
 					p.logger.Debug().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("user_stack_id", key.UserStackId).Uint32("kernel_stack_id", key.KernelStackId).Int("count", count).Msg("got stack traces")
 
 					// symbols contains the symbols list for current trace of the kernel and user stacks.
 					symbols := make([]string, 0)
-
-					// Wait for the symbols to be loaded.
-					symbolizationWG.Wait()
 
 					// Append symbols from user stack.
 					if int32(key.UserStackId) >= 0 {
@@ -166,8 +141,19 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 							return errors.Wrap(err, "error getting user stack")
 						}
 
-						symbols = append(symbols, p.getHumanReadableStackTrace(stackTrace)...)
-						p.logger.Debug().Int("pid", int(key.Pid)).Str("comm", comm).Strs("trace", symbols).Msg("produced one trace")
+						// Load the symbol table.
+						err = p.loadSymTable(binprmInfo, key.Pid)
+						if err != nil {
+							p.logger.Warn().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error loading the symbol table")
+						}
+
+						readableStackTrace, err := p.getHumanReadableStackTrace(stackTrace)
+						if err != nil {
+							p.logger.Warn().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error resolving symbols")
+						}
+
+						symbols = append(symbols, readableStackTrace...)
+						p.logger.Info().Int("pid", int(key.Pid)).Str("comm", comm).Strs("trace", symbols).Msg("produced one trace")
 					}
 
 					// Ignore kernel stack trace.
@@ -204,6 +190,25 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 	return nil, nil
 }
 
+func (p *Profiler) loadSymTable(binprmInfo *bpf.BPFMap, pid int32) error {
+	// Get process executable path on filesystem.
+	exePath, err := p.getExePath(binprmInfo, pid)
+	if err != nil {
+		p.logger.Debug().Int32("pid", pid).Msg("error getting executable path for symbolization")
+		return err
+	}
+	p.logger.Debug().Str("path", *exePath).Int32("pid", pid).Msg("executable path found")
+
+	// Try to load ELF symbol table, if it's an ELF executable.
+	if err = p.symTabELF.Load(*exePath); err != nil {
+		p.logger.Debug().Err(err).Msg("error loading the ELF symbol table")
+		return err
+	}
+	p.logger.Debug().Str("path", *exePath).Int32("pid", pid).Msg("ELF symbol table loaded")
+
+	return nil
+}
+
 // getStackTraceByID returns a StackTrace struct from the BPF_MAP_TYPE_STACK_TRACE map,
 // keyed by stack ID returned by the get_stackid BPF helper.
 func (p *Profiler) getStackTraceByID(stackTraces *bpf.BPFMap, stackID uint32) (*StackTrace, error) {
@@ -225,20 +230,24 @@ func (p *Profiler) getStackTraceByID(stackTraces *bpf.BPFMap, stackID uint32) (*
 // for the process of the ID that is passed as argument.
 // Symbolization is supported for non-stripped ELF executable binaries, because the .symtab
 // ELF section is looked up.
-func (p *Profiler) getHumanReadableStackTrace(stackTrace *StackTrace) []string {
+func (p *Profiler) getHumanReadableStackTrace(stackTrace *StackTrace) ([]string, error) {
 	symbols := make([]string, 0)
 
 	for _, ip := range stackTrace {
 		if ip == 0 {
 			continue
 		}
-		symbol, err := p.symTabELF.GetName(ip)
-		if err != nil || symbol == "" {
+		symbol, err := p.symTabELF.GetName(ip, false)
+		if err != nil {
+			return nil, err
+		}
+
+		if symbol == "" {
 			// Fallback to hex instruction pointer address.
 			symbol = fmt.Sprintf("%#016x", ip)
 		}
 		symbols = append(symbols, symbol)
 	}
 
-	return symbols
+	return symbols, nil
 }

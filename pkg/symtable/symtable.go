@@ -2,8 +2,10 @@ package symtable
 
 import (
 	"debug/elf"
-	"github.com/maxgio92/utrace/pkg/symcache"
+
 	"github.com/pkg/errors"
+
+	"github.com/maxgio92/utrace/pkg/symcache"
 )
 
 var (

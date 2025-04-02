@@ -3,7 +3,7 @@ package output
 import "fmt"
 
 var (
-	LoadingSymbols = []string{"⠋", "⠙", "⠚", "⠒", "⠒", "⠚", "⠙", "⠋"}
+	LoadingSymbols = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	count          = 0
 )
 

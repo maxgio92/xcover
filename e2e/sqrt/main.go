@@ -37,14 +37,16 @@ func sqrt(x float64) float64 {
 	return r
 }
 
-func sqrtOf1e39() float64 {
-	// Runs for 70 iters.
+// foo calculates sqrt of 1e39 as float64.
+// Runs for 70 iters.
+func foo() float64 {
 	var x = 1e39
 	return sqrt(x)
 }
 
-func sqrtOf1e18() float64 {
-	// Runs for 35 iters.
+// bar calculates sqrt of 1e18 as float64.
+// Runs for 35 iters.
+func bar() float64 {
 	var x = 1e18
 	return sqrt(x)
 }
@@ -68,9 +70,9 @@ func main() {
 	fmt.Println("Computing...press Ctrl-C to exit")
 
 	for !done {
-		x = sqrtOf1e39()
-		y = sqrtOf1e18()
+		x = foo()
+		y = bar()
 	}
-	fmt.Println("sqrtOf1e39():", x)
-	fmt.Println("sqrtOf1e18():", y)
+	fmt.Println("sqrt of 1e39:", x)
+	fmt.Println("sqrt of 1e18:", y)
 }

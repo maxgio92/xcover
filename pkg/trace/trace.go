@@ -10,8 +10,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/maxgio92/utrace/internal/output"
-
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -100,7 +98,6 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
-				output.SpinWheel()
 			default:
 				if it := histogramMap.Iterator(); it.Next() {
 					k := it.Key()
@@ -144,16 +141,16 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 						// Load the symbol table.
 						err = p.loadSymTable(binprmInfo, key.Pid)
 						if err != nil {
-							p.logger.Warn().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error loading the symbol table")
+							p.logger.Debug().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error loading the symbol table")
 						}
 
 						readableStackTrace, err := p.getHumanReadableStackTrace(stackTrace)
 						if err != nil {
-							p.logger.Warn().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error resolving symbols")
+							p.logger.Debug().Int("pid", int(key.Pid)).Str("comm", comm).Uint32("id", key.UserStackId).Err(err).Msg("error resolving symbols")
 						}
 
 						symbols = append(symbols, readableStackTrace...)
-						p.logger.Info().Int("pid", int(key.Pid)).Str("comm", comm).Strs("trace", symbols).Msg("produced one trace")
+						p.logger.Debug().Int("pid", int(key.Pid)).Str("comm", comm).Strs("trace", symbols).Msg("produced one trace")
 					}
 
 					// Ignore kernel stack trace.
@@ -175,8 +172,15 @@ func (p *Profiler) RunProfile(ctx context.Context) (*dag.DAG, error) {
 	})
 
 	// Consume traces.
+	symUniq := make(map[string]struct{})
 	p.logger.Debug().Msg("consuming traces")
 	for trace := range tracesCh {
+		for _, v := range trace {
+			if _, ok := symUniq[v]; !ok {
+				fmt.Println(v)
+				symUniq[v] = struct{}{}
+			}
+		}
 		p.logger.Debug().Strs("trace", trace).Msg("consumed one trace")
 	}
 

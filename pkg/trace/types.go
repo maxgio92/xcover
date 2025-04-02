@@ -13,11 +13,11 @@ type HistogramKey struct {
 	// PID.
 	Pid int32
 
-	// UserStackId, an index into the stack-traces map.
-	UserStackId uint32
-
 	// KernelStackId, an index into the stack-traces map.
 	KernelStackId uint32
+
+	// UserStackId, an index into the stack-traces map.
+	UserStackId uint32
 
 	// Comm.
 	Comm [TaskCommLen]byte

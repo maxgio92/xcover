@@ -1,0 +1,5 @@
+/utrace
+.idea
+/output/*
+*.o
+vmlinux.h

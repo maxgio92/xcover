@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/aquasecurity/libbpfgo"
 	"github.com/aquasecurity/libbpfgo/helpers"
+	"github.com/maxgio92/libbpfgo"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 	progressbar "github.com/schollz/progressbar/v3"
@@ -96,6 +96,19 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	}
 	defer bpfModule.Close()
 
+	o.Logger.Debug().Msg("getting bpf program")
+	prog, err := bpfModule.GetProgram("handle_user_function")
+	if err != nil {
+		return errors.Wrapf(err, "failed to get program: %v", prog.Name())
+	}
+
+	// Do not use perf events but uprobe_multi, since we attach one uprobe per function.
+	// See: https://lore.kernel.org/bpf/20230424160447.2005755-1-jolsa@kernel.org/
+	err = prog.SetExpectedAttachType(libbpfgo.BPFAttachTypeTraceUprobeMulti)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set expected attach type %s", libbpfgo.BPFAttachTypeTraceUprobeMulti)
+	}
+
 	err = bpfModule.BPFLoadObject()
 	if err != nil {
 		return errors.Wrapf(err, "failed to load bpf object: %v", o.ProbePath)
@@ -125,27 +138,23 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 		i++
 	}
 
-	o.Logger.Debug().Msg("getting bpf program")
-	prog, err := bpfModule.GetProgram("handle_user_function")
-	if err != nil {
-		return errors.Wrapf(err, "failed to get program: %v", prog.Name())
-	}
-
-	// Attach the uprobe for each function.
-	o.Logger.Debug().Msg("attaching bpf program to uprobes")
+	o.Logger.Debug().Msg("analysing symbols")
 	bar := progressbar.Default(int64(len(syms)))
+	offsets := []uint64{}
 	for _, sym := range syms {
 		offset, err := helpers.SymbolToOffset(o.comm, sym.Name)
 		if err != nil {
 			return errors.Wrapf(err, "error finding function (%s) offset", sym.Name)
 		}
-
-		o.Logger.Debug().Msgf("attaching bpf program to uprobes for func %s", sym.Name)
-		_, err = prog.AttachUprobe(o.pid, o.comm, offset)
-		if err != nil {
-			errors.Wrapf(err, "error attaching uprobe at function (%s) offset: %d", sym.Name, offset)
-		}
+		offsets = append(offsets, uint64(offset))
 		bar.Add(1)
+	}
+
+	// Attach the uprobe for each function.
+	o.Logger.Debug().Msgf("attaching bpf program to uprobes multi for pid %d", o.pid)
+	_, err = prog.AttachUprobeMulti(o.pid, o.comm, offsets)
+	if err != nil {
+		errors.Wrapf(err, "error attaching uprobe at offsets: %v", offsets)
 	}
 
 	// Consume from ring buffer.
@@ -163,22 +172,20 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 
 	// Consume events from the ring buffer.
 	captured := make(map[string]struct{}, 0)
-	go func() {
-		o.Logger.Debug().Msg("consuming events from ring buffer")
-		for data := range eventsCh {
-			var evt FuncName
-			buf := bytes.NewBuffer(data)
-			if err := binary.Read(buf, binary.LittleEndian, &evt); err != nil {
-				o.Logger.Err(err).Msg("failed to read event")
-			}
-
-			name := string(bytes.TrimRight(evt.Name[:], "\x00"))
-			if _, ok := captured[name]; !ok {
-				fmt.Println(name)
-				captured[name] = struct{}{}
-			}
+	o.Logger.Debug().Msg("consuming events from ring buffer")
+	for data := range eventsCh {
+		var evt FuncName
+		buf := bytes.NewBuffer(data)
+		if err := binary.Read(buf, binary.LittleEndian, &evt); err != nil {
+			o.Logger.Err(err).Msg("failed to read event")
 		}
-	}()
+
+		name := string(bytes.TrimRight(evt.Name[:], "\x00"))
+		if _, ok := captured[name]; !ok {
+			fmt.Println(name)
+			captured[name] = struct{}{}
+		}
+	}
 
 	return nil
 }

@@ -31,21 +31,9 @@ func WithContext(ctx context.Context) Option {
 	}
 }
 
-func WithDebug(debug bool) Option {
-	return func(o *CommonOptions) {
-		o.Debug = debug
-	}
-}
-
 func WithLogger(logger log.Logger) Option {
 	return func(o *CommonOptions) {
 		o.Logger = logger
-	}
-}
-
-func WithProbe(probe []byte) Option {
-	return func(o *CommonOptions) {
-		o.Probe = probe
 	}
 }
 

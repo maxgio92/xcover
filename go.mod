@@ -14,7 +14,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/maxgio92/libbpfgo v0.8.0-libbpf-1.5.0.20250412084209-1581b7d9225d // indirect
+	github.com/maxgio92/libbpfgo v0.8.0-libbpf-1.5.0.20250418083050-76085eb28951 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect

@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/maxgio92/utrace/pkg/trace"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 type FuncName struct {
@@ -93,7 +94,7 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	if err := tracer.Load(tracee); err != nil {
 		return errors.Wrapf(err, "failed to load tracer")
 	}
-	if err := tracer.Run(); err != nil {
+	if err := tracer.Run(o.Ctx); err != nil {
 		return errors.Wrapf(err, "failed to run tracer")
 	}
 

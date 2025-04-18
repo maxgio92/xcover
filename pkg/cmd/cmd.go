@@ -17,18 +17,23 @@ type FuncName struct {
 }
 
 type Options struct {
-	comm string
-	pid  int
+	comm              string
+	pid               int
+	symExcludePattern string
+	symIncludePattern string
 	*CommonOptions
 }
 
-const (
-	funNameLen  = 64
-	funCountMax = 16384
-)
+const funNameLen = 64
 
 func NewRootCmd(opts *CommonOptions) *cobra.Command {
-	o := &Options{"", -1, opts}
+	o := &Options{
+		"",
+		-1,
+		"",
+		"",
+		opts,
+	}
 	cmd := &cobra.Command{
 		Use:               "utrace",
 		Short:             "utrace is a userspace function tracer",
@@ -38,6 +43,8 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	}
 	cmd.PersistentFlags().BoolVar(&o.Debug, "debug", false, "Sets log level to debug")
 	cmd.Flags().StringVarP(&o.comm, "comm", "p", "", "Path to the ELF executable")
+	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
+	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
 	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
 	cmd.MarkFlagRequired("comm")
 
@@ -87,6 +94,9 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 
 	tracee := trace.NewUserTracee(
 		trace.WithExePath(o.comm),
+		trace.WithSymPatternInclude(o.symIncludePattern),
+		trace.WithSymPatternExclude(o.symExcludePattern),
+		trace.WithTraceeLogger(&o.Logger),
 	)
 	if err := tracee.Init(); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")

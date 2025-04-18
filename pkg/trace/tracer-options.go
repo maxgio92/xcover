@@ -9,6 +9,7 @@ type UserTracerOptions struct {
 	bpfProgName    string
 	cookiesMapName string
 	evtRingBufName string
+
 	logger         *log.Logger
 }
 

@@ -3,6 +3,7 @@ package trace
 import (
 	"debug/elf"
 	"fmt"
+	"regexp"
 
 	"github.com/aquasecurity/libbpfgo/helpers"
 	"github.com/pkg/errors"
@@ -44,8 +45,9 @@ func (t *UserTracee) Init() error {
 	if t.file == nil {
 		return errors.New("no elf file found")
 	}
+
 	if err = t.loadFunctions(); err != nil {
-		return errors.Wrap(err, "failed loading functions data")
+		t.logger.Warn().Err(err).Msg("failed to load functions")
 	}
 
 	return nil
@@ -94,8 +96,8 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
-		// Exclude non-local symbols.
-		if elf.ST_BIND(sym.Info) != elf.STB_LOCAL {
+
+		if !t.shouldIncludeSymbol(sym) {
 			continue
 		}
 
@@ -103,6 +105,41 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 	}
 
 	return funSyms, nil
+}
+
+func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {
+	// Exclude symbols with specific bind.
+	if t.symBindExclude != nil {
+		for _, bind := range t.symBindExclude {
+			if elf.ST_BIND(sym.Info) == bind {
+				return false
+			}
+		}
+	}
+	// Include only symbols with specific bind.
+	if t.symBindInclude != nil {
+		for _, bind := range t.symBindInclude {
+			if elf.ST_BIND(sym.Info) == bind {
+				return true
+			}
+		}
+		return false
+	}
+	// Exclude symbols that match a specific regex pattern.
+	if t.symPatternExclude != "" {
+		if regexp.MustCompile(t.symPatternExclude).MatchString(sym.Name) {
+			return false
+		}
+	}
+	// Include only symbols that match a specific regex pattern.
+	if t.symPatternInclude != "" {
+		if regexp.MustCompile(t.symPatternInclude).MatchString(sym.Name) {
+			return true
+		}
+		return false
+	}
+
+	return true
 }
 
 func (t *UserTracee) getFuncOffsets() []uint64 {

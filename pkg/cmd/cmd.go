@@ -17,23 +17,25 @@ type FuncName struct {
 }
 
 type Options struct {
-	comm              string
-	pid               int
+	comm string
+	pid  int
+
 	symExcludePattern string
 	symIncludePattern string
+
+	verbose bool
+	report  bool
+	status  bool
+
 	*CommonOptions
 }
 
 const funNameLen = 64
 
 func NewRootCmd(opts *CommonOptions) *cobra.Command {
-	o := &Options{
-		"",
-		-1,
-		"",
-		"",
-		opts,
-	}
+	o := new(Options)
+	o.CommonOptions = opts
+
 	cmd := &cobra.Command{
 		Use:               "utrace",
 		Short:             "utrace is a userspace function tracer",
@@ -43,9 +45,15 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	}
 	cmd.PersistentFlags().BoolVar(&o.Debug, "debug", false, "Sets log level to debug")
 	cmd.Flags().StringVarP(&o.comm, "comm", "p", "", "Path to the ELF executable")
+	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
-	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+
+	cmd.Flags().BoolVar(&o.verbose, "verbose", true, "Enable verbosity")
+	cmd.Flags().BoolVar(&o.report, "report", false, "Generate report")
+	cmd.Flags().BoolVar(&o.status, "status", false, "Periodically print a status of the trace")
+
 	cmd.MarkFlagRequired("comm")
 
 	return cmd
@@ -83,6 +91,9 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 		trace.WithLogger(&o.Logger),
 		trace.WithCookiesMapName("ip_to_func_name_map"),
 		trace.WithEvtRingBufName("events"),
+		trace.WithVerbose(o.verbose),
+		trace.WithReport(o.report),
+		trace.WithStatus(o.status),
 	)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create tracer")

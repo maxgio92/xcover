@@ -7,6 +7,8 @@ import (
 
 	"github.com/aquasecurity/libbpfgo/helpers"
 	"github.com/pkg/errors"
+
+	"github.com/maxgio92/utrace/internal/utils"
 )
 
 type UserTracee struct {
@@ -47,7 +49,7 @@ func (t *UserTracee) Init() error {
 	}
 
 	if err = t.loadFunctions(); err != nil {
-		t.logger.Warn().Err(err).Msg("failed to load functions")
+		t.logger.Debug().Err(err).Msg("failed to load functions")
 	}
 
 	return nil
@@ -72,7 +74,7 @@ func (t *UserTracee) loadFunctions() error {
 		if err != nil {
 			return errors.Wrapf(err, "symbol %s not found in %s", sym.Name, t.exePath)
 		}
-		t.funcs[cookie(hash(sym.Name))] = funcInfo{
+		t.funcs[cookie(utils.Hash(sym.Name))] = funcInfo{
 			name:   sym.Name,
 			offset: uint64(offset),
 		}
@@ -82,7 +84,7 @@ func (t *UserTracee) loadFunctions() error {
 }
 
 func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
-	var funSyms []elf.Symbol
+	var funcSyms []elf.Symbol
 	if t.file == nil {
 		return nil, fmt.Errorf("elf file is nil")
 	}
@@ -101,10 +103,10 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 			continue
 		}
 
-		funSyms = append(funSyms, sym)
+		funcSyms = append(funcSyms, sym)
 	}
 
-	return funSyms, nil
+	return funcSyms, nil
 }
 
 func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {

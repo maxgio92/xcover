@@ -10,7 +10,11 @@ type UserTracerOptions struct {
 	cookiesMapName string
 	evtRingBufName string
 
-	logger         *log.Logger
+	report  bool
+	status  bool
+	verbose bool
+
+	logger *log.Logger
 }
 
 type UserTracerOpt func(*UserTracer)
@@ -42,5 +46,23 @@ func WithCookiesMapName(cookiesMapName string) UserTracerOpt {
 func WithEvtRingBufName(evtRingBufName string) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.evtRingBufName = evtRingBufName
+	}
+}
+
+func WithReport(report bool) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.report = report
+	}
+}
+
+func WithVerbose(verbose bool) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.verbose = verbose
+	}
+}
+
+func WithStatus(status bool) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.status = status
 	}
 }

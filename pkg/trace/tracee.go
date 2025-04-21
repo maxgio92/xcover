@@ -59,6 +59,9 @@ func (t *UserTracee) validate() error {
 	if t.exePath == "" {
 		return fmt.Errorf("exe path is empty")
 	}
+	if t.logger == nil {
+		return fmt.Errorf("logger is empty")
+	}
 
 	return nil
 }
@@ -99,7 +102,7 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 			continue
 		}
 
-		if !t.shouldIncludeSymbol(sym) {
+		if !t.ShouldIncludeSymbol(sym) {
 			continue
 		}
 
@@ -109,7 +112,7 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 	return funcSyms, nil
 }
 
-func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {
+func (t *UserTracee) ShouldIncludeSymbol(sym elf.Symbol) bool {
 	// Exclude symbols with specific bind.
 	if t.symBindExclude != nil {
 		for _, bind := range t.symBindExclude {
@@ -144,7 +147,7 @@ func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {
 	return true
 }
 
-func (t *UserTracee) getFuncOffsets() []uint64 {
+func (t *UserTracee) GetFuncOffsets() []uint64 {
 	offsets := make([]uint64, len(t.funcs))
 	for i := range t.funcs {
 		offsets = append(offsets, t.funcs[i].offset)
@@ -153,11 +156,20 @@ func (t *UserTracee) getFuncOffsets() []uint64 {
 	return offsets
 }
 
-func (t *UserTracee) getFuncCookies() []uint64 {
+func (t *UserTracee) GetFuncCookies() []uint64 {
 	cookies := make([]uint64, len(t.funcs))
 	for cookie := range t.funcs {
 		cookies = append(cookies, uint64(cookie))
 	}
 
 	return cookies
+}
+
+func (t *UserTracee) GetFuncNames() []string {
+	names := make([]string, len(t.funcs))
+	for i := range t.funcs {
+		names = append(names, t.funcs[i].name)
+	}
+
+	return names
 }

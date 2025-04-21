@@ -48,7 +48,7 @@ func TestWriteReportJSONOutput(t *testing.T) {
 func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 	report := trace.NewReport(
 		trace.WithReportFuncsTraced([]string{"traceFunc"}),
-		trace.WithReportFuncsAck([]string{"ackFunc"}),
+		trace.WithReportFuncsAck([]string{"main.foo"}),
 		trace.WithReportFuncsCov(0.25),
 	)
 
@@ -58,6 +58,6 @@ func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 
 	output := buf.String()
 	require.True(t, strings.Contains(output, "traceFunc"))
-	require.True(t, strings.Contains(output, "ackFunc"))
-	require.True(t, strings.Contains(output, "coverage_by_func"))
+	require.True(t, strings.Contains(output, "main.foo"))
+	require.True(t, strings.Contains(output, "cov_by_func"))
 }

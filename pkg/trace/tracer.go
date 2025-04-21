@@ -168,8 +168,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 func (t *UserTracer) attachUprobes() {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
-	offsets := t.tracee.getFuncOffsets()
-	cookies := t.tracee.getFuncCookies()
+	offsets := t.tracee.GetFuncOffsets()
+	cookies := t.tracee.GetFuncCookies()
 
 	for i := 0; i < len(offsets); i += batchSize {
 		end := i + batchSize
@@ -265,6 +265,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		WithReportFuncsTraced(traced),
 		WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
 	)
+
 	file, err := os.Create(reportPath)
 	if err != nil {
 		t.logger.Err(err).Msg("failed to create report file")

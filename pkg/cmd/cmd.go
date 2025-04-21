@@ -86,14 +86,14 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	}
 
 	tracer, err := trace.NewUserTracer(
-		trace.WithBpfModPath(o.ProbePath),
-		trace.WithBpfProgName("handle_user_function"),
-		trace.WithLogger(&o.Logger),
-		trace.WithCookiesMapName("ip_to_func_name_map"),
-		trace.WithEvtRingBufName("events"),
-		trace.WithVerbose(o.verbose),
-		trace.WithReport(o.report),
-		trace.WithStatus(o.status),
+		trace.WithTracerBpfModPath(o.ProbePath),
+		trace.WithTracerBpfProgName("handle_user_function"),
+		trace.WithTracerLogger(&o.Logger),
+		trace.WithTracerCookiesMapName("ip_to_func_name_map"),
+		trace.WithTracerEvtRingBufName("events"),
+		trace.WithTracerVerbose(o.verbose),
+		trace.WithTracerReport(o.report),
+		trace.WithTracerStatus(o.status),
 	)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create tracer")
@@ -104,9 +104,9 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	}
 
 	tracee := trace.NewUserTracee(
-		trace.WithExePath(o.comm),
-		trace.WithSymPatternInclude(o.symIncludePattern),
-		trace.WithSymPatternExclude(o.symExcludePattern),
+		trace.WithTraceeExePath(o.comm),
+		trace.WithTraceeSymPatternInclude(o.symIncludePattern),
+		trace.WithTraceeSymPatternExclude(o.symExcludePattern),
 		trace.WithTraceeLogger(&o.Logger),
 	)
 	if err := tracee.Init(); err != nil {

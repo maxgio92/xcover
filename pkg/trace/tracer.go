@@ -8,8 +8,11 @@ import (
 	"hash/fnv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	bpf "github.com/maxgio92/libbpfgo"
+	"github.com/maxgio92/utrace/internal/output"
 	"github.com/pkg/errors"
 )
 
@@ -21,6 +24,9 @@ const (
 
 var (
 	libbpfErrKeywords = []string{"failed", "invalid", "error"}
+	consumed          uint64
+	rbChBufSize       = 4096
+	feedChBufSize     = 4096
 )
 
 type FuncName struct {
@@ -42,7 +48,7 @@ type UserTracer struct {
 	// TODO: decouple trace(s) from tracer and tracee.
 	tracee *UserTracee
 
-	ack map[cookie]struct{}
+	ack sync.Map
 
 	*UserTracerOptions
 }
@@ -50,7 +56,6 @@ type UserTracer struct {
 func NewUserTracer(opts ...UserTracerOpt) (*UserTracer, error) {
 	tracer := &UserTracer{
 		UserTracerOptions: &UserTracerOptions{},
-		ack:               make(map[cookie]struct{}),
 	}
 	for _, opt := range opts {
 		opt(tracer)
@@ -125,8 +130,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		j++
 	}
 
-	eventsCh := make(chan []byte, 108192)
-	feedCh := make(chan []byte, 108192)
+	eventsCh := make(chan []byte, rbChBufSize)
+	feedCh := make(chan []byte, feedChBufSize)
 	var err error
 	t.evtRingBuf, err = t.bpfMod.InitRingBuf(t.evtRingBufName, eventsCh)
 	if err != nil {
@@ -142,15 +147,18 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.readEvents(ctx, eventsCh, feedCh)
+		t.ingestEvents(ctx, eventsCh, feedCh)
 	}()
 
 	// Consume events from internal feed.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.consumeFeed(ctx, feedCh)
+		t.processEvents(ctx, feedCh)
 	}()
+
+	// Log throughput.
+	go t.logThroughput(ctx, eventsCh, feedCh)
 
 	// Waiting for signals.
 	<-ctx.Done()
@@ -166,7 +174,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (t *UserTracer) readEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
+func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
 	for {
 		select {
 		case data := <-events:
@@ -178,7 +186,7 @@ func (t *UserTracer) readEvents(ctx context.Context, events <-chan []byte, feed 
 	}
 }
 
-func (t *UserTracer) consumeFeed(ctx context.Context, feed <-chan []byte) {
+func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
 	for {
 		select {
 		case data := <-feed:
@@ -189,7 +197,26 @@ func (t *UserTracer) consumeFeed(ctx context.Context, feed <-chan []byte) {
 	}
 }
 
+func (t *UserTracer) logThroughput(ctx context.Context, rbCh, feedCh chan []byte) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			count := atomic.SwapUint64(&consumed, 0)
+			output.PrintRight(fmt.Sprintf(
+				"| Events/s: %d | Ring buffer utilization: %d%% | Feed utilization: %d%% |",
+				count, len(rbCh)/rbChBufSize*100, len(feedCh)/feedChBufSize*100))
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 func (t *UserTracer) handleEvent(data []byte) {
+	atomic.AddUint64(&consumed, 1)
+
 	var event Event
 
 	buf := bytes.NewBuffer(data)
@@ -201,9 +228,9 @@ func (t *UserTracer) handleEvent(data []byte) {
 	if !ok {
 		t.logger.Err(fmt.Errorf("tracee function not found for cookie %d", event.Cookie))
 	}
-	if _, ok := t.ack[event.Cookie]; !ok {
+	if _, ok := t.ack.Load(event.Cookie); !ok {
 		fmt.Println(fun.name)
-		t.ack[event.Cookie] = struct{}{}
+		t.ack.Store(event.Cookie, struct{}{})
 	}
 }
 

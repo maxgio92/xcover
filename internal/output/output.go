@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 )
@@ -25,4 +26,12 @@ func PrintRight(text string) {
 
 func spaces(n int) string {
 	return fmt.Sprintf("%*s", n, "")
+}
+
+func ProgressBar(percent int, width int) string {
+	filled := (percent * width) / 100
+	return fmt.Sprintf("%s%s",
+		strings.Repeat("█", filled),
+		strings.Repeat(" ", width-filled),
+	)
 }

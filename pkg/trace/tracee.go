@@ -3,10 +3,14 @@ package trace
 import (
 	"debug/elf"
 	"fmt"
+	"os"
 	"regexp"
 
 	"github.com/aquasecurity/libbpfgo/helpers"
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
+
+	"github.com/maxgio92/utrace/internal/utils"
 )
 
 type UserTracee struct {
@@ -38,6 +42,10 @@ func (t *UserTracee) Init() error {
 	if err = t.validate(); err != nil {
 		return err
 	}
+	if t.logger == nil {
+		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+		t.logger = &logger
+	}
 	t.file, err = elf.Open(t.exePath)
 	if err != nil {
 		return err
@@ -47,7 +55,7 @@ func (t *UserTracee) Init() error {
 	}
 
 	if err = t.loadFunctions(); err != nil {
-		t.logger.Warn().Err(err).Msg("failed to load functions")
+		t.logger.Debug().Err(err).Msg("failed to load functions")
 	}
 
 	return nil
@@ -72,7 +80,7 @@ func (t *UserTracee) loadFunctions() error {
 		if err != nil {
 			return errors.Wrapf(err, "symbol %s not found in %s", sym.Name, t.exePath)
 		}
-		t.funcs[cookie(hash(sym.Name))] = funcInfo{
+		t.funcs[cookie(utils.Hash(sym.Name))] = funcInfo{
 			name:   sym.Name,
 			offset: uint64(offset),
 		}
@@ -82,7 +90,7 @@ func (t *UserTracee) loadFunctions() error {
 }
 
 func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
-	var funSyms []elf.Symbol
+	var funcSyms []elf.Symbol
 	if t.file == nil {
 		return nil, fmt.Errorf("elf file is nil")
 	}
@@ -97,17 +105,17 @@ func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 			continue
 		}
 
-		if !t.shouldIncludeSymbol(sym) {
+		if !t.ShouldIncludeSymbol(sym) {
 			continue
 		}
 
-		funSyms = append(funSyms, sym)
+		funcSyms = append(funcSyms, sym)
 	}
 
-	return funSyms, nil
+	return funcSyms, nil
 }
 
-func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {
+func (t *UserTracee) ShouldIncludeSymbol(sym elf.Symbol) bool {
 	// Exclude symbols with specific bind.
 	if t.symBindExclude != nil {
 		for _, bind := range t.symBindExclude {
@@ -142,7 +150,7 @@ func (t *UserTracee) shouldIncludeSymbol(sym elf.Symbol) bool {
 	return true
 }
 
-func (t *UserTracee) getFuncOffsets() []uint64 {
+func (t *UserTracee) GetFuncOffsets() []uint64 {
 	offsets := make([]uint64, len(t.funcs))
 	for i := range t.funcs {
 		offsets = append(offsets, t.funcs[i].offset)
@@ -151,11 +159,20 @@ func (t *UserTracee) getFuncOffsets() []uint64 {
 	return offsets
 }
 
-func (t *UserTracee) getFuncCookies() []uint64 {
+func (t *UserTracee) GetFuncCookies() []uint64 {
 	cookies := make([]uint64, len(t.funcs))
 	for cookie := range t.funcs {
 		cookies = append(cookies, uint64(cookie))
 	}
 
 	return cookies
+}
+
+func (t *UserTracee) GetFuncNames() []string {
+	names := make([]string, len(t.funcs))
+	for i := range t.funcs {
+		names = append(names, t.funcs[i].name)
+	}
+
+	return names
 }

@@ -5,27 +5,29 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"hash/fnv"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	bpf "github.com/maxgio92/libbpfgo"
-	"github.com/maxgio92/utrace/internal/output"
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
+
+	"github.com/maxgio92/utrace/internal/utils"
 )
 
 const (
 	funNameLen                     = 64
 	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
 	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
+	reportFileName                 = "utrace-report.json"
 )
 
 var (
 	libbpfErrKeywords = []string{"failed", "invalid", "error"}
 	consumed          uint64
-	rbChBufSize       = 4096
+	eventsChBufSize   = 4096
 	feedChBufSize     = 4096
 )
 
@@ -41,36 +43,40 @@ type UserTracer struct {
 	// Tracer objects.
 	bpfMod     *bpf.Module
 	bpfProg    *bpf.BPFProg
-	cookiesMap *bpf.BPFMap
 	evtRingBuf *bpf.RingBuffer
 
 	// Tracee objects.
 	// TODO: decouple trace(s) from tracer and tracee.
 	tracee *UserTracee
 
+	// User functions being acknowledged.
 	ack sync.Map
 
 	*UserTracerOptions
 }
 
-func NewUserTracer(opts ...UserTracerOpt) (*UserTracer, error) {
+func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	tracer := &UserTracer{
 		UserTracerOptions: &UserTracerOptions{},
 	}
 	for _, opt := range opts {
 		opt(tracer)
 	}
-	if tracer.bpfModPath == "" {
-		return nil, errors.New("no BPF module path specified")
-	}
-	if tracer.cookiesMapName == "" {
-		return nil, errors.New("no cookies map name specified")
-	}
 
-	return tracer, nil
+	return tracer
 }
 
 func (t *UserTracer) Init() error {
+	if err := t.validate(); err != nil {
+		return err
+	}
+	if t.writer == nil {
+		t.writer = os.Stdout
+	}
+	if t.logger == nil {
+		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+		t.logger = &logger
+	}
 	t.configureBPFLogger()
 
 	var err error
@@ -92,9 +98,15 @@ func (t *UserTracer) Init() error {
 	return nil
 }
 
-func (t *UserTracer) Load(tracee *UserTracee) error {
-	t.tracee = tracee
+func (t *UserTracer) validate() error {
+	if t.bpfModPath == "" {
+		return errors.New("no BPF module path specified")
+	}
 
+	return nil
+}
+
+func (t *UserTracer) Load() error {
 	if err := t.bpfMod.BPFLoadObject(); err != nil {
 		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfModPath)
 	}
@@ -113,26 +125,14 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		return errors.New("tracee offsets is empty")
 	}
 
-	batchSize := bpfUprobeMultiAttachMaxOffsets
-	fmt.Println("batching in size", batchSize)
-	j := 0
-	offsets := t.tracee.getFuncOffsets()
-	cookies := t.tracee.getFuncCookies()
-	for i := 0; i < len(offsets); i += batchSize {
-		end := i + batchSize
-		if end > len(offsets) {
-			end = len(offsets)
-		}
+	// Attach one uprobe per function to trace.
+	t.logger.Debug().Msg("attaching trace to selected functions")
+	t.attachUprobes()
 
-		if _, err := t.bpfProg.AttachUprobeMulti(-1, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
-			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
-		}
-		j++
-	}
-
-	eventsCh := make(chan []byte, rbChBufSize)
+	eventsCh := make(chan []byte, eventsChBufSize)
 	feedCh := make(chan []byte, feedChBufSize)
 	var err error
+
 	t.evtRingBuf, err = t.bpfMod.InitRingBuf(t.evtRingBufName, eventsCh)
 	if err != nil {
 		return errors.Wrapf(err, "error attaching uprobe at offsets: %v", t.evtRingBufName)
@@ -157,21 +157,40 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		t.processEvents(ctx, feedCh)
 	}()
 
-	// Log throughput.
-	go t.logThroughput(ctx, eventsCh, feedCh)
+	// Print status bar.
+	go t.printStatusBar(ctx, eventsCh, feedCh)
 
 	// Waiting for signals.
 	<-ctx.Done()
-	t.logger.Info().Msg("received signal")
+	t.logger.Debug().Msg("received signal")
 
 	// Waiting for reader and consumer to complete.
 	wg.Wait()
-	t.logger.Info().Msg("terminating...")
+	t.logger.Debug().Msg("terminating...")
 
 	// Waiting to close ring buffer resources.
 	t.evtRingBuf.Close()
 
-	return nil
+	// Write report.
+	return t.writeReport(reportFileName)
+}
+
+func (t *UserTracer) attachUprobes() {
+	batchSize := bpfUprobeMultiAttachMaxOffsets
+
+	offsets := t.tracee.GetFuncOffsets()
+	cookies := t.tracee.GetFuncCookies()
+
+	for i := 0; i < len(offsets); i += batchSize {
+		end := i + batchSize
+		if end > len(offsets) {
+			end = len(offsets)
+		}
+
+		if _, err := t.bpfProg.AttachUprobeMulti(-1, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
+			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
+		}
+	}
 }
 
 func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
@@ -197,23 +216,7 @@ func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
 	}
 }
 
-func (t *UserTracer) logThroughput(ctx context.Context, rbCh, feedCh chan []byte) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			count := atomic.SwapUint64(&consumed, 0)
-			output.PrintRight(fmt.Sprintf(
-				"| Events/s: %d | Ring buffer utilization: %d%% | Feed utilization: %d%% |",
-				count, len(rbCh)/rbChBufSize*100, len(feedCh)/feedChBufSize*100))
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
+// TODO: decouple handle from handler functions as argument.
 func (t *UserTracer) handleEvent(data []byte) {
 	atomic.AddUint64(&consumed, 1)
 
@@ -224,12 +227,18 @@ func (t *UserTracer) handleEvent(data []byte) {
 		t.logger.Err(err).Msg("failed to read event")
 	}
 
+	if t.tracee == nil {
+		return
+	}
 	fun, ok := t.tracee.funcs[event.Cookie]
 	if !ok {
 		t.logger.Err(fmt.Errorf("tracee function not found for cookie %d", event.Cookie))
 	}
+
 	if _, ok := t.ack.Load(event.Cookie); !ok {
-		fmt.Println(fun.name)
+		if t.verbose && t.writer != nil {
+			fmt.Fprintln(t.writer, fun.name)
+		}
 		t.ack.Store(event.Cookie, struct{}{})
 	}
 }
@@ -239,10 +248,47 @@ func (t *UserTracer) configureBPFLogger() {
 		Log: func(level int, msg string) {
 			if level == bpf.LibbpfWarnLevel {
 				// TODO: filter for specific attach failures.
-				t.logger.Warn().Msgf("libbpf warning:", msg)
+				t.logger.Debug().Msgf("libbpf warning: %s", msg)
 			}
 		},
 	})
+}
+
+func (t *UserTracer) writeReport(reportPath string) error {
+	if !t.report {
+		return nil
+	}
+
+	traced := make([]string, len(t.tracee.funcs))
+	for _, fn := range t.tracee.funcs {
+		traced = append(traced, fn.name)
+	}
+
+	ack := make([]string, utils.LenSyncMap(&t.ack))
+	t.ack.Range(func(k, v interface{}) bool {
+		fun, ok := t.tracee.funcs[k.(cookie)]
+		if !ok {
+			return false
+		}
+		ack = append(ack, fun.name)
+		return true
+	})
+
+	report := NewReport(
+		WithReportFuncsAck(ack),
+		WithReportFuncsTraced(traced),
+		WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
+	)
+
+	file, err := os.Create(reportPath)
+	if err != nil {
+		t.logger.Err(err).Msg("failed to create report file")
+	}
+	defer file.Close()
+
+	t.logger.Info().Msgf("written report to %s", reportPath)
+
+	return report.WriteReport(file)
 }
 
 func shouldAbortOn(msg string) bool {
@@ -252,11 +298,4 @@ func shouldAbortOn(msg string) bool {
 		}
 	}
 	return false
-}
-
-func hash(s string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-
-	return h.Sum64()
 }

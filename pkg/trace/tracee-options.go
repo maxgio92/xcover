@@ -17,31 +17,31 @@ type UserTraceeOptions struct {
 
 type UserTraceeOption func(*UserTracee)
 
-func WithExePath(path string) UserTraceeOption {
+func WithTraceeExePath(path string) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.exePath = path
 	}
 }
 
-func WithSymPatternInclude(patternInclude string) UserTraceeOption {
+func WithTraceeSymPatternInclude(patternInclude string) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.symPatternInclude = patternInclude
 	}
 }
 
-func WithSymPatternExclude(patternExclude string) UserTraceeOption {
+func WithTraceeSymPatternExclude(patternExclude string) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.symPatternExclude = patternExclude
 	}
 }
 
-func WithSymBindInclude(symBind ...elf.SymBind) UserTraceeOption {
+func WithTraceeSymBindInclude(symBind ...elf.SymBind) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.symBindInclude = symBind
 	}
 }
 
-func WithSymBindExclude(symBind ...elf.SymBind) UserTraceeOption {
+func WithTraceeSymBindExclude(symBind ...elf.SymBind) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.symBindExclude = symBind
 	}

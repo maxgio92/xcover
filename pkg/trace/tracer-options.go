@@ -2,6 +2,7 @@ package trace
 
 import (
 	log "github.com/rs/zerolog"
+	"io"
 )
 
 type UserTracerOptions struct {
@@ -10,37 +11,66 @@ type UserTracerOptions struct {
 	cookiesMapName string
 	evtRingBufName string
 
-	logger         *log.Logger
+	report  bool
+	status  bool
+	verbose bool
+	writer  io.Writer
+
+	logger *log.Logger
 }
 
 type UserTracerOpt func(*UserTracer)
 
-func WithBpfModPath(bpfModPath string) UserTracerOpt {
+func WithTracerBpfModPath(bpfModPath string) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.bpfModPath = bpfModPath
 	}
 }
 
-func WithBpfProgName(bpfProgName string) UserTracerOpt {
+func WithTracerBpfProgName(bpfProgName string) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.bpfProgName = bpfProgName
 	}
 }
 
-func WithLogger(logger *log.Logger) UserTracerOpt {
+func WithTracerLogger(logger *log.Logger) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.logger = logger
 	}
 }
 
-func WithCookiesMapName(cookiesMapName string) UserTracerOpt {
+func WithTracerEvtRingBufName(evtRingBufName string) UserTracerOpt {
 	return func(opts *UserTracer) {
-		opts.cookiesMapName = cookiesMapName
+		opts.evtRingBufName = evtRingBufName
 	}
 }
 
-func WithEvtRingBufName(evtRingBufName string) UserTracerOpt {
+func WithTracerReport(report bool) UserTracerOpt {
 	return func(opts *UserTracer) {
-		opts.evtRingBufName = evtRingBufName
+		opts.report = report
+	}
+}
+
+func WithTracerVerbose(verbose bool) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.verbose = verbose
+	}
+}
+
+func WithTracerStatus(status bool) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.status = status
+	}
+}
+
+func WithTracerWriter(w io.Writer) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.writer = w
+	}
+}
+
+func WithTracerTracee(tracee *UserTracee) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.tracee = tracee
 	}
 }

@@ -1,4 +1,5 @@
 /utrace
+/utrace-report.json
 .idea
 /output/*
 *.o

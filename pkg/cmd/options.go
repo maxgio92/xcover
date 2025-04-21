@@ -8,7 +8,6 @@ import (
 
 type CommonOptions struct {
 	Ctx       context.Context
-	Debug     bool
 	Logger    log.Logger
 	Probe     []byte
 	ProbePath string

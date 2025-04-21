@@ -3,10 +3,12 @@ package trace
 import (
 	"debug/elf"
 	"fmt"
+	"os"
 	"regexp"
 
 	"github.com/aquasecurity/libbpfgo/helpers"
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
 
 	"github.com/maxgio92/utrace/internal/utils"
 )
@@ -40,6 +42,10 @@ func (t *UserTracee) Init() error {
 	if err = t.validate(); err != nil {
 		return err
 	}
+	if t.logger == nil {
+		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+		t.logger = &logger
+	}
 	t.file, err = elf.Open(t.exePath)
 	if err != nil {
 		return err
@@ -58,9 +64,6 @@ func (t *UserTracee) Init() error {
 func (t *UserTracee) validate() error {
 	if t.exePath == "" {
 		return fmt.Errorf("exe path is empty")
-	}
-	if t.logger == nil {
-		return fmt.Errorf("logger is empty")
 	}
 
 	return nil

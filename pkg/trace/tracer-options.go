@@ -2,6 +2,7 @@ package trace
 
 import (
 	log "github.com/rs/zerolog"
+	"io"
 )
 
 type UserTracerOptions struct {
@@ -13,6 +14,7 @@ type UserTracerOptions struct {
 	report  bool
 	status  bool
 	verbose bool
+	writer  io.Writer
 
 	logger *log.Logger
 }
@@ -37,12 +39,6 @@ func WithTracerLogger(logger *log.Logger) UserTracerOpt {
 	}
 }
 
-func WithTracerCookiesMapName(cookiesMapName string) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.cookiesMapName = cookiesMapName
-	}
-}
-
 func WithTracerEvtRingBufName(evtRingBufName string) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.evtRingBufName = evtRingBufName
@@ -64,5 +60,17 @@ func WithTracerVerbose(verbose bool) UserTracerOpt {
 func WithTracerStatus(status bool) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.status = status
+	}
+}
+
+func WithTracerWriter(w io.Writer) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.writer = w
+	}
+}
+
+func WithTracerTracee(tracee *UserTracee) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.tracee = tracee
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	bpf "github.com/maxgio92/libbpfgo"
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
 
 	"github.com/maxgio92/utrace/internal/utils"
 )
@@ -42,7 +43,6 @@ type UserTracer struct {
 	// Tracer objects.
 	bpfMod     *bpf.Module
 	bpfProg    *bpf.BPFProg
-	cookiesMap *bpf.BPFMap
 	evtRingBuf *bpf.RingBuffer
 
 	// Tracee objects.
@@ -55,24 +55,28 @@ type UserTracer struct {
 	*UserTracerOptions
 }
 
-func NewUserTracer(opts ...UserTracerOpt) (*UserTracer, error) {
+func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	tracer := &UserTracer{
 		UserTracerOptions: &UserTracerOptions{},
 	}
 	for _, opt := range opts {
 		opt(tracer)
 	}
-	if tracer.bpfModPath == "" {
-		return nil, errors.New("no BPF module path specified")
-	}
-	if tracer.cookiesMapName == "" {
-		return nil, errors.New("no cookies map name specified")
-	}
 
-	return tracer, nil
+	return tracer
 }
 
 func (t *UserTracer) Init() error {
+	if err := t.validate(); err != nil {
+		return err
+	}
+	if t.writer == nil {
+		t.writer = os.Stdout
+	}
+	if t.logger == nil {
+		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+		t.logger = &logger
+	}
 	t.configureBPFLogger()
 
 	var err error
@@ -94,9 +98,15 @@ func (t *UserTracer) Init() error {
 	return nil
 }
 
-func (t *UserTracer) Load(tracee *UserTracee) error {
-	t.tracee = tracee
+func (t *UserTracer) validate() error {
+	if t.bpfModPath == "" {
+		return errors.New("no BPF module path specified")
+	}
 
+	return nil
+}
+
+func (t *UserTracer) Load() error {
 	if err := t.bpfMod.BPFLoadObject(); err != nil {
 		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfModPath)
 	}
@@ -217,13 +227,17 @@ func (t *UserTracer) handleEvent(data []byte) {
 		t.logger.Err(err).Msg("failed to read event")
 	}
 
+	if t.tracee == nil {
+		return
+	}
 	fun, ok := t.tracee.funcs[event.Cookie]
 	if !ok {
 		t.logger.Err(fmt.Errorf("tracee function not found for cookie %d", event.Cookie))
 	}
+
 	if _, ok := t.ack.Load(event.Cookie); !ok {
-		if t.verbose {
-			fmt.Println(fun.name)
+		if t.verbose && t.writer != nil {
+			fmt.Fprintln(t.writer, fun.name)
 		}
 		t.ack.Store(event.Cookie, struct{}{})
 	}

@@ -42,6 +42,5 @@ func WithReportFuncsCov(cov float64) UserTraceReportOption {
 
 func (r *UserTraceReport) WriteReport(w io.Writer) error {
 	encoder := json.NewEncoder(w)
-	//encoder.SetIndent("", "  ") // Optional: pretty print
 	return encoder.Encode(r)
 }

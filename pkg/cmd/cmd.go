@@ -31,7 +31,10 @@ type Options struct {
 	*CommonOptions
 }
 
-const funNameLen = 64
+const (
+	funNameLen = 64
+	logLevelInfo = "info"
+)
 
 func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	o := new(Options)
@@ -50,7 +53,7 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
 
-	cmd.Flags().StringVar(&o.logLevel, "log-level", "", "Log level (trace, debug, info, warn, error, fatal, panic)")
+	cmd.Flags().StringVar(&o.logLevel, "log-level", logLevelInfo, "Log level (trace, debug, info, warn, error, fatal, panic)")
 	cmd.Flags().BoolVar(&o.verbose, "verbose", true, "Enable verbosity")
 	cmd.Flags().BoolVar(&o.report, "report", false, "Generate report (as utrace-report.json)")
 	cmd.Flags().BoolVar(&o.status, "status", false, "Periodically print a status of the trace")

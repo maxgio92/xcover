@@ -55,6 +55,10 @@ func (t *UserTracee) Init() error {
 	}
 
 	if err = t.loadFunctions(); err != nil {
+		// Fail fast when the tracee binary is stripped.
+		if errors.Is(err, elf.ErrNoSymbols) {
+			return err
+		}
 		t.logger.Debug().Err(err).Msg("failed to load functions")
 	}
 

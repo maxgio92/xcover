@@ -2,7 +2,6 @@ package trace
 
 import (
 	"debug/elf"
-	"fmt"
 	"os"
 	"regexp"
 
@@ -48,14 +47,18 @@ func (t *UserTracee) Init() error {
 	}
 	t.file, err = elf.Open(t.exePath)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "filed to open elf file")
 	}
 	if t.file == nil {
-		return errors.New("no elf file found")
+		return ErrElfFileNil
 	}
 
 	if err = t.loadFunctions(); err != nil {
-		t.logger.Debug().Err(err).Msg("failed to load functions")
+		// Fail fast when the tracee binary is stripped.
+		if errors.Is(err, elf.ErrNoSymbols) || errors.Is(err, ErrNoFunctionSymbols) {
+			return err
+		}
+		t.logger.Warn().Err(err).Msg("failed to load functions")
 	}
 
 	return nil
@@ -63,7 +66,7 @@ func (t *UserTracee) Init() error {
 
 func (t *UserTracee) validate() error {
 	if t.exePath == "" {
-		return fmt.Errorf("exe path is empty")
+		return ErrExePathEmpty
 	}
 
 	return nil
@@ -74,16 +77,22 @@ func (t *UserTracee) loadFunctions() error {
 	if err != nil {
 		return err
 	}
+	if len(funcSyms) == 0 {
+		return ErrNoFunctionSymbols
+	}
 
 	for _, sym := range funcSyms {
 		offset, err := helpers.SymbolToOffset(t.exePath, sym.Name)
 		if err != nil {
-			return errors.Wrapf(err, "symbol %s not found in %s", sym.Name, t.exePath)
+			t.logger.Debug().Err(err).Str("symbol", sym.Name).Str("exe_path", t.exePath).Msg("failed to get function offset")
 		}
 		t.funcs[cookie(utils.Hash(sym.Name))] = funcInfo{
 			name:   sym.Name,
 			offset: uint64(offset),
 		}
+	}
+	if len(t.funcs) == 0 {
+		return ErrNoOffsets
 	}
 
 	return nil
@@ -92,7 +101,7 @@ func (t *UserTracee) loadFunctions() error {
 func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {
 	var funcSyms []elf.Symbol
 	if t.file == nil {
-		return nil, fmt.Errorf("elf file is nil")
+		return nil, ErrElfFileNil
 	}
 	syms, err := t.file.Symbols()
 	if err != nil {

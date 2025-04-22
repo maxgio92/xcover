@@ -32,7 +32,7 @@ type Options struct {
 }
 
 const (
-	funNameLen = 64
+	funNameLen   = 64
 	logLevelInfo = "info"
 )
 

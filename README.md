@@ -84,9 +84,10 @@ The structure of the report is the following:
 
 ```go
 type UserTraceReport struct {
-    FuncsTraced []string `json:"func_syms_traced"`
-    FuncsAck    []string `json:"func_syms_ack"`
-    CovByFunc   float64  `json:"cov_by_func"`
+	FuncsTraced []string `json:"func_syms_traced"`
+	FuncsAck    []string `json:"func_syms_ack"`
+	CovByFunc   float64  `json:"cov_by_func"`
+	ExePath     string   `json:"exe_path"`
 }
 ```
 

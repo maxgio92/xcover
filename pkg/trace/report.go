@@ -9,6 +9,7 @@ type UserTraceReport struct {
 	FuncsTraced []string `json:"func_syms_traced"`
 	FuncsAck    []string `json:"func_syms_ack"`
 	CovByFunc   float64  `json:"cov_by_func"`
+	ExePath     string   `json:"exe_path"`
 }
 
 type UserTraceReportOption func(*UserTraceReport)
@@ -37,6 +38,12 @@ func WithReportFuncsAck(ack []string) UserTraceReportOption {
 func WithReportFuncsCov(cov float64) UserTraceReportOption {
 	return func(o *UserTraceReport) {
 		o.CovByFunc = cov
+	}
+}
+
+func WithReportExePath(exePath string) UserTraceReportOption {
+	return func(o *UserTraceReport) {
+		o.ExePath = exePath
 	}
 }
 

@@ -50,6 +50,7 @@ func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 		trace.WithReportFuncsTraced([]string{"traceFunc"}),
 		trace.WithReportFuncsAck([]string{"main.foo"}),
 		trace.WithReportFuncsCov(0.25),
+		trace.WithReportExePath("mybin"),
 	)
 
 	var buf bytes.Buffer
@@ -60,4 +61,5 @@ func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 	require.True(t, strings.Contains(output, "traceFunc"))
 	require.True(t, strings.Contains(output, "main.foo"))
 	require.True(t, strings.Contains(output, "cov_by_func"))
+	require.True(t, strings.Contains(output, "exe_path"))
 }

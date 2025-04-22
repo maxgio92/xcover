@@ -278,6 +278,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		WithReportFuncsAck(ack),
 		WithReportFuncsTraced(traced),
 		WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
+		WithReportExePath(t.tracee.exePath),
 	)
 
 	file, err := os.Create(reportPath)

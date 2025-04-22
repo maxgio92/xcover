@@ -30,6 +30,7 @@ func TestUserTracee_Validate(t *testing.T) {
 	err := tracee.Init()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exe path is empty")
+	require.ErrorIs(t, err, trace.ErrExePathEmpty)
 }
 
 func TestUserTracee_Init(t *testing.T) {
@@ -38,15 +39,23 @@ func TestUserTracee_Init(t *testing.T) {
 		trace.WithTraceeLogger(&testLogger),
 		trace.WithTraceeSymPatternExclude(testExcludedSyms),
 	)
-
 	err := tracee.Init()
 	require.NoError(t, err)
 	require.NotEmpty(t, tracee.GetFuncNames())
 	require.NotEmpty(t, tracee.GetFuncOffsets())
 	require.NotEmpty(t, tracee.GetFuncCookies())
+
+	tracee = trace.NewUserTracee(
+		trace.WithTraceeExePath("nonexistent-binary-file"),
+		trace.WithTraceeLogger(&testLogger),
+		trace.WithTraceeSymPatternExclude(testExcludedSyms),
+	)
+	err = tracee.Init()
+	require.Error(t, err)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestUserTracee_ShouldIncludeSymbol(t *testing.T) {
+func TestUserTracee_IncludeExclude(t *testing.T) {
 	tracee := trace.NewUserTracee(
 		trace.WithTraceeSymPatternInclude("^main.fooFunction$"),
 	)
@@ -75,4 +84,12 @@ func TestUserTracee_ShouldIncludeSymbol(t *testing.T) {
 		trace.WithTraceeSymPatternExclude("^runtime."),
 	)
 	require.False(t, tracee.ShouldIncludeSymbol(sym))
+
+	tracee = trace.NewUserTracee(
+		trace.WithTraceeExePath(testBinary),
+		trace.WithTraceeSymPatternInclude("^nonexistentSymbol$"),
+	)
+	err := tracee.Init()
+	require.Error(t, err)
+	require.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
 }

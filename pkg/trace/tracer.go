@@ -100,7 +100,7 @@ func (t *UserTracer) Init() error {
 
 func (t *UserTracer) validate() error {
 	if t.bpfModPath == "" {
-		return errors.New("no BPF module path specified")
+		return ErrBpfModPathEmpty
 	}
 
 	return nil
@@ -116,13 +116,13 @@ func (t *UserTracer) Load() error {
 
 func (t *UserTracer) Run(ctx context.Context) error {
 	if t.tracee == nil {
-		return errors.New("tracee is nil")
+		return ErrTraceeNil
 	}
 	if t.tracee.exePath == "" {
-		return errors.New("tracee exe path is empty")
+		return ErrTraceeExePathEmpty
 	}
 	if len(t.tracee.funcs) == 0 {
-		return errors.New("tracee offsets is empty")
+		return ErrTraceeFuncListEmpty
 	}
 
 	// Attach one uprobe per function to trace.
@@ -232,7 +232,7 @@ func (t *UserTracer) handleEvent(data []byte) {
 	}
 	fun, ok := t.tracee.funcs[event.Cookie]
 	if !ok {
-		t.logger.Err(fmt.Errorf("tracee function not found for cookie %d", event.Cookie))
+		t.logger.Err(ErrFuncNotFoundForCookie).Msg("failed getting function from cookie")
 	}
 
 	if _, ok := t.ack.Load(event.Cookie); !ok {

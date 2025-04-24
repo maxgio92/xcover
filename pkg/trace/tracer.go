@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/maxgio92/utrace/pkg/coverage"
 	"os"
 	"strings"
 	"sync"
@@ -26,7 +27,6 @@ const (
 
 var (
 	libbpfErrKeywords = []string{"failed", "invalid", "error"}
-	consumed          uint64
 	eventsChBufSize   = 4096
 	feedChBufSize     = 4096
 )
@@ -44,6 +44,8 @@ type UserTracer struct {
 	bpfMod     *bpf.Module
 	bpfProg    *bpf.BPFProg
 	evtRingBuf *bpf.RingBuffer
+	// Consumer tracker.
+	consumed uint64
 
 	// Tracee objects.
 	// TODO: decouple trace(s) from tracer and tracee.
@@ -218,7 +220,7 @@ func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
 
 // TODO: decouple handle from handler functions as argument.
 func (t *UserTracer) handleEvent(data []byte) {
-	atomic.AddUint64(&consumed, 1)
+	atomic.AddUint64(&t.consumed, 1)
 
 	var event Event
 
@@ -274,11 +276,11 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return true
 	})
 
-	report := NewReport(
-		WithReportFuncsAck(ack),
-		WithReportFuncsTraced(traced),
-		WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
-		WithReportExePath(t.tracee.exePath),
+	report := coverage.NewCoverageReport(
+		coverage.WithReportFuncsAck(ack),
+		coverage.WithReportFuncsTraced(traced),
+		coverage.WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
+		coverage.WithReportExePath(t.tracee.exePath),
 	)
 
 	file, err := os.Create(reportPath)

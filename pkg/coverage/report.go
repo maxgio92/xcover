@@ -1,21 +1,21 @@
-package trace
+package coverage
 
 import (
 	"encoding/json"
 	"io"
 )
 
-type UserTraceReport struct {
-	FuncsTraced []string `json:"func_syms_traced"`
-	FuncsAck    []string `json:"func_syms_ack"`
+type CoverageReport struct {
+	FuncsTraced []string `json:"funcs_traced"`
+	FuncsAck    []string `json:"funcs_ack"`
 	CovByFunc   float64  `json:"cov_by_func"`
 	ExePath     string   `json:"exe_path"`
 }
 
-type UserTraceReportOption func(*UserTraceReport)
+type CoverageReportOption func(*CoverageReport)
 
-func NewReport(opts ...UserTraceReportOption) *UserTraceReport {
-	report := new(UserTraceReport)
+func NewCoverageReport(opts ...CoverageReportOption) *CoverageReport {
+	report := new(CoverageReport)
 	for _, opt := range opts {
 		opt(report)
 	}
@@ -23,31 +23,31 @@ func NewReport(opts ...UserTraceReportOption) *UserTraceReport {
 	return report
 }
 
-func WithReportFuncsTraced(traced []string) UserTraceReportOption {
-	return func(o *UserTraceReport) {
+func WithReportFuncsTraced(traced []string) CoverageReportOption {
+	return func(o *CoverageReport) {
 		o.FuncsTraced = traced
 	}
 }
 
-func WithReportFuncsAck(ack []string) UserTraceReportOption {
-	return func(o *UserTraceReport) {
+func WithReportFuncsAck(ack []string) CoverageReportOption {
+	return func(o *CoverageReport) {
 		o.FuncsAck = ack
 	}
 }
 
-func WithReportFuncsCov(cov float64) UserTraceReportOption {
-	return func(o *UserTraceReport) {
+func WithReportFuncsCov(cov float64) CoverageReportOption {
+	return func(o *CoverageReport) {
 		o.CovByFunc = cov
 	}
 }
 
-func WithReportExePath(exePath string) UserTraceReportOption {
-	return func(o *UserTraceReport) {
+func WithReportExePath(exePath string) CoverageReportOption {
+	return func(o *CoverageReport) {
 		o.ExePath = exePath
 	}
 }
 
-func (r *UserTraceReport) WriteReport(w io.Writer) error {
+func (r *CoverageReport) WriteReport(w io.Writer) error {
 	encoder := json.NewEncoder(w)
 	return encoder.Encode(r)
 }

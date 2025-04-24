@@ -1,14 +1,13 @@
-package trace_test
+package coverage_test
 
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/maxgio92/utrace/pkg/coverage"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/maxgio92/utrace/pkg/trace"
 )
 
 func TestNewReportWithOptions(t *testing.T) {
@@ -16,10 +15,10 @@ func TestNewReportWithOptions(t *testing.T) {
 	ack := []string{"foo"}
 	cov := 0.5
 
-	report := trace.NewReport(
-		trace.WithReportFuncsTraced(traced),
-		trace.WithReportFuncsAck(ack),
-		trace.WithReportFuncsCov(cov),
+	report := coverage.NewCoverageReport(
+		coverage.WithReportFuncsTraced(traced),
+		coverage.WithReportFuncsAck(ack),
+		coverage.WithReportFuncsCov(cov),
 	)
 
 	require.Equal(t, traced, report.FuncsTraced)
@@ -28,17 +27,17 @@ func TestNewReportWithOptions(t *testing.T) {
 }
 
 func TestWriteReportJSONOutput(t *testing.T) {
-	report := trace.NewReport(
-		trace.WithReportFuncsTraced([]string{"foo"}),
-		trace.WithReportFuncsAck([]string{"foo"}),
-		trace.WithReportFuncsCov(1.0),
+	report := coverage.NewCoverageReport(
+		coverage.WithReportFuncsTraced([]string{"foo"}),
+		coverage.WithReportFuncsAck([]string{"foo"}),
+		coverage.WithReportFuncsCov(1.0),
 	)
 
 	var buf bytes.Buffer
 	err := report.WriteReport(&buf)
 	require.NoError(t, err)
 
-	var parsed trace.UserTraceReport
+	var parsed coverage.CoverageReport
 	err = json.Unmarshal(buf.Bytes(), &parsed)
 	require.NoError(t, err)
 
@@ -46,11 +45,11 @@ func TestWriteReportJSONOutput(t *testing.T) {
 }
 
 func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
-	report := trace.NewReport(
-		trace.WithReportFuncsTraced([]string{"traceFunc"}),
-		trace.WithReportFuncsAck([]string{"main.foo"}),
-		trace.WithReportFuncsCov(0.25),
-		trace.WithReportExePath("mybin"),
+	report := coverage.NewCoverageReport(
+		coverage.WithReportFuncsTraced([]string{"traceFunc"}),
+		coverage.WithReportFuncsAck([]string{"main.foo"}),
+		coverage.WithReportFuncsCov(0.25),
+		coverage.WithReportExePath("mybin"),
 	)
 
 	var buf bytes.Buffer

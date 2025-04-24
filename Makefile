@@ -1,4 +1,4 @@
-PROGRAM := utrace
+PROGRAM := xcover
 
 # dependencies
 
@@ -33,6 +33,7 @@ LIBBPFGO := libbpfgo
 
 # frontend
 
+LDFLAGS = "-linkmode external -extldflags '-no-pie'"
 CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output"
 CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a"
 
@@ -42,7 +43,15 @@ $(PROGRAM): $(LIBBPFGO) | $(PROGRAM)/bpf
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go build -v -o ${PROGRAM} .
+		go build -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
+
+.PHONY: test
+test: $(LIBBPFGO) | $(PROGRAM)/bpf
+	CC=gcc \
+	CGO_CFLAGS=$(CGO_CFLAGS) \
+	CGO_LDFLAGS=$(CGO_LDFLAGS) \
+		GOARCH=$(GOARCH) \
+		go test -ldflags=${LDFLAGS} -v ./...
 
 .PHONY: docs
 docs:

@@ -3,7 +3,7 @@ package coverage_test
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/maxgio92/utrace/pkg/coverage"
+	"github.com/maxgio92/xcover/pkg/coverage"
 	"strings"
 	"testing"
 

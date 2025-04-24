@@ -2,8 +2,8 @@ package trace
 
 import (
 	"context"
-	"github.com/maxgio92/utrace/internal/output"
-	"github.com/maxgio92/utrace/internal/utils"
+	"github.com/maxgio92/xcover/internal/output"
+	"github.com/maxgio92/xcover/internal/utils"
 	"sync/atomic"
 	"time"
 )

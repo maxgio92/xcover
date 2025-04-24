@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/maxgio92/utrace/pkg/trace"
+	"github.com/maxgio92/xcover/pkg/trace"
 )
 
 var (

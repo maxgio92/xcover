@@ -1,19 +1,24 @@
-# utrace
+# xcover
 
-Trace user-defined functions without instrumentation.
+Profile functional test coverage without instrumenting your binaries.
+
+`xcover` (pronounced 'cross cover') enables to profile functional test coverage, by leveraging kernel instrumentation to probe functions in userland, and it's cross language.
+This makes possible to measure coverage on ELF binaries without ecosystem-specific instrumentation like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html) require.
+
+It currently supports languages compiled to ELF.
 
 ## Tracing features
 
 ### Filter by PID
 
 ```shell
-utrace --pid PID
+xcover --pid PID
 ```
 
 ### Filter by command
 
 ```shell
-utrace --pid COMM
+xcover --pid EXE_PATH
 ```
 
 ### Filter in/out functions
@@ -21,58 +26,58 @@ utrace --pid COMM
 For including specific functions:
 
 ```shell
-utrace --path COMM --include "^github.com/maxgio92/utrace"
+xcover --path EXE_PATH --include "^github.com/maxgio92/xcover"
 ```
 
 or excluding some:
 
 ```shell
-utrace --path COMM --exclude "^runtime.|^internal"
+xcover --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
-For instance, making `utrace` tracing itself (why not?), excluding the Go runtime functions:
+For instance, making `xcover` tracing itself (why not?), excluding the Go runtime functions:
 
 ```shell
-$ sudo utrace --path utrace --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/utrace/pkg/trace"
+$ sudo xcover --path xcover --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
 encoding/binary.(*decoder).value
 encoding/binary.Read
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2
 golang.org/x/sync/errgroup.(*Group).Go.func1
 syscall.Syscall6
 syscall.fstatat
 os.statNolog
 os.Stat
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).getExePath
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).loadSymTable
 ```
 
 ### Compare with the static analysis
 
 ```shell
-$ readelf -s -g -W -C utrace | grep pkg\/trace | awk '{ print $8 }'
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler.func1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler.func1.(*Logger).Fatal.1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath
-github.com/maxgio92/utrace/pkg/trace.cleanComm
-github.com/maxgio92/utrace/pkg/trace.NewProfiler
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2.deferwrap1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.deferwrap2
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.deferwrap1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getStackTraceByID
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getHumanReadableStackTrace
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func1
-github.com/maxgio92/utrace/pkg/trace..typeAssert.0
-github.com/maxgio92/utrace/pkg/trace..stmp_0
+$ readelf -s -g -W -C xcover | grep pkg\/trace | awk '{ print $8 }'
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).attachSampler
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).attachSampler.func1
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).attachSampler.func1.(*Logger).Fatal.1
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).getExePath
+github.com/maxgio92/xcover/pkg/trace.cleanComm
+github.com/maxgio92/xcover/pkg/trace.NewProfiler
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2.deferwrap1
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.deferwrap2
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.deferwrap1
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).loadSymTable
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).getStackTraceByID
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).getHumanReadableStackTrace
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func1
+github.com/maxgio92/xcover/pkg/trace..typeAssert.0
+github.com/maxgio92/xcover/pkg/trace..stmp_0
 ```
 
 we can notice that during this trace period the tracee run 3 of the functions supported by the package `trace`:
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2`
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath`
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable`
+1. `github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2`
+1. `github.com/maxgio92/xcover/pkg/trace.(*Profiler).getExePath`
+1. `github.com/maxgio92/xcover/pkg/trace.(*Profiler).loadSymTable`
 
 ### Reporting
 
@@ -83,9 +88,9 @@ This data can be useful to calculate coverage in integration tests.
 The structure of the report is the following:
 
 ```go
-type UserTraceReport struct {
-	FuncsTraced []string `json:"func_syms_traced"`
-	FuncsAck    []string `json:"func_syms_ack"`
+type CoverageReport struct {
+	FuncsTraced []string `json:"funcs_traced"`
+	FuncsAck    []string `json:"funcs_ack"`
 	CovByFunc   float64  `json:"cov_by_func"`
 	ExePath     string   `json:"exe_path"`
 }
@@ -94,12 +99,12 @@ type UserTraceReport struct {
 For instance:
 
 ```shell
-sudo utrace --path myapp --verbose=false --report
-`^C5:02PM INF written report to utrace-report.json`
-cat utrace-report.json | jq '.cov_by_func'
+sudo xcover --path myapp --verbose=false --report
+`^C5:02PM INF written report to xcover-report.json`
+cat xcover-report.json | jq '.cov_by_func'
 15.601900739176347
 ```
 
 ## CLI Reference
 
-Please read the [docs](./docs) for the reference to the `utrace` CLI.
+Please read the [docs](./docs) for the reference to the `xcover` CLI.

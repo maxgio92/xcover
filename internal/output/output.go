@@ -2,10 +2,9 @@ package output
 
 import (
 	"fmt"
+	"golang.org/x/term"
 	"os"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 func PrintRight(text string) {

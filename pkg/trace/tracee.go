@@ -81,6 +81,12 @@ func (t *UserTracee) loadFunctions() error {
 		return ErrNoFunctionSymbols
 	}
 
+	t.logger.Debug().
+		Int("functions", len(funcSyms)).
+		Str("exe_path", t.exePath).
+		Str("include", t.symPatternInclude).
+		Str("exclude", t.symPatternExclude).
+		Msg("getting function offsets from symbols")
 	for _, sym := range funcSyms {
 		offset, err := helpers.SymbolToOffset(t.exePath, sym.Name)
 		if err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 
-	"github.com/maxgio92/utrace/internal/utils"
+	"github.com/maxgio92/xcover/internal/utils"
 )
 
 type UserTracee struct {

@@ -1,4 +1,4 @@
-module github.com/maxgio92/utrace
+module github.com/maxgio92/xcover
 
 go 1.23.6
 

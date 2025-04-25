@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	"github.com/maxgio92/utrace/pkg/cmd"
+	"github.com/maxgio92/xcover/pkg/cmd"
 )
 
 //go:embed output/*

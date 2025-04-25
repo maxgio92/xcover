@@ -1,91 +1,68 @@
-# utrace
+# xcover
 
-Trace user-defined functions without instrumentation.
+Profile functional test coverage without instrumenting your binaries.
 
-## Tracing features
+`xcover` (pronounced 'cross cover') enables to profile functional test coverage, by leveraging kernel instrumentation to probe functions in userland, and it's cross language.
+This makes possible to measure coverage on ELF binaries without ecosystem-specific instrumentation like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html) require.
 
-### Filter by PID
+## Filter
 
-```shell
-utrace --pid PID
-```
-
-### Filter by command
+### Filter by process
 
 ```shell
-utrace --pid COMM
+xcover --pid PID
 ```
 
-### Filter in/out functions
+### Filter by binary
+
+```shell
+xcover --path EXE_PATH
+```
+
+### Filter functions
 
 For including specific functions:
 
 ```shell
-utrace --path COMM --include "^github.com/maxgio92/utrace"
+xcover --path EXE_PATH --include "^github.com/maxgio92/xcover"
 ```
 
 or excluding some:
 
 ```shell
-utrace --path COMM --exclude "^runtime.|^internal"
+xcover --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
-For instance, making `utrace` tracing itself (why not?), excluding the Go runtime functions:
+For instance, making `xcover` tracing itself (why not?), excluding the Go runtime functions:
 
 ```shell
-$ sudo utrace --path utrace --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/utrace/pkg/trace"
+$ sudo xcover --path xcover --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
 encoding/binary.(*decoder).value
 encoding/binary.Read
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2
 golang.org/x/sync/errgroup.(*Group).Go.func1
 syscall.Syscall6
 syscall.fstatat
 os.statNolog
 os.Stat
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).getExePath
+github.com/maxgio92/xcover/pkg/trace.(*Profiler).loadSymTable
 ```
 
-### Compare with the static analysis
+## Report
 
-```shell
-$ readelf -s -g -W -C utrace | grep pkg\/trace | awk '{ print $8 }'
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler.func1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).attachSampler.func1.(*Logger).Fatal.1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath
-github.com/maxgio92/utrace/pkg/trace.cleanComm
-github.com/maxgio92/utrace/pkg/trace.NewProfiler
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2.deferwrap1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.deferwrap2
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.deferwrap1
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getStackTraceByID
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).getHumanReadableStackTrace
-github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func1
-github.com/maxgio92/utrace/pkg/trace..typeAssert.0
-github.com/maxgio92/utrace/pkg/trace..stmp_0
-```
+It is possible to generate a report by specifying the flag `--report`.
 
-we can notice that during this trace period the tracee run 3 of the functions supported by the package `trace`:
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).RunProfile.func2`
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).getExePath`
-1. `github.com/maxgio92/utrace/pkg/trace.(*Profiler).loadSymTable`
-
-### Reporting
-
-It is possible to generate a report of the traced functions and the functions that actually run, by specifying the flag `--report`.
-
-This data can be useful to calculate coverage in integration tests.
-
-The structure of the report is the following:
+The report is provided in JSON format and contains
+* the functions that have been traced
+* the functions acknowledged
+* the coverage by function percentage
+* the executable path
 
 ```go
-type UserTraceReport struct {
-	FuncsTraced []string `json:"func_syms_traced"`
-	FuncsAck    []string `json:"func_syms_ack"`
+type CoverageReport struct {
+	FuncsTraced []string `json:"funcs_traced"`
+	FuncsAck    []string `json:"funcs_ack"`
 	CovByFunc   float64  `json:"cov_by_func"`
 	ExePath     string   `json:"exe_path"`
 }
@@ -94,12 +71,21 @@ type UserTraceReport struct {
 For instance:
 
 ```shell
-sudo utrace --path myapp --verbose=false --report
-`^C5:02PM INF written report to utrace-report.json`
-cat utrace-report.json | jq '.cov_by_func'
+$ sudo xcover --path myapp --verbose=false --report
+`^C5:02PM INF written report to xcover-report.json`
+$ cat xcover-report.json | jq '.cov_by_func'
 15.601900739176347
+```
+
+### Progressive status
+
+It is possible to show a progressive status during the profiling `xcover` runs via the flag `--status`.
+
+```
+$ sudo xcover --status --verbose=false --report --path ./myapp
+Functions aknowledged: [███████                                 ]  18.31% Events/s:   37       Events Buffer: [          ]   0% Feed Buffer: [          ]   0%
 ```
 
 ## CLI Reference
 
-Please read the [docs](./docs) for the reference to the `utrace` CLI.
+Please read the [docs](./docs) for the reference to the `xcover` CLI.

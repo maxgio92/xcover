@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/maxgio92/utrace/internal/utils"
+	"github.com/maxgio92/xcover/internal/utils"
 )
 
 func TestHash(t *testing.T) {

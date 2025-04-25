@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"github.com/maxgio92/xcover/internal/settings"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/maxgio92/utrace/pkg/trace"
+	"github.com/maxgio92/xcover/pkg/trace"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -41,9 +43,9 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	o.CommonOptions = opts
 
 	cmd := &cobra.Command{
-		Use:               "utrace",
-		Short:             "utrace is a userspace function tracer",
-		Long:              `utrace is a kernel-assisted low-overhead userspace function tracer.`,
+		Use:               settings.CmdName,
+		Short:             fmt.Sprintf("%s is a userspace function tracer", settings.CmdName),
+		Long:              fmt.Sprintf(`%s is a kernel-assisted low-overhead userspace function tracer.`, settings.CmdName),
 		DisableAutoGenTag: true,
 		RunE:              o.Run,
 	}
@@ -55,10 +57,10 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&o.logLevel, "log-level", logLevelInfo, "Log level (trace, debug, info, warn, error, fatal, panic)")
 	cmd.Flags().BoolVar(&o.verbose, "verbose", true, "Enable verbosity")
-	cmd.Flags().BoolVar(&o.report, "report", false, "Generate report (as utrace-report.json)")
+	cmd.Flags().BoolVar(&o.report, "report", false, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
 	cmd.Flags().BoolVar(&o.status, "status", false, "Periodically print a status of the trace")
 
-	cmd.MarkFlagRequired("comm")
+	cmd.MarkFlagRequired("path")
 
 	return cmd
 }

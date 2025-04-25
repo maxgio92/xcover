@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/maxgio92/utrace/pkg/coverage"
 	"os"
 	"strings"
 	"sync"
@@ -15,20 +14,22 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 
-	"github.com/maxgio92/utrace/internal/utils"
+	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/internal/utils"
+	"github.com/maxgio92/xcover/pkg/coverage"
 )
 
 const (
 	funNameLen                     = 64
 	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
 	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
-	reportFileName                 = "utrace-report.json"
 )
 
 var (
 	libbpfErrKeywords = []string{"failed", "invalid", "error"}
 	eventsChBufSize   = 4096
 	feedChBufSize     = 4096
+	ReportFileName    = fmt.Sprintf("%s-report.json", settings.CmdName)
 )
 
 type FuncName struct {
@@ -174,7 +175,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	t.evtRingBuf.Close()
 
 	// Write report.
-	return t.writeReport(reportFileName)
+	return t.writeReport(ReportFileName)
 }
 
 func (t *UserTracer) attachUprobes() {

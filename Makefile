@@ -33,12 +33,14 @@ LIBBPFGO := libbpfgo
 
 # frontend
 
-LDFLAGS = "-linkmode external -extldflags '-no-pie'"
+LDFLAGS = # ASLR and PIE don't hurt. "-linkmode external -extldflags '-no-pie'"
 CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output"
 CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a"
 
+COMPILE_MODES := dynamic static
+
 .PHONY: $(PROGRAM)
-$(PROGRAM): $(LIBBPFGO) | $(PROGRAM)/bpf
+$(PROGRAM): $(LIBBPFGO)-static | $(PROGRAM)/bpf
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
@@ -46,7 +48,7 @@ $(PROGRAM): $(LIBBPFGO) | $(PROGRAM)/bpf
 		go build -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
 
 .PHONY: test
-test: $(LIBBPFGO) | $(PROGRAM)/bpf
+test: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
@@ -66,12 +68,12 @@ $(PROGRAM)/bpf: $(VMLINUXH)
 	clang $(CFLAGS) -g -O2 -c -target bpf \
 		-o $(OUTPUT)/trace.bpf.o bpf/trace.bpf.c
 
-.PHONY: $(LIBBPFGO)
-$(LIBBPFGO):
-	{ test -d $(LIBBPFGO) && make -C $(LIBBPFGO) libbpfgo-static; } \
+.PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
+$(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
+	{ test -d $(LIBBPFGO) && make -C $(LIBBPFGO) $@; } \
 	|| { $(git) submodule init && \
 	$(git) submodule update --recursive && \
-	make -C $(LIBBPFGO) libbpfgo-static; }
+	make -C $(LIBBPFGO) $@; }
 
 .PHONY: $(BPFTOOL)
 $(BPFTOOL):

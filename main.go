@@ -9,8 +9,10 @@ import (
 //go:embed output/*
 var probeFS embed.FS
 
-const probePath = "output/trace.bpf.o"
-
 func main() {
-	cmd.Execute(probePath)
+	data, err := probeFS.ReadFile("output/trace.bpf.o")
+	if err != nil {
+		panic(err)
+	}
+	cmd.Execute(data, "trace.bpf.o")
 }

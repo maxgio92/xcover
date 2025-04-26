@@ -83,9 +83,9 @@ func (t *UserTracer) Init() error {
 	t.configureBPFLogger()
 
 	var err error
-	t.bpfMod, err = bpf.NewModuleFromFile(t.bpfModPath)
+	t.bpfMod, err = bpf.NewModuleFromBuffer(t.bpfObjBuf, t.bpfProgName)
 	if err != nil {
-		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfModPath)
+		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfObjBuf)
 	}
 
 	t.bpfProg, err = t.bpfMod.GetProgram(t.bpfProgName)
@@ -102,8 +102,11 @@ func (t *UserTracer) Init() error {
 }
 
 func (t *UserTracer) validate() error {
-	if t.bpfModPath == "" {
-		return ErrBpfModPathEmpty
+	if len(t.bpfObjBuf) == 0 {
+		return ErrBpfObjBufEmpty
+	}
+	if t.bpfObjName == "" {
+		return ErrBpfObjNameEmpty
 	}
 
 	return nil
@@ -111,7 +114,7 @@ func (t *UserTracer) validate() error {
 
 func (t *UserTracer) Load() error {
 	if err := t.bpfMod.BPFLoadObject(); err != nil {
-		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfModPath)
+		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfObjBuf)
 	}
 
 	return nil

@@ -6,7 +6,8 @@ import (
 )
 
 type UserTracerOptions struct {
-	bpfModPath     string
+	bpfObjBuf      []byte
+	bpfObjName     string
 	bpfProgName    string
 	cookiesMapName string
 	evtRingBufName string
@@ -21,9 +22,15 @@ type UserTracerOptions struct {
 
 type UserTracerOpt func(*UserTracer)
 
-func WithTracerBpfModPath(bpfModPath string) UserTracerOpt {
+func WithTracerBpfObjName(bpfObjName string) UserTracerOpt {
 	return func(opts *UserTracer) {
-		opts.bpfModPath = bpfModPath
+		opts.bpfObjName = bpfObjName
+	}
+}
+
+func WithTracerBpfObjBuf(bpfObjBuf []byte) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.bpfObjBuf = bpfObjBuf
 	}
 }
 

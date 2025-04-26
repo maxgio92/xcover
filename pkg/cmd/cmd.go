@@ -65,7 +65,7 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 	return cmd
 }
 
-func Execute(probePath string) {
+func Execute(probe []byte, probeObjName string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 
 	logger := log.New(
@@ -78,7 +78,8 @@ func Execute(probePath string) {
 	}()
 
 	opts := NewCommonOptions(
-		WithProbePath(probePath),
+		WithProbe(probe),
+		WithProbeObjName(probeObjName),
 		WithContext(ctx),
 		WithLogger(logger),
 	)
@@ -106,7 +107,8 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	}
 
 	tracer := trace.NewUserTracer(
-		trace.WithTracerBpfModPath(o.ProbePath),
+		trace.WithTracerBpfObjBuf(o.Probe),
+		trace.WithTracerBpfObjName(o.ProbeObjName),
 		trace.WithTracerBpfProgName("handle_user_function"),
 		trace.WithTracerLogger(&o.Logger),
 		trace.WithTracerEvtRingBufName("events"),

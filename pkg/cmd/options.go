@@ -7,10 +7,10 @@ import (
 )
 
 type CommonOptions struct {
-	Ctx       context.Context
-	Logger    log.Logger
-	Probe     []byte
-	ProbePath string
+	Ctx          context.Context
+	Logger       log.Logger
+	Probe        []byte
+	ProbeObjName string
 }
 
 type Option func(o *CommonOptions)
@@ -36,8 +36,14 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
-func WithProbePath(probePath string) Option {
+func WithProbeObjName(name string) Option {
 	return func(o *CommonOptions) {
-		o.ProbePath = probePath
+		o.ProbeObjName = name
+	}
+}
+
+func WithProbe(probe []byte) Option {
+	return func(o *CommonOptions) {
+		o.Probe = probe
 	}
 }

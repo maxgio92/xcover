@@ -34,13 +34,16 @@ LIBBPFGO := libbpfgo
 # frontend
 
 LDFLAGS = # ASLR and PIE don't hurt. "-linkmode external -extldflags '-no-pie'"
-CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output"
-CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a"
+CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output" # Include libbpfgo headers.
+CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a" # Statically link to libbpf.
 
 COMPILE_MODES := dynamic static
 
 .PHONY: $(PROGRAM)
-$(PROGRAM): $(LIBBPFGO)-static | $(PROGRAM)/bpf
+$(PROGRAM): $(LIBBPFGO)-static $(PROGRAM)/bpf $(PROGRAM)/frontend
+
+.PHONY: $(PROGRAM)/frontend
+$(PROGRAM)/frontend:
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \

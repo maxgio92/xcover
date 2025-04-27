@@ -102,9 +102,6 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 		trace.WithTraceeSymPatternExclude(o.symExcludePattern),
 		trace.WithTraceeLogger(&o.Logger),
 	)
-	if err := tracee.Init(); err != nil {
-		return errors.Wrapf(err, "failed to init tracer")
-	}
 
 	tracer := trace.NewUserTracer(
 		trace.WithTracerBpfObjBuf(o.Probe),
@@ -118,7 +115,7 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 		trace.WithTracerTracee(tracee),
 	)
 
-	if err := tracer.Init(); err != nil {
+	if err := tracer.Init(o.Ctx); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")
 	}
 	if err := tracer.Load(); err != nil {

@@ -17,12 +17,14 @@ import (
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/maxgio92/xcover/pkg/coverage"
+	"github.com/maxgio92/xcover/pkg/healthcheck"
 )
 
 const (
 	funNameLen                     = 64
 	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
 	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
+	healthCheckSock                = "/tmp/xcover.sock"
 )
 
 var (
@@ -45,15 +47,14 @@ type UserTracer struct {
 	bpfMod     *bpf.Module
 	bpfProg    *bpf.BPFProg
 	evtRingBuf *bpf.RingBuffer
-	// Consumer tracker.
-	consumed uint64
-
 	// Tracee objects.
-	// TODO: decouple trace(s) from tracer and tracee.
 	tracee *UserTracee
-
 	// User functions being acknowledged.
 	ack sync.Map
+	// User functions being consumed.
+	consumed uint64
+	// HealthCheck server.
+	hcServer *healthcheck.HealthCheckServer
 
 	*UserTracerOptions
 }
@@ -69,7 +70,9 @@ func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	return tracer
 }
 
-func (t *UserTracer) Init() error {
+func (t *UserTracer) Init(ctx context.Context) error {
+	//t.readyCh = make(chan struct{})
+
 	if err := t.validate(); err != nil {
 		return err
 	}
@@ -82,6 +85,14 @@ func (t *UserTracer) Init() error {
 	}
 	t.configureBPFLogger()
 
+	// Start the listener before initializing the BPF module
+	// and the tracee, because we want to notify the tracer
+	// is alive as soon as possible.
+	t.hcServer = healthcheck.NewHealthCheckServer(healthCheckSock, t.logger)
+	if err := t.hcServer.InitializeListener(ctx); err != nil {
+		return err
+	}
+
 	var err error
 	t.bpfMod, err = bpf.NewModuleFromBuffer(t.bpfObjBuf, t.bpfProgName)
 	if err != nil {
@@ -93,9 +104,14 @@ func (t *UserTracer) Init() error {
 		return errors.Wrapf(err, "failed to get bpf program: %v", t.bpfProgName)
 	}
 
-	err = t.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti)
-	if err != nil {
+	if err := t.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
 		return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+	}
+
+	// Initialize the tracee includes to load all the data about
+	// the tracee, like symbols and function offsets.
+	if err := t.tracee.Init(); err != nil {
+		return errors.Wrapf(err, "failed to init tracer")
 	}
 
 	return nil
@@ -156,6 +172,10 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		t.ingestEvents(ctx, eventsCh, feedCh)
 	}()
 
+	// Signal via the UDS that the tracer is ready,
+	// that is, it's consuming function events.
+	t.hcServer.NotifyReadiness()
+
 	// Consume events from internal feed.
 	wg.Add(1)
 	go func() {
@@ -176,6 +196,11 @@ func (t *UserTracer) Run(ctx context.Context) error {
 
 	// Waiting to close ring buffer resources.
 	t.evtRingBuf.Close()
+
+	// Stop listener.
+	if err := t.hcServer.ShutdownListener(); err != nil {
+		return errors.Wrap(err, "failed to stop listener")
+	}
 
 	// Write report.
 	return t.writeReport(ReportFileName)

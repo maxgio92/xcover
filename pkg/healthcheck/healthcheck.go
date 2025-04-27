@@ -21,10 +21,11 @@ type HealthCheckServer struct {
 
 // NewHealthCheckServer creates a new health check server.
 func NewHealthCheckServer(socketPath string, logger *log.Logger) *HealthCheckServer {
+	l := logger.With().Str("component", "healthcheck").Logger()
 	return &HealthCheckServer{
 		socketPath: socketPath,
 		readyCh:    make(chan struct{}),
-		logger:     logger,
+		logger:     &l,
 	}
 }
 
@@ -57,13 +58,13 @@ func (s *HealthCheckServer) ShutdownListener() error {
 	// Ensure the listener is closed properly.
 	if s.ln != nil {
 		if err := s.ln.Close(); err != nil {
-			s.logger.Warn().Msgf("Error closing listener: %v\n", err)
+			s.logger.Debug().Err(err).Msg("error closing listener")
 		}
 	}
 
 	// Remove the socket file if it exists.
 	if err := os.Remove(s.socketPath); err != nil {
-		s.logger.Warn().Msgf("Error removing socket: %v\n", err)
+		s.logger.Debug().Err(err).Msgf("error removing socket")
 	}
 
 	return nil
@@ -74,7 +75,7 @@ func (s *HealthCheckServer) acceptConnections(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info().Msg("Stopping connection acceptance")
+			s.logger.Debug().Msg("stopping connection acceptance")
 			return // Shutdown gracefully.
 		default:
 			// Accept connections.
@@ -99,11 +100,11 @@ func (s *HealthCheckServer) processConnection(ctx context.Context, conn net.Conn
 		// Tracer is ready, send ready message.
 		_, err := conn.Write([]byte{ReadyMsg})
 		if err != nil {
-			s.logger.Warn().Err(err).Msg("write error")
+			s.logger.Debug().Err(err).Msg("write error")
 		}
 	case <-ctx.Done():
 		// Graceful shutdown handling.
-		s.logger.Info().Msg("Context canceled, not sending readiness message")
+		s.logger.Debug().Msg("context canceled, not sending readiness message")
 		return
 	}
 }

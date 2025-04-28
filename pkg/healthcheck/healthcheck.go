@@ -3,9 +3,13 @@ package healthcheck
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
+	"io"
 	"net"
 	"os"
+	"syscall"
+	"time"
+
+	"github.com/pkg/errors"
 
 	log "github.com/rs/zerolog"
 )
@@ -50,6 +54,7 @@ func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
 
 // NotifyReadiness should be called by the UserTracer or when the tool is ready.
 func (s *HealthCheckServer) NotifyReadiness() {
+	s.logger.Debug().Msg("marking readiness")
 	close(s.readyCh)
 }
 
@@ -64,7 +69,11 @@ func (s *HealthCheckServer) ShutdownListener() error {
 
 	// Remove the socket file if it exists.
 	if err := os.Remove(s.socketPath); err != nil {
-		s.logger.Debug().Err(err).Msgf("error removing socket")
+		if !os.IsNotExist(err) {
+			s.logger.Debug().Err(err).Msgf("error removing socket")
+			return err
+		}
+		s.logger.Debug().Msg("ignoring removing socket file, as it is already removed")
 	}
 
 	return nil
@@ -75,12 +84,16 @@ func (s *HealthCheckServer) acceptConnections(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debug().Msg("stopping connection acceptance")
+			s.logger.Debug().Msg("stopping accepting connections")
 			return // Shutdown gracefully.
 		default:
 			// Accept connections.
 			conn, err := s.ln.Accept()
 			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					s.logger.Debug().Msg("ignoring accepting connection as it is closed")
+					return
+				}
 				s.logger.Warn().Err(err).Msg("accept error")
 				continue
 			}
@@ -96,15 +109,52 @@ func (s *HealthCheckServer) processConnection(ctx context.Context, conn net.Conn
 	defer conn.Close()
 
 	select {
+	// Tracer is ready, send ready message.
 	case <-s.readyCh:
-		// Tracer is ready, send ready message.
-		_, err := conn.Write([]byte{ReadyMsg})
-		if err != nil {
-			s.logger.Debug().Err(err).Msg("write error")
+		// Test that the connection is still open.
+		if !s.isConnectionAlive(conn) {
+			s.logger.Debug().Msg("connection is closed")
+			return
+		}
+		if err := s.safeWrite(conn, []byte{ReadyMsg}); err != nil {
+			if !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
+				s.logger.Debug().Err(err).Msg("failed to write")
+			}
 		}
 	case <-ctx.Done():
 		// Graceful shutdown handling.
-		s.logger.Debug().Msg("context canceled, not sending readiness message")
+		s.logger.Debug().Msg("ignoring sending readiness message as context is canceled")
 		return
 	}
+}
+
+func (s *HealthCheckServer) isConnectionAlive(conn net.Conn) bool {
+	// Decrease timeout to read fast.
+	conn.SetReadDeadline(time.Now())
+	if _, err := conn.Read([]byte{}); err == io.EOF {
+		s.logger.Debug().Err(err).Msg("cannot write ready message: connection is already closed")
+		conn.Close()
+
+		return false
+	}
+
+	conn.SetReadDeadline(time.Time{})
+	return true
+}
+
+func (s *HealthCheckServer) safeWrite(conn net.Conn, data []byte) error {
+	_, err := conn.Write(data)
+	if err != nil {
+		switch {
+		case errors.Is(err, syscall.EPIPE):
+			conn.Close()
+			return errors.Wrap(err, "peer closed the connection")
+		case errors.Is(err, syscall.ECONNRESET):
+			conn.Close()
+			return errors.Wrap(err, "peer reset the connection")
+		default:
+			return errors.Wrap(err, "failed to write")
+		}
+	}
+	return nil
 }

@@ -81,54 +81,15 @@ $ cat xcover-report.json | jq '.cov_by_func'
 
 It is possible to synchronize on the `xcover` readiness, meaning that userspace can proceed executing the tests because xcover is ready to trace them all.
 
-By default an UDS socket at `/tmp/xcover.sock` is created within the `xcover` tracer's initialization, and a readiness message `1` is sent over it indicating that the tracer is ready, as soon as a consumer connects to it.
-
-A sample script that waits for xcover readiness using `socat`, can be as simple as:
-
-```bash
-#!/usr/bin/env bash
-
-set -euo pipefail
-
-SOCKET_PATH="/tmp/xcover.sock"
-
-TIMEOUT=30
-RETRY_INTERVAL=0.5
-
-START_TIME=$(date +%s)
-
-while true; do
-	if [ ! -S "$SOCKET_PATH" ]; then
-		sleep $RETRY_INTERVAL
-		continue
-	fi
-
-	READY=$(socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null | head -c 1)
-
-	if [ "$READY" = "$(printf '\x01')" ]; then
-		echo "xcover is ready!"
-		exit 0
-	fi
-
-	NOW=$(date +%s)
-	ELAPSED=$((NOW - START_TIME))
-	if [ $ELAPSED -ge $TIMEOUT ]; then
-		echo "Timeout waiting for xcover readiness."
-		exit 1
-	fi
-
-	sleep $RETRY_INTERVAL
-done
-```
-
-and one can use it to synchronize test profiling and text execution with:
+You can use the `wait` command to wait for the `xcover` profiler to be ready:
 
 ```shell
-xcover --path /path/to/bin --report &
-wait-for-xcover.sh
-/path/to/bin test_1
-/path/to/bin test_2
-/path/to/bin test_3
+$ xcover --path /path/to/bin --report &
+9:01PM INF waiting for xcover to be ready
+9:01PM INF xcover is ready
+$ /path/to/bin test_1
+$ /path/to/bin test_2
+$ /path/to/bin test_3
 ```
 
 and collect the coverage:

@@ -4,11 +4,7 @@ title: xcover wait
 
 ## xcover wait
 
-wait
-
-### Synopsis
-
-wait waits for the xcover server to be ready
+Wait for the xcover profiler to be ready
 
 ```
 xcover wait [flags]

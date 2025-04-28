@@ -30,5 +30,5 @@ xcover [flags]
 
 ### SEE ALSO
 
-* [xcover wait](xcover_wait.md)	 - wait
+* [xcover wait](xcover_wait.md)	 - Wait for the xcover profiler to be ready
 

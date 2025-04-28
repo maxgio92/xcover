@@ -24,7 +24,7 @@ const (
 	funNameLen                     = 64
 	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
 	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
-	healthCheckSock                = "/tmp/xcover.sock"
+	HealthCheckSockPath            = "/tmp/xcover.sock"
 )
 
 var (
@@ -71,24 +71,24 @@ func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 }
 
 func (t *UserTracer) Init(ctx context.Context) error {
-	//t.readyCh = make(chan struct{})
-
 	if err := t.validate(); err != nil {
 		return err
 	}
 	if t.writer == nil {
 		t.writer = os.Stdout
 	}
+
 	if t.logger == nil {
-		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-		t.logger = &logger
+		*t.logger = log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 	}
+	*t.logger = t.logger.With().Str("component", "tracer").Logger()
+
 	t.configureBPFLogger()
 
 	// Start the listener before initializing the BPF module
 	// and the tracee, because we want to notify the tracer
 	// is alive as soon as possible.
-	t.hcServer = healthcheck.NewHealthCheckServer(healthCheckSock, t.logger)
+	t.hcServer = healthcheck.NewHealthCheckServer(HealthCheckSockPath, t.logger)
 	if err := t.hcServer.InitializeListener(ctx); err != nil {
 		return err
 	}

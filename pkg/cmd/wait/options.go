@@ -1,7 +1,8 @@
-package cmd
+package wait
 
 import (
 	"context"
+	"time"
 
 	log "github.com/rs/zerolog"
 
@@ -9,19 +10,8 @@ import (
 )
 
 type Options struct {
-	Probe        []byte
-	ProbeObjName string
-
-	comm string
-	pid  int
-
-	symExcludePattern string
-	symIncludePattern string
-
-	logLevel string
-	verbose  bool
-	report   bool
-	status   bool
+	socketPath string
+	timeout    time.Duration
 
 	*options.CommonOptions
 }
@@ -37,18 +27,6 @@ func NewOptions(opts ...Option) *Options {
 	}
 
 	return o
-}
-
-func WithProbeObjName(name string) Option {
-	return func(o *Options) {
-		o.ProbeObjName = name
-	}
-}
-
-func WithProbe(probe []byte) Option {
-	return func(o *Options) {
-		o.Probe = probe
-	}
 }
 
 func WithContext(ctx context.Context) Option {

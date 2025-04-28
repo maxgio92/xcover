@@ -28,3 +28,7 @@ xcover [flags]
       --verbose            Enable verbosity (default true)
 ```
 
+### SEE ALSO
+
+* [xcover wait](xcover_wait.md)	 - wait
+

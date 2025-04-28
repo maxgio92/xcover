@@ -3,34 +3,21 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/maxgio92/xcover/internal/settings"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/maxgio92/xcover/pkg/trace"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+
+	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/wait"
+	"github.com/maxgio92/xcover/pkg/trace"
 )
 
 type FuncName struct {
 	Name [funNameLen]byte
-}
-
-type Options struct {
-	comm string
-	pid  int
-
-	symExcludePattern string
-	symIncludePattern string
-
-	logLevel string
-	verbose  bool
-	report   bool
-	status   bool
-
-	*CommonOptions
 }
 
 const (
@@ -38,10 +25,7 @@ const (
 	logLevelInfo = "info"
 )
 
-func NewRootCmd(opts *CommonOptions) *cobra.Command {
-	o := new(Options)
-	o.CommonOptions = opts
-
+func NewCommand(o *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               settings.CmdName,
 		Short:             fmt.Sprintf("%s is a userspace function tracer", settings.CmdName),
@@ -62,6 +46,13 @@ func NewRootCmd(opts *CommonOptions) *cobra.Command {
 
 	cmd.MarkFlagRequired("path")
 
+	cmd.AddCommand(wait.NewCommand(
+		wait.NewOptions(
+			wait.WithLogger(o.Logger),
+			wait.WithContext(o.Ctx),
+		),
+	))
+
 	return cmd
 }
 
@@ -77,14 +68,14 @@ func Execute(probe []byte, probeObjName string) {
 		cancel()
 	}()
 
-	opts := NewCommonOptions(
+	opts := NewOptions(
 		WithProbe(probe),
 		WithProbeObjName(probeObjName),
 		WithContext(ctx),
 		WithLogger(logger),
 	)
 
-	if err := NewRootCmd(opts).Execute(); err != nil {
+	if err := NewCommand(opts).Execute(); err != nil {
 		os.Exit(1)
 	}
 }

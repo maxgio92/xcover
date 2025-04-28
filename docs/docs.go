@@ -42,8 +42,8 @@ var (
 
 func main() {
 	if err := doc.GenMarkdownTreeCustom(
-		cmd.NewRootCmd(
-			cmd.NewCommonOptions(
+		cmd.NewCommand(
+			cmd.NewOptions(
 				cmd.WithLogger(log.New(os.Stderr).Level(log.InfoLevel)),
 			),
 		),

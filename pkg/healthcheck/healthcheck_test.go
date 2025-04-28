@@ -93,6 +93,9 @@ func TestHealthCheckServer_NotifyReadiness(t *testing.T) {
 		// Verify the readiness message was sent.
 		mockConn.On("Write", []byte{ReadyMsg}).Return(len([]byte{ReadyMsg}), nil)
 		mockConn.On("Close").Return(nil)
+		mockConn.On("SetReadDeadline", mock.Anything).Return(nil)
+		//mockConn.On("Read", mock.AnythingOfType("[]uint8")).Return(0, io.EOF)
+		mockConn.On("Read", mock.AnythingOfType("[]uint8")).Return(1, nil)
 
 		hcs.processConnection(context.Background(), mockConn)
 

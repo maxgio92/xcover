@@ -86,7 +86,7 @@ $ cat xcover-report.json | jq '.cov_by_func'
 15.601900739176347
 ```
 
-### Synchronization
+## Synchronization
 
 It is possible to synchronize on the `xcover` readiness, meaning that userspace can proceed executing the tests because xcover is ready to trace them all.
 
@@ -111,15 +111,3 @@ if [[ $(echo "$coverage < 70" | bc -l) != $true ]]; then
 fi
 ```
 
-### Progressive status
-
-It is possible to show a progressive status during the profiling `xcover` runs via the flag `--status`.
-
-```
-$ sudo xcover --profile --status --verbose=false --report --path ./myapp
-Functions aknowledged: [███████                                 ]  18.31% Events/s:   37       Events Buffer: [          ]   0% Feed Buffer: [          ]   0%
-```
-
-## CLI Reference
-
-Please read the [docs](./docs) for the reference to the `xcover` CLI.

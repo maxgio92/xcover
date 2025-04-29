@@ -1,7 +1,3 @@
----
-title: xcover
----	
-
 ## xcover
 
 xcover is a functional test coverage profiler
@@ -26,6 +22,6 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 ### SEE ALSO
 
-* [xcover profile](xcover_profile.md)	 - Profile the functional test coverage of a program
-* [xcover wait](xcover_wait.md)	 - Wait for the xcover profiler to be ready
+* [xcover profile](docs/xcover_profile.md)	 - Profile the functional test coverage of a program
+* [xcover wait](docs/xcover_wait.md)	 - Wait for the xcover profiler to be ready
 

@@ -1,7 +1,3 @@
----
-title: xcover profile
----	
-
 ## xcover profile
 
 Profile the functional test coverage of a program

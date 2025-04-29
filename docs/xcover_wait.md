@@ -1,7 +1,3 @@
----
-title: xcover wait
----	
-
 ## xcover wait
 
 Wait for the xcover profiler to be ready

@@ -10,13 +10,13 @@ This makes possible to measure coverage on ELF binaries without ecosystem-specif
 ### Filter by process
 
 ```shell
-xcover --pid PID
+xcover profile --pid PID
 ```
 
 ### Filter by binary
 
 ```shell
-xcover --path EXE_PATH
+xcover profile --path EXE_PATH
 ```
 
 ### Filter functions
@@ -24,34 +24,37 @@ xcover --path EXE_PATH
 For including specific functions:
 
 ```shell
-xcover --path EXE_PATH --include "^github.com/maxgio92/xcover"
+xcover profile --path EXE_PATH --include "^github.com/maxgio92/xcover"
 ```
 
 or excluding some:
 
 ```shell
-xcover --path EXE_PATH --exclude "^runtime.|^internal"
+xcover profile --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
-For instance, making `xcover` tracing itself (why not?), excluding the Go runtime functions:
+For instance, making `xcover` tracing itself (why not?), excluding the Go runtime functions, and logging all the acknowledged functions in realtime:
 
 ```shell
-$ sudo xcover --path xcover --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
-encoding/binary.(*decoder).value
-encoding/binary.Read
-github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2
-golang.org/x/sync/errgroup.(*Group).Go.func1
-syscall.Syscall6
-syscall.fstatat
-os.statNolog
-os.Stat
-github.com/maxgio92/xcover/pkg/trace.(*Profiler).getExePath
-github.com/maxgio92/xcover/pkg/trace.(*Profiler).loadSymTable
+$ sudo ./xcover profile --path xcover --verbose --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
+2:59PM INF initializing tracer component=tracer
+2:59PM INF collecting functions component=tracee exclude=^runtime.|^internal/|goexit exe_path=xcover include=^github.com/maxgio92/xcover/pkg/trace
+2:59PM INF functions collected component=tracee count=27
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).Run
+2:59PM INF tracing functions component=tracer
+github.com/maxgio92/xcover/pkg/trace.(*UserTracee).Init
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).handleEvent
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).attachUprobes
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).writeReport.WithReportExePath.func5
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).Init
+github.com/maxgio92/xcover/pkg/trace.(*UserTracee).ShouldIncludeSymbol
+github.com/maxgio92/xcover/pkg/trace.(*UserTracer).printStatusBar
+...
 ```
 
 ## Report
 
-It is possible to generate a report by specifying the flag `--report`.
+It is possible to generate a report by specifying the flag `--report` (enabled by default).
 
 The report is provided in JSON format and contains
 * the functions that have been traced
@@ -71,7 +74,7 @@ type CoverageReport struct {
 For instance:
 
 ```shell
-$ sudo xcover --path myapp --verbose=false --report
+$ sudo xcover profile --path myapp --verbose=false --report
 `^C5:02PM INF written report to xcover-report.json`
 $ cat xcover-report.json | jq '.cov_by_func'
 15.601900739176347
@@ -84,9 +87,10 @@ It is possible to synchronize on the `xcover` readiness, meaning that userspace 
 You can use the `wait` command to wait for the `xcover` profiler to be ready:
 
 ```shell
-$ xcover --path /path/to/bin --report &
-9:01PM INF waiting for xcover to be ready
-9:01PM INF xcover is ready
+$ xcover profile --path /path/to/bin --report 2>/dev/null &
+$ xcover wait
+1:30PM INF waiting for the profiler to be ready
+1:30PM INF profiler is ready
 $ /path/to/bin test_1
 $ /path/to/bin test_2
 $ /path/to/bin test_3
@@ -106,7 +110,7 @@ fi
 It is possible to show a progressive status during the profiling `xcover` runs via the flag `--status`.
 
 ```
-$ sudo xcover --status --verbose=false --report --path ./myapp
+$ sudo xcover --profile --status --verbose=false --report --path ./myapp
 Functions aknowledged: [███████                                 ]  18.31% Events/s:   37       Events Buffer: [          ]   0% Feed Buffer: [          ]   0%
 ```
 

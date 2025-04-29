@@ -11,13 +11,11 @@ import (
 	"sync/atomic"
 
 	bpf "github.com/maxgio92/libbpfgo"
-	"github.com/pkg/errors"
-	log "github.com/rs/zerolog"
-
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/maxgio92/xcover/pkg/coverage"
 	"github.com/maxgio92/xcover/pkg/healthcheck"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -78,10 +76,9 @@ func (t *UserTracer) Init(ctx context.Context) error {
 		t.writer = os.Stdout
 	}
 
-	if t.logger == nil {
-		*t.logger = log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-	}
-	*t.logger = t.logger.With().Str("component", "tracer").Logger()
+	t.logger = t.logger.With().Str("component", "tracer").Logger()
+
+	t.logger.Info().Msg("initializing tracer")
 
 	t.configureBPFLogger()
 
@@ -172,16 +169,17 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		t.ingestEvents(ctx, eventsCh, feedCh)
 	}()
 
-	// Signal via the UDS that the tracer is ready,
-	// that is, it's consuming function events.
-	t.hcServer.NotifyReadiness()
-
 	// Consume events from internal feed.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		t.processEvents(ctx, feedCh)
 	}()
+
+	// Signal via the UDS that the tracer is ready,
+	// that is, it's consuming function events.
+	t.logger.Info().Msg("tracing functions")
+	t.hcServer.NotifyReadiness()
 
 	// Print status bar.
 	go t.printStatusBar(ctx, eventsCh, feedCh)
@@ -192,7 +190,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 
 	// Waiting for reader and consumer to complete.
 	wg.Wait()
-	t.logger.Debug().Msg("terminating...")
+	t.logger.Info().Msg("terminating...")
 
 	// Waiting to close ring buffer resources.
 	t.evtRingBuf.Close()
@@ -290,7 +288,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return nil
 	}
 
-	traced := make([]string, len(t.tracee.funcs))
+	traced := make([]string, 0, len(t.tracee.funcs))
 	for _, fn := range t.tracee.funcs {
 		traced = append(traced, fn.name)
 	}
@@ -318,7 +316,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 	}
 	defer file.Close()
 
-	t.logger.Info().Msgf("written report to %s", reportPath)
+	t.logger.Info().Str("path", reportPath).Msgf("report generated")
 
 	return report.WriteReport(file)
 }

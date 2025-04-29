@@ -40,3 +40,9 @@ func WithLogger(logger log.Logger) Option {
 		o.Logger = logger
 	}
 }
+
+func WithLogLevel(level string) Option {
+	return func(o *Options) {
+		o.LogLevel = level
+	}
+}

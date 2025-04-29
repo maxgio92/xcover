@@ -18,7 +18,13 @@ xcover wait [flags]
       --timeout duration     Timeout (default 2m0s)
 ```
 
+### Options inherited from parent commands
+
+```
+      --log-level string   Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
+```
+
 ### SEE ALSO
 
-* [xcover](README.md)	 - xcover is a userspace function tracer
+* [xcover](README.md)	 - xcover is a functional test coverage profiler
 

@@ -7,6 +7,7 @@ import (
 )
 
 type CommonOptions struct {
-	Ctx    context.Context
-	Logger log.Logger
+	Ctx      context.Context
+	Logger   log.Logger
+	LogLevel string
 }

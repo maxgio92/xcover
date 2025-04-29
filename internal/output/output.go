@@ -20,7 +20,7 @@ func PrintRight(text string) {
 		padding = 0
 	}
 
-	fmt.Printf("\r%s%s", spaces(padding), text)
+	fmt.Fprintf(os.Stderr, "\r%s%s", spaces(padding), text)
 }
 
 func spaces(n int) string {

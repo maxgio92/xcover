@@ -62,7 +62,7 @@ func (m *MockConn) SetWriteDeadline(t time.Time) error {
 func TestHealthCheckServer_InitializeListener(t *testing.T) {
 	t.Run("should start UDS listener without errors", func(t *testing.T) {
 		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", &logger)
+		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
 
 		os.Remove("/tmp/server.sock")
 		ln, err := net.Listen("unix", "/tmp/server.sock")
@@ -77,7 +77,7 @@ func TestHealthCheckServer_InitializeListener(t *testing.T) {
 func TestHealthCheckServer_NotifyReadiness(t *testing.T) {
 	t.Run("should write readiness message when ready", func(t *testing.T) {
 		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", &logger)
+		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
 
 		// Trigger the readiness.
 		hcs.NotifyReadiness()
@@ -106,7 +106,7 @@ func TestHealthCheckServer_NotifyReadiness(t *testing.T) {
 func TestHealthCheckServer_ShutdownListener(t *testing.T) {
 	t.Run("should properly shut down listener and remove socket", func(t *testing.T) {
 		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", &logger)
+		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
 
 		// Mock net.Listener.
 		os.Remove("/tmp/server.sock")

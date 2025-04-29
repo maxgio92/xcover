@@ -12,7 +12,7 @@ type UserTraceeOptions struct {
 	symBindInclude    []elf.SymBind
 	symBindExclude    []elf.SymBind
 
-	logger *log.Logger
+	logger log.Logger
 }
 
 type UserTraceeOption func(*UserTracee)
@@ -47,7 +47,7 @@ func WithTraceeSymBindExclude(symBind ...elf.SymBind) UserTraceeOption {
 	}
 }
 
-func WithTraceeLogger(logger *log.Logger) UserTraceeOption {
+func WithTraceeLogger(logger log.Logger) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.logger = logger
 	}

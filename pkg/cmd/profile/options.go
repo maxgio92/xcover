@@ -1,4 +1,4 @@
-package cmd
+package profile
 
 import (
 	"context"
@@ -11,6 +11,16 @@ import (
 type Options struct {
 	Probe        []byte
 	ProbeObjName string
+
+	comm string
+	pid  int
+
+	symExcludePattern string
+	symIncludePattern string
+
+	verbose bool
+	report  bool
+	status  bool
 
 	*options.CommonOptions
 }
@@ -49,5 +59,11 @@ func WithContext(ctx context.Context) Option {
 func WithLogger(logger log.Logger) Option {
 	return func(o *Options) {
 		o.Logger = logger
+	}
+}
+
+func WithLogLevel(level string) Option {
+	return func(o *Options) {
+		o.LogLevel = level
 	}
 }

@@ -20,16 +20,16 @@ type HealthCheckServer struct {
 	ln         net.Listener
 	readyCh    chan struct{}
 	socketPath string
-	logger     *log.Logger
+	logger     log.Logger
 }
 
 // NewHealthCheckServer creates a new health check server.
-func NewHealthCheckServer(socketPath string, logger *log.Logger) *HealthCheckServer {
+func NewHealthCheckServer(socketPath string, logger log.Logger) *HealthCheckServer {
 	l := logger.With().Str("component", "healthcheck").Logger()
 	return &HealthCheckServer{
 		socketPath: socketPath,
 		readyCh:    make(chan struct{}),
-		logger:     &l,
+		logger:     l,
 	}
 }
 

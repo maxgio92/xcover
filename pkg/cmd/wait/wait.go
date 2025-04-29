@@ -2,6 +2,8 @@ package wait
 
 import (
 	"fmt"
+	"github.com/maxgio92/xcover/pkg/healthcheck"
+	log "github.com/rs/zerolog"
 	"net"
 	"os"
 	"syscall"
@@ -14,9 +16,11 @@ import (
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
+const CmdName = "wait"
+
 func NewCommand(o *Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "wait",
+		Use:               CmdName,
 		Short:             fmt.Sprintf("Wait for the %s profiler to be ready", settings.CmdName),
 		DisableAutoGenTag: true,
 		RunE:              o.Run,
@@ -29,13 +33,19 @@ func NewCommand(o *Options) *cobra.Command {
 }
 
 func (o *Options) Run(_ *cobra.Command, _ []string) error {
+	logLevel, err := log.ParseLevel(o.LogLevel)
+	if err != nil {
+		o.Logger.Fatal().Err(err).Msg("invalid log level")
+	}
+	o.Logger = o.Logger.Level(logLevel)
+
 	start := time.Now()
 	retryInterval := 500 * time.Millisecond
-	o.Logger.Info().Msgf("waiting for %s to be ready", settings.CmdName)
+	o.Logger.Info().Msg("waiting for the profiler to be ready")
 
 	for {
 		if time.Since(start) >= o.timeout {
-			return errors.New("timeout waiting for xcover readiness")
+			return errors.New("timeout waiting for profiler readiness")
 		}
 
 		// Check if socket exists.
@@ -74,8 +84,8 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 			continue
 		}
 
-		if buf[0] == 0x01 {
-			o.Logger.Info().Msgf("%s is ready", settings.CmdName)
+		if buf[0] == healthcheck.ReadyMsg {
+			o.Logger.Info().Msg("profiler is ready")
 			return nil
 		}
 

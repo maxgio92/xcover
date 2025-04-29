@@ -7,49 +7,45 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/profile"
 	"github.com/maxgio92/xcover/pkg/cmd/wait"
-	"github.com/maxgio92/xcover/pkg/trace"
-)
-
-type FuncName struct {
-	Name [funNameLen]byte
-}
-
-const (
-	funNameLen   = 64
-	logLevelInfo = "info"
 )
 
 func NewCommand(o *Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               settings.CmdName,
-		Short:             fmt.Sprintf("%s is a userspace function tracer", settings.CmdName),
-		Long:              fmt.Sprintf(`%s is a kernel-assisted low-overhead userspace function tracer.`, settings.CmdName),
+		Use:   settings.CmdName,
+		Short: fmt.Sprintf("%s is a functional test coverage profiler", settings.CmdName),
+		Long: fmt.Sprintf(`
+%s is a functional test coverage profiler.
+
+Run the '%s' command to run the profiler that will trace all the functions of the tracee program.
+Wait for the profiler to be ready before running your tests, with the '%s' command.
+Once the profiler is ready to trace all the functions, you can start running your tests.
+At the end of your tests, the profiler can be stopped and a report being collected.
+`,
+			settings.CmdName, profile.CmdName, wait.CmdName),
 		DisableAutoGenTag: true,
-		RunE:              o.Run,
 	}
-	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
-	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+	cmd.PersistentFlags().StringVar(&o.LogLevel, "log-level", log.LevelInfoValue, "Log level (trace, debug, info, warn, error, fatal, panic)")
 
-	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
-	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
-
-	cmd.Flags().StringVar(&o.logLevel, "log-level", logLevelInfo, "Log level (trace, debug, info, warn, error, fatal, panic)")
-	cmd.Flags().BoolVar(&o.verbose, "verbose", true, "Enable verbosity")
-	cmd.Flags().BoolVar(&o.report, "report", false, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
-	cmd.Flags().BoolVar(&o.status, "status", false, "Periodically print a status of the trace")
-
-	cmd.MarkFlagRequired("path")
-
+	cmd.AddCommand(profile.NewCommand(
+		profile.NewOptions(
+			profile.WithProbe(o.Probe),
+			profile.WithProbeObjName(o.ProbeObjName),
+			profile.WithContext(o.Ctx),
+			profile.WithLogger(o.Logger),
+			profile.WithLogLevel(o.LogLevel),
+		),
+	))
 	cmd.AddCommand(wait.NewCommand(
 		wait.NewOptions(
-			wait.WithLogger(o.Logger),
 			wait.WithContext(o.Ctx),
+			wait.WithLogger(o.Logger),
+			wait.WithLogLevel(o.LogLevel),
 		),
 	))
 
@@ -78,43 +74,4 @@ func Execute(probe []byte, probeObjName string) {
 	if err := NewCommand(opts).Execute(); err != nil {
 		os.Exit(1)
 	}
-}
-
-func (o *Options) Run(_ *cobra.Command, _ []string) error {
-	logLevel, err := log.ParseLevel(o.logLevel)
-	if err != nil {
-		o.Logger.Fatal().Err(err).Msg("invalid log level")
-	}
-	o.Logger = o.Logger.Level(logLevel)
-
-	tracee := trace.NewUserTracee(
-		trace.WithTraceeExePath(o.comm),
-		trace.WithTraceeSymPatternInclude(o.symIncludePattern),
-		trace.WithTraceeSymPatternExclude(o.symExcludePattern),
-		trace.WithTraceeLogger(&o.Logger),
-	)
-
-	tracer := trace.NewUserTracer(
-		trace.WithTracerBpfObjBuf(o.Probe),
-		trace.WithTracerBpfObjName(o.ProbeObjName),
-		trace.WithTracerBpfProgName("handle_user_function"),
-		trace.WithTracerLogger(&o.Logger),
-		trace.WithTracerEvtRingBufName("events"),
-		trace.WithTracerVerbose(o.verbose),
-		trace.WithTracerReport(o.report),
-		trace.WithTracerStatus(o.status),
-		trace.WithTracerTracee(tracee),
-	)
-
-	if err := tracer.Init(o.Ctx); err != nil {
-		return errors.Wrapf(err, "failed to init tracer")
-	}
-	if err := tracer.Load(); err != nil {
-		return errors.Wrapf(err, "failed to load tracer")
-	}
-	if err := tracer.Run(o.Ctx); err != nil {
-		return errors.Wrapf(err, "failed to run tracer")
-	}
-
-	return nil
 }

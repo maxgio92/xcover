@@ -17,7 +17,7 @@ type UserTracerOptions struct {
 	verbose bool
 	writer  io.Writer
 
-	logger *log.Logger
+	logger log.Logger
 }
 
 type UserTracerOpt func(*UserTracer)
@@ -40,7 +40,7 @@ func WithTracerBpfProgName(bpfProgName string) UserTracerOpt {
 	}
 }
 
-func WithTracerLogger(logger *log.Logger) UserTracerOpt {
+func WithTracerLogger(logger log.Logger) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.logger = logger
 	}

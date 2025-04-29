@@ -4,31 +4,28 @@ title: xcover
 
 ## xcover
 
-xcover is a userspace function tracer
+xcover is a functional test coverage profiler
 
 ### Synopsis
 
-xcover is a kernel-assisted low-overhead userspace function tracer.
 
-```
-xcover [flags]
-```
+xcover is a functional test coverage profiler.
+
+Run the 'profile' command to run the profiler that will trace all the functions of the tracee program.
+Wait for the profiler to be ready before running your tests, with the 'wait' command.
+Once the profiler is ready to trace all the functions, you can start running your tests.
+At the end of your tests, the profiler can be stopped and a report being collected.
+
 
 ### Options
 
 ```
-      --exclude string     Regex pattern to exclude function symbol names
   -h, --help               help for xcover
-      --include string     Regex pattern to include function symbol names
       --log-level string   Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
-  -p, --path string        Path to the ELF executable
-      --pid int            Filter the process by PID (default -1)
-      --report             Generate report (as xcover-report.json)
-      --status             Periodically print a status of the trace
-      --verbose            Enable verbosity (default true)
 ```
 
 ### SEE ALSO
 
+* [xcover profile](xcover_profile.md)	 - Profile the functional test coverage of a program
 * [xcover wait](xcover_wait.md)	 - Wait for the xcover profiler to be ready
 

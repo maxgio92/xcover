@@ -2,14 +2,11 @@ package trace
 
 import (
 	"debug/elf"
-	"os"
 	"regexp"
 
 	"github.com/aquasecurity/libbpfgo/helpers"
-	"github.com/pkg/errors"
-	log "github.com/rs/zerolog"
-
 	"github.com/maxgio92/xcover/internal/utils"
+	"github.com/pkg/errors"
 )
 
 type UserTracee struct {
@@ -41,10 +38,14 @@ func (t *UserTracee) Init() error {
 	if err = t.validate(); err != nil {
 		return err
 	}
-	if t.logger == nil {
-		logger := log.New(log.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-		t.logger = &logger
-	}
+	t.logger = t.logger.With().Str("component", "tracee").Logger()
+
+	t.logger.Info().
+		Str("exe_path", t.exePath).
+		Str("include", t.symPatternInclude).
+		Str("exclude", t.symPatternExclude).
+		Msg("collecting functions")
+
 	t.file, err = elf.Open(t.exePath)
 	if err != nil {
 		return errors.Wrap(err, "filed to open elf file")
@@ -60,6 +61,9 @@ func (t *UserTracee) Init() error {
 		}
 		t.logger.Warn().Err(err).Msg("failed to load functions")
 	}
+	t.logger.Info().
+		Int("count", len(t.funcs)).
+		Msg("functions collected")
 
 	return nil
 }

@@ -10,13 +10,13 @@ This makes possible to measure coverage on ELF binaries without ecosystem-specif
 ### Filter by process
 
 ```shell
-xcover --pid PID
+xcover profile --pid PID
 ```
 
 ### Filter by binary
 
 ```shell
-xcover --path EXE_PATH
+xcover profile --path EXE_PATH
 ```
 
 ### Filter functions
@@ -24,19 +24,19 @@ xcover --path EXE_PATH
 For including specific functions:
 
 ```shell
-xcover --path EXE_PATH --include "^github.com/maxgio92/xcover"
+xcover profile --path EXE_PATH --include "^github.com/maxgio92/xcover"
 ```
 
 or excluding some:
 
 ```shell
-xcover --path EXE_PATH --exclude "^runtime.|^internal"
+xcover profile --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
 For instance, making `xcover` tracing itself (why not?), excluding the Go runtime functions:
 
 ```shell
-$ sudo xcover --path xcover --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
+$ sudo xcover profile --path xcover --exclude "^runtime.|^internal/|goexit" --include "^github.com/maxgio92/xcover/pkg/trace"
 encoding/binary.(*decoder).value
 encoding/binary.Read
 github.com/maxgio92/xcover/pkg/trace.(*Profiler).RunProfile.func2
@@ -71,7 +71,7 @@ type CoverageReport struct {
 For instance:
 
 ```shell
-$ sudo xcover --path myapp --verbose=false --report
+$ sudo xcover profile --path myapp --verbose=false --report
 `^C5:02PM INF written report to xcover-report.json`
 $ cat xcover-report.json | jq '.cov_by_func'
 15.601900739176347
@@ -84,7 +84,7 @@ It is possible to synchronize on the `xcover` readiness, meaning that userspace 
 You can use the `wait` command to wait for the `xcover` profiler to be ready:
 
 ```shell
-$ xcover --path /path/to/bin --report &
+$ xcover profile --path /path/to/bin --report &
 9:01PM INF waiting for xcover to be ready
 9:01PM INF xcover is ready
 $ /path/to/bin test_1
@@ -106,7 +106,7 @@ fi
 It is possible to show a progressive status during the profiling `xcover` runs via the flag `--status`.
 
 ```
-$ sudo xcover --status --verbose=false --report --path ./myapp
+$ sudo xcover --profile --status --verbose=false --report --path ./myapp
 Functions aknowledged: [███████                                 ]  18.31% Events/s:   37       Events Buffer: [          ]   0% Feed Buffer: [          ]   0%
 ```
 

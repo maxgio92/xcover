@@ -36,7 +36,7 @@ func TestUserTracee_Validate(t *testing.T) {
 func TestUserTracee_Init(t *testing.T) {
 	tracee := trace.NewUserTracee(
 		trace.WithTraceeExePath(testBinary),
-		trace.WithTraceeLogger(&testLogger),
+		trace.WithTraceeLogger(testLogger),
 		trace.WithTraceeSymPatternExclude(testExcludedSyms),
 	)
 	err := tracee.Init()
@@ -47,7 +47,7 @@ func TestUserTracee_Init(t *testing.T) {
 
 	tracee = trace.NewUserTracee(
 		trace.WithTraceeExePath("nonexistent-binary-file"),
-		trace.WithTraceeLogger(&testLogger),
+		trace.WithTraceeLogger(testLogger),
 		trace.WithTraceeSymPatternExclude(testExcludedSyms),
 	)
 	err = tracee.Init()

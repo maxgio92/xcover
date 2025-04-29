@@ -37,7 +37,7 @@ func (o *Options) Run(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		o.Logger.Fatal().Err(err).Msg("invalid log level")
 	}
-	o.Logger = o.Logger.Level(logLevel)
+	o.Logger = o.Logger.Level(logLevel).With().Str("component", "wait").Logger()
 
 	start := time.Now()
 	retryInterval := 500 * time.Millisecond

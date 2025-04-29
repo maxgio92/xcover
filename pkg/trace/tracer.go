@@ -288,7 +288,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return nil
 	}
 
-	traced := make([]string, len(t.tracee.funcs))
+	traced := make([]string, 0, len(t.tracee.funcs))
 	for _, fn := range t.tracee.funcs {
 		traced = append(traced, fn.name)
 	}

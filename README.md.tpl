@@ -111,3 +111,38 @@ if [[ $(echo "$coverage < 70" | bc -l) != $true ]]; then
 fi
 ```
 
+## Development
+
+### Prerequisites
+
+- `bpftool` (to generate vmlinux.h for CORE)
+- `clang`
+- `go`
+- `libbf-dev`
+
+### Build all
+
+By default it statically compile xcover with libbfgo, and libbpfgo with libbpf.
+
+```shell
+make xcover
+```
+
+### Build BPF only
+
+```shell
+make xcover/bpf
+```
+
+### Build frontend only
+
+```shell
+make xcover/frontend
+```
+
+### Run test
+
+```shell
+make test
+```
+

@@ -5,6 +5,8 @@ Profile coverage of functional tests without instrumenting your binaries.
 `xcover` (pronounced 'cross cover') enables to profile functional test coverage, by leveraging kernel instrumentation to probe functions in userland, and it's cross language.
 This makes possible to measure coverage on ELF binaries without ecosystem-specific instrumentation like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html) require.
 
+![xcover demo](assets/xcover-demo.gif)
+
 ## CLI Reference
 
 {{ .CLI_REFERENCE }}

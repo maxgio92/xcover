@@ -293,7 +293,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		traced = append(traced, fn.name)
 	}
 
-	ack := make([]string, utils.LenSyncMap(&t.ack))
+	ack := make([]string, 0, utils.LenSyncMap(&t.ack))
 	t.ack.Range(func(k, v interface{}) bool {
 		fun, ok := t.tracee.funcs[k.(cookie)]
 		if !ok {
@@ -303,10 +303,12 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return true
 	})
 
+	covByFunc := float64(utils.LenSyncMap(&t.ack)) / float64(len(t.tracee.funcs)) * 100
+
 	report := coverage.NewCoverageReport(
 		coverage.WithReportFuncsAck(ack),
 		coverage.WithReportFuncsTraced(traced),
-		coverage.WithReportFuncsCov(float64(len(ack))/float64(len(traced))*100),
+		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
 	)
 

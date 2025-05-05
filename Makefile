@@ -12,7 +12,7 @@ current_dir := $(patsubst %/,%,$(dir $(mkfile_path)))
 OUTPUT := $(current_dir)/output
 
 ARCH := $(subst x86_64,x86,$(shell uname -m))
-GOARCH := $(subst x86,amd64,$(ARCH))
+GOARCH := $(subst x86,amd64,$(subst aarch64,arm64,$(ARCH)))
 
 # ebpf
 
@@ -73,10 +73,13 @@ $(PROGRAM)/bpf: $(VMLINUXH)
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
 $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
-	{ test -d $(LIBBPFGO) && make -C $(LIBBPFGO) $@; } \
-	|| { $(git) submodule init && \
-	$(git) submodule update --recursive && \
-	make -C $(LIBBPFGO) $@; }
+	if [ -d $(LIBBPFGO) ]; then \
+		make -C $(LIBBPFGO) $@; \
+        else \
+		$(git) submodule init; \
+		$(git) submodule update --recursive; \
+		make -C $(LIBBPFGO) $@; \
+	fi
 
 .PHONY: $(BPFTOOL)
 $(BPFTOOL):

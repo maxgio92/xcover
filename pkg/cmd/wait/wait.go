@@ -32,7 +32,13 @@ func NewCommand(o *Options) *cobra.Command {
 	return cmd
 }
 
-func (o *Options) Run(_ *cobra.Command, _ []string) error {
+func (o *Options) Run(cmd *cobra.Command, _ []string) error {
+	var err error
+	o.LogLevel, err = cmd.Flags().GetString("log-level")
+	if err != nil {
+		return errors.Wrap(err, "failed to get log level")
+	}
+
 	logLevel, err := log.ParseLevel(o.LogLevel)
 	if err != nil {
 		o.Logger.Fatal().Err(err).Msg("invalid log level")

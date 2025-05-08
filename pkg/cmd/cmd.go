@@ -38,14 +38,12 @@ At the end of your tests, the profiler can be stopped and a report being collect
 			profile.WithProbeObjName(o.ProbeObjName),
 			profile.WithContext(o.Ctx),
 			profile.WithLogger(o.Logger),
-			profile.WithLogLevel(o.LogLevel),
 		),
 	))
 	cmd.AddCommand(wait.NewCommand(
 		wait.NewOptions(
 			wait.WithContext(o.Ctx),
 			wait.WithLogger(o.Logger),
-			wait.WithLogLevel(o.LogLevel),
 		),
 	))
 

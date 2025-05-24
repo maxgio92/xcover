@@ -12,6 +12,8 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/profile"
+	"github.com/maxgio92/xcover/pkg/cmd/status"
+	"github.com/maxgio92/xcover/pkg/cmd/stop"
 	"github.com/maxgio92/xcover/pkg/cmd/wait"
 )
 
@@ -44,6 +46,18 @@ At the end of your tests, the profiler can be stopped and a report being collect
 		wait.NewOptions(
 			wait.WithContext(o.Ctx),
 			wait.WithLogger(o.Logger),
+		),
+	))
+	cmd.AddCommand(status.NewCommand(
+		status.NewOptions(
+			status.WithContext(o.Ctx),
+			status.WithLogger(o.Logger),
+		),
+	))
+	cmd.AddCommand(stop.NewCommand(
+		stop.NewOptions(
+			stop.WithContext(o.Ctx),
+			stop.WithLogger(o.Logger),
 		),
 	))
 

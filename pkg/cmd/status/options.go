@@ -1,4 +1,4 @@
-package profile
+package status
 
 import (
 	"context"
@@ -9,20 +9,6 @@ import (
 )
 
 type Options struct {
-	Probe        []byte
-	ProbeObjName string
-
-	comm string
-	pid  int
-
-	symExcludePattern string
-	symIncludePattern string
-
-	detached bool
-	verbose  bool
-	report   bool
-	status   bool
-
 	*options.CommonOptions
 }
 
@@ -37,18 +23,6 @@ func NewOptions(opts ...Option) *Options {
 	}
 
 	return o
-}
-
-func WithProbeObjName(name string) Option {
-	return func(o *Options) {
-		o.ProbeObjName = name
-	}
-}
-
-func WithProbe(probe []byte) Option {
-	return func(o *Options) {
-		o.Probe = probe
-	}
 }
 
 func WithContext(ctx context.Context) Option {
@@ -68,4 +42,3 @@ func WithLogLevel(level string) Option {
 		o.LogLevel = level
 	}
 }
-

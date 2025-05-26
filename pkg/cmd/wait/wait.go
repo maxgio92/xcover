@@ -2,12 +2,15 @@ package wait
 
 import (
 	"fmt"
-	"github.com/maxgio92/xcover/pkg/healthcheck"
-	log "github.com/rs/zerolog"
 	"net"
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/maxgio92/xcover/pkg/cmd/common"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
+	"github.com/maxgio92/xcover/pkg/healthcheck"
+	log "github.com/rs/zerolog"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -18,11 +21,24 @@ import (
 
 const CmdName = "wait"
 
-func NewCommand(o *Options) *cobra.Command {
+var (
+	ErrNotRunning = errors.New(fmt.Sprintf("%s is not running", settings.CmdName))
+)
+
+type Options struct {
+	socketPath string
+	timeout    time.Duration
+	*options.Options
+}
+
+func NewCommand(opts *options.Options) *cobra.Command {
+	o := new(Options)
+	o.Options = opts
 	cmd := &cobra.Command{
 		Use:               CmdName,
 		Short:             fmt.Sprintf("Wait for the %s profiler to be ready", settings.CmdName),
 		DisableAutoGenTag: true,
+		SilenceUsage:      true,
 		RunE:              o.Run,
 	}
 
@@ -44,6 +60,10 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		o.Logger.Fatal().Err(err).Msg("invalid log level")
 	}
 	o.Logger = o.Logger.Level(logLevel).With().Str("component", "wait").Logger()
+
+	if !common.IsDaemonRunning() {
+		return ErrNotRunning
+	}
 
 	start := time.Now()
 	retryInterval := 500 * time.Millisecond
@@ -92,6 +112,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 		if buf[0] == healthcheck.ReadyMsg {
 			o.Logger.Info().Msg("profiler is ready")
+			fmt.Printf("%s is ready\n", settings.CmdName)
 			return nil
 		}
 

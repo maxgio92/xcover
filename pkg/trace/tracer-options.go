@@ -1,16 +1,13 @@
 package trace
 
 import (
-	log "github.com/rs/zerolog"
 	"io"
+
+	log "github.com/rs/zerolog"
 )
 
 type UserTracerOptions struct {
-	bpfObjBuf      []byte
-	bpfObjName     string
-	bpfProgName    string
 	cookiesMapName string
-	evtRingBufName string
 
 	report  bool
 	status  bool
@@ -22,33 +19,9 @@ type UserTracerOptions struct {
 
 type UserTracerOpt func(*UserTracer)
 
-func WithTracerBpfObjName(bpfObjName string) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.bpfObjName = bpfObjName
-	}
-}
-
-func WithTracerBpfObjBuf(bpfObjBuf []byte) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.bpfObjBuf = bpfObjBuf
-	}
-}
-
-func WithTracerBpfProgName(bpfProgName string) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.bpfProgName = bpfProgName
-	}
-}
-
 func WithTracerLogger(logger log.Logger) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.logger = logger
-	}
-}
-
-func WithTracerEvtRingBufName(evtRingBufName string) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.evtRingBufName = evtRingBufName
 	}
 }
 

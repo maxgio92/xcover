@@ -6,16 +6,16 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 
-	bpf "github.com/maxgio92/libbpfgo"
+	"github.com/pkg/errors"
+
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/maxgio92/xcover/pkg/coverage"
 	"github.com/maxgio92/xcover/pkg/healthcheck"
-	"github.com/pkg/errors"
+	"github.com/maxgio92/xcover/pkg/probe"
 )
 
 const (
@@ -26,10 +26,8 @@ const (
 )
 
 var (
-	libbpfErrKeywords = []string{"failed", "invalid", "error"}
-	eventsChBufSize   = 4096
-	feedChBufSize     = 4096
-	ReportFileName    = fmt.Sprintf("%s-report.json", settings.CmdName)
+	feedChBufSize  = 4096
+	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
 )
 
 type FuncName struct {
@@ -42,9 +40,7 @@ type Event struct {
 
 type UserTracer struct {
 	// Tracer objects.
-	bpfMod     *bpf.Module
-	bpfProg    *bpf.BPFProg
-	evtRingBuf *bpf.RingBuffer
+	probe *probe.Probe
 	// Tracee objects.
 	tracee *UserTracee
 	// User functions being acknowledged.
@@ -68,72 +64,7 @@ func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	return tracer
 }
 
-func (t *UserTracer) Init(ctx context.Context) error {
-	if err := t.validate(); err != nil {
-		return err
-	}
-	if t.writer == nil {
-		t.writer = os.Stdout
-	}
-
-	t.logger = t.logger.With().Str("component", "tracer").Logger()
-
-	t.logger.Info().Msg("initializing tracer")
-
-	t.configureBPFLogger()
-
-	// Start the listener before initializing the BPF module
-	// and the tracee, because we want to notify the tracer
-	// is alive as soon as possible.
-	t.hcServer = healthcheck.NewHealthCheckServer(HealthCheckSockPath, t.logger)
-	if err := t.hcServer.InitializeListener(ctx); err != nil {
-		return err
-	}
-
-	var err error
-	t.bpfMod, err = bpf.NewModuleFromBuffer(t.bpfObjBuf, t.bpfProgName)
-	if err != nil {
-		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfObjBuf)
-	}
-
-	t.bpfProg, err = t.bpfMod.GetProgram(t.bpfProgName)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get bpf program: %v", t.bpfProgName)
-	}
-
-	if err := t.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
-		return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
-	}
-
-	// Initialize the tracee includes to load all the data about
-	// the tracee, like symbols and function offsets.
-	if err := t.tracee.Init(); err != nil {
-		return errors.Wrapf(err, "failed to init tracer")
-	}
-
-	return nil
-}
-
-func (t *UserTracer) validate() error {
-	if len(t.bpfObjBuf) == 0 {
-		return ErrBpfObjBufEmpty
-	}
-	if t.bpfObjName == "" {
-		return ErrBpfObjNameEmpty
-	}
-
-	return nil
-}
-
-func (t *UserTracer) Load() error {
-	if err := t.bpfMod.BPFLoadObject(); err != nil {
-		return errors.Wrapf(err, "failed to load bpf module: %v", t.bpfObjBuf)
-	}
-
-	return nil
-}
-
-func (t *UserTracer) Run(ctx context.Context) error {
+func (t *UserTracer) validateTracee() error {
 	if t.tracee == nil {
 		return ErrTraceeNil
 	}
@@ -144,20 +75,59 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		return ErrTraceeFuncListEmpty
 	}
 
-	// Attach one uprobe per function to trace.
-	t.logger.Debug().Msg("attaching trace to selected functions")
-	t.attachUprobes()
+	return nil
+}
 
-	eventsCh := make(chan []byte, eventsChBufSize)
-	feedCh := make(chan []byte, feedChBufSize)
-	var err error
-
-	t.evtRingBuf, err = t.bpfMod.InitRingBuf(t.evtRingBufName, eventsCh)
-	if err != nil {
-		return errors.Wrapf(err, "error attaching uprobe at offsets: %v", t.evtRingBufName)
+func (t *UserTracer) Init(ctx context.Context) error {
+	if t.writer == nil {
+		t.writer = os.Stdout
 	}
 
-	go t.evtRingBuf.Poll(60)
+	t.logger = t.logger.With().Str("component", "tracer").Logger()
+
+	t.logger.Info().Msg("initializing tracer")
+
+	// Start the listener before initializing the BPF module
+	// and the tracee, because we want to notify the tracer
+	// is alive as soon as possible.
+	t.hcServer = healthcheck.NewHealthCheckServer(HealthCheckSockPath, t.logger)
+	if err := t.hcServer.InitializeListener(ctx); err != nil {
+		return err
+	}
+
+	t.probe = probe.NewProbe(probe.WithLogger(t.logger))
+	if err := t.probe.Init(ctx); err != nil {
+		return errors.Wrap(err, "error initializing BPF probe")
+	}
+
+	// Initialize the tracee includes to load all the data about
+	// the tracee, like symbols and function offsets.
+	if err := t.tracee.Init(); err != nil {
+		return errors.Wrapf(err, "failed to init tracer")
+	}
+	if err := t.validateTracee(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *UserTracer) Run(ctx context.Context) error {
+	// Attach one uprobe per function to trace.
+	t.logger.Debug().Msg("attaching trace to selected functions")
+	t.attachProbe(ctx)
+
+	feedCh := make(chan []byte, feedChBufSize)
+
+	eventsCh, err := t.probe.InitEventBuf(ctx)
+	if err != nil {
+		return errors.Wrap(err, "error initializing probe events buffer")
+	}
+	defer t.probe.CloseEventBuf()
+	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
+	// hence outside of InitEventBuf(), because of CGO callback from C which can make
+	// the go runtime to lock goroutine to the thread.
+	go t.probe.PollEventBuf()
 
 	// Read events from the ring buffer to internal feed.
 	t.logger.Debug().Msg("consuming events from ring buffer")
@@ -192,9 +162,6 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
-	// Waiting to close ring buffer resources.
-	t.evtRingBuf.Close()
-
 	// Stop listener.
 	if err := t.hcServer.ShutdownListener(); err != nil {
 		return errors.Wrap(err, "failed to stop listener")
@@ -204,7 +171,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	return t.writeReport(ReportFileName)
 }
 
-func (t *UserTracer) attachUprobes() {
+func (t *UserTracer) attachProbe(ctx context.Context) {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
 	offsets := t.tracee.GetFuncOffsets()
@@ -216,7 +183,7 @@ func (t *UserTracer) attachUprobes() {
 			end = len(offsets)
 		}
 
-		if _, err := t.bpfProg.AttachUprobeMulti(-1, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
+		if err := t.probe.Attach(ctx, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
 			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
 		}
 	}
@@ -272,17 +239,6 @@ func (t *UserTracer) handleEvent(data []byte) {
 	}
 }
 
-func (t *UserTracer) configureBPFLogger() {
-	bpf.SetLoggerCbs(bpf.Callbacks{
-		Log: func(level int, msg string) {
-			if level == bpf.LibbpfWarnLevel {
-				// TODO: filter for specific attach failures.
-				t.logger.Debug().Msgf("libbpf warning: %s", msg)
-			}
-		},
-	})
-}
-
 func (t *UserTracer) writeReport(reportPath string) error {
 	if !t.report {
 		return nil
@@ -321,13 +277,4 @@ func (t *UserTracer) writeReport(reportPath string) error {
 	t.logger.Info().Str("path", reportPath).Msgf("report generated")
 
 	return report.WriteReport(file)
-}
-
-func shouldAbortOn(msg string) bool {
-	for _, keyword := range libbpfErrKeywords {
-		if strings.Contains(msg, keyword) {
-			return true
-		}
-	}
-	return false
 }

@@ -1,4 +1,4 @@
-package profile
+package run
 
 import (
 	"fmt"
@@ -13,19 +13,37 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/trace"
+)
+
+const (
+	funNameLen = 64
+	CmdName    = "run"
 )
 
 type FuncName struct {
 	Name [funNameLen]byte
 }
 
-const (
-	funNameLen = 64
-	CmdName    = "start"
-)
+type Options struct {
+	comm string
+	pid  int
 
-func NewCommand(o *Options) *cobra.Command {
+	symExcludePattern string
+	symIncludePattern string
+
+	detached bool
+	verbose  bool
+	report   bool
+	status   bool
+
+	*options.Options
+}
+
+func NewCommand(opts *options.Options) *cobra.Command {
+	o := new(Options)
+	o.Options = opts
 	cmd := &cobra.Command{
 		Use:   CmdName,
 		Short: "Start the coverage profiling for a program",
@@ -82,11 +100,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	)
 
 	tracer := trace.NewUserTracer(
-		trace.WithTracerBpfObjBuf(o.Probe),
-		trace.WithTracerBpfObjName(o.ProbeObjName),
-		trace.WithTracerBpfProgName("handle_user_function"),
 		trace.WithTracerLogger(o.Logger),
-		trace.WithTracerEvtRingBufName("events"),
 		trace.WithTracerVerbose(o.verbose),
 		trace.WithTracerReport(o.report),
 		trace.WithTracerStatus(o.status),
@@ -95,9 +109,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	if err := tracer.Init(o.Ctx); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")
-	}
-	if err := tracer.Load(); err != nil {
-		return errors.Wrapf(err, "failed to load tracer")
 	}
 	if err := tracer.Run(o.Ctx); err != nil {
 		return errors.Wrapf(err, "failed to run tracer")

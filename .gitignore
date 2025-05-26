@@ -1,6 +1,6 @@
 /xcover
 /xcover-report.json
 .idea
-/output/*
+output/*
 *.o
 vmlinux.h

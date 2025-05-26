@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maxgio92/xcover/pkg/cmd/common"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/healthcheck"
 	log "github.com/rs/zerolog"
 
@@ -24,7 +25,15 @@ var (
 	ErrNotRunning = errors.New(fmt.Sprintf("%s is not running", settings.CmdName))
 )
 
-func NewCommand(o *Options) *cobra.Command {
+type Options struct {
+	socketPath string
+	timeout    time.Duration
+	*options.Options
+}
+
+func NewCommand(opts *options.Options) *cobra.Command {
+	o := new(Options)
+	o.Options = opts
 	cmd := &cobra.Command{
 		Use:               CmdName,
 		Short:             fmt.Sprintf("Wait for the %s profiler to be ready", settings.CmdName),

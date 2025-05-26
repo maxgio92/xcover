@@ -8,9 +8,15 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
 )
 
-func NewCommand(o *Options) *cobra.Command {
+type Options struct {
+	*options.Options
+}
+
+func NewCommand(opts *options.Options) *cobra.Command {
+	o := &Options{opts}
 	cmd := &cobra.Command{
 		Use:               "status",
 		Short:             fmt.Sprintf("Check the the %s profiler status", settings.CmdName),

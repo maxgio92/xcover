@@ -1,6 +1,7 @@
 package stop
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,43 +12,53 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
 )
 
-func NewCommand(o *Options) *cobra.Command {
+var (
+	ErrNotRunningOrNotFound = fmt.Errorf("%s not running or PID file not found", settings.CmdName)
+	ErrInvalidPIDFile       = errors.New("invalid PID file")
+	ErrProcessNotFound      = errors.New("process not found")
+	ErrFailedToStop         = fmt.Errorf("failed to stop %s", settings.CmdName)
+)
+
+type Options struct {
+	*options.Options
+}
+
+func NewCommand(opts *options.Options) *cobra.Command {
+	o := &Options{opts}
+
 	cmd := &cobra.Command{
 		Use:               "stop",
 		Short:             fmt.Sprintf("Stop the %s profiler daemon", settings.CmdName),
 		DisableAutoGenTag: true,
 		SilenceUsage:      true,
-		Run:               o.Run,
+		RunE:              o.Run,
 	}
 
 	return cmd
 }
 
-func (o *Options) Run(cmd *cobra.Command, _ []string) {
+func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	pidData, err := os.ReadFile(settings.PidFile)
 	if err != nil {
-		fmt.Printf("%s not running or PID file not found\n", settings.CmdName)
-		return
+		return ErrNotRunningOrNotFound
 	}
 
 	pid, err := strconv.Atoi(string(pidData))
 	if err != nil {
-		fmt.Println("Invalid PID file")
-		return
+		return ErrInvalidPIDFile
 	}
 
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		fmt.Println("Process not found")
-		return
+		return ErrProcessNotFound
 	}
 
 	err = process.Signal(syscall.SIGTERM)
 	if err != nil {
-		fmt.Printf("Failed to stop daemon: %v\n", err)
-		return
+		return ErrFailedToStop
 	}
 
 	// Wait for process to stop.
@@ -55,7 +66,8 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) {
 		if !common.IsDaemonRunning() {
 			fmt.Printf("%s stopped (PID %d)\n", settings.CmdName, pid)
 			os.Remove(settings.PidFile)
-			return
+
+			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -64,4 +76,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) {
 	process.Kill()
 	os.Remove(settings.PidFile)
 	fmt.Printf("%s force killed (PID %d)\n", settings.CmdName, pid)
+
+	return nil
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd"
+	"github.com/maxgio92/xcover/pkg/cmd/options"
 
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra/doc"
@@ -47,11 +48,9 @@ func main() {
 
 	// Generate CLI docs
 	if err := doc.GenMarkdownTreeCustom(
-		cmd.NewCommand(
-			cmd.NewOptions(
-				cmd.WithLogger(log.New(os.Stderr).Level(log.InfoLevel)),
-			),
-		),
+		cmd.NewCommand(options.NewOptions(
+			options.WithLogger(log.New(os.Stderr).Level(log.InfoLevel)),
+		)),
 		docsDir,
 		filePrepender,
 		linkHandler,

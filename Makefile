@@ -9,7 +9,7 @@ bpftool = $(shell command -v bpftool || /bin/false)
 
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir := $(patsubst %/,%,$(dir $(mkfile_path)))
-OUTPUT := $(current_dir)/output
+OUTPUT := $(current_dir)/pkg/probe/output
 
 ARCH := $(subst x86_64,x86,$(shell uname -m))
 GOARCH := $(subst x86,amd64,$(subst aarch64,arm64,$(ARCH)))
@@ -67,7 +67,7 @@ docs:
 		go run docs/docs.go
 
 .PHONY: $(PROGRAM)/bpf
-$(PROGRAM)/bpf: $(VMLINUXH)
+$(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
 	clang $(CFLAGS) -g -O2 -c -target bpf \
 		-o $(OUTPUT)/trace.bpf.o bpf/trace.bpf.c
 
@@ -88,7 +88,7 @@ $(BPFTOOL):
 		sudo make -C $(BPFTOOL)/src install-bin
 
 .PHONY: $(VMLINUXH)
-$(VMLINUXH): $(OUTPUT)
+$(VMLINUXH):
 ifeq ($(wildcard $(bpftool)),)
 	@echo "ERROR: could not find bpftool"
 	@exit 1
@@ -102,7 +102,6 @@ endif
 		$(bpftool) btf dump file $(BTFFILE) format c > bpf/$(VMLINUXH); \
 	fi
 
-.PHONY: $(OUTPUT)
 $(OUTPUT):
 	mkdir -p $(OUTPUT)
 

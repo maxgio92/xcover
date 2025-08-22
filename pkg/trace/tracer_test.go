@@ -3,9 +3,9 @@ package trace
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/stretchr/testify/require"
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -23,12 +23,7 @@ func TestHandleEvent_Verbose(t *testing.T) {
 	err := tracee.Init()
 	require.NoError(t, err)
 
-	probe, err := os.ReadFile("testdata/test.bpf.o")
-	require.NoError(t, err)
-
 	tracer := NewUserTracer(
-		WithTracerBpfObjBuf(probe),
-		WithTracerBpfObjName("test.bpf.o"),
 		WithTracerVerbose(true),
 		WithTracerWriter(&buf),
 		WithTracerTracee(tracee),

@@ -51,12 +51,13 @@ $(PROGRAM)/frontend:
 		go build -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
 
 .PHONY: test
+test: TEST_PATH ?= ./...
 test: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -ldflags=${LDFLAGS} -v ./...
+		go test -ldflags=${LDFLAGS} -v $(TEST_PATH)
 
 .PHONY: docs
 docs:

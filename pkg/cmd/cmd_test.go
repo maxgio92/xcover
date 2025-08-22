@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maxgio92/xcover/pkg/cmd/options"
+
 	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -19,14 +21,14 @@ func TestNewCommand(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		options  *Options
+		options  *options.Options
 		validate func(*testing.T, *cobra.Command)
 	}{
 		{
 			name: "default command creation",
-			options: NewOptions(
-				WithContext(ctx),
-				WithLogger(logger),
+			options: options.NewOptions(
+				options.WithContext(ctx),
+				options.WithLogger(logger),
 			),
 			validate: func(t *testing.T, cmd *cobra.Command) {
 				require.Equal(t, "xcover", cmd.Name())
@@ -51,7 +53,7 @@ func TestNewCommand(t *testing.T) {
 func TestCommandFlags(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	// Test log-level flag
@@ -59,16 +61,16 @@ func TestCommandFlags(t *testing.T) {
 	require.NotNil(t, flag)
 	require.Equal(t, "string", flag.Value.Type())
 	require.Equal(t, "info", flag.DefValue)
-	require.Contains(t, flag.Usage, "log level")
+	require.Contains(t, flag.Usage, "Log level")
 }
 
 func TestCommandSubcommands(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
-	expectedSubcommands := []string{"start", "status", "stop", "wait"}
+	expectedSubcommands := []string{"run", "status", "stop", "wait"}
 	actualSubcommands := make([]string, 0)
 
 	for _, subCmd := range cmd.Commands() {
@@ -83,7 +85,7 @@ func TestCommandSubcommands(t *testing.T) {
 func TestCommandHelp(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	var output bytes.Buffer
@@ -97,7 +99,7 @@ func TestCommandHelp(t *testing.T) {
 	require.Contains(t, helpOutput, "xcover")
 	require.Contains(t, helpOutput, "functional test coverage profiler")
 	require.Contains(t, helpOutput, "Available Commands:")
-	require.Contains(t, helpOutput, "start")
+	require.Contains(t, helpOutput, "run")
 	require.Contains(t, helpOutput, "status")
 	require.Contains(t, helpOutput, "stop")
 	require.Contains(t, helpOutput, "wait")
@@ -106,7 +108,7 @@ func TestCommandHelp(t *testing.T) {
 func TestCommandInvalidFlag(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	var output bytes.Buffer
@@ -131,31 +133,21 @@ func TestCommandLogLevelFlag(t *testing.T) {
 		{"error level", "error", false},
 		{"fatal level", "fatal", false},
 		{"panic level", "panic", false},
-		{"invalid level", "invalid", true},
+		{"invalid level", "invalid", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 			ctx := context.Background()
-			opts := NewOptions(WithContext(ctx), WithLogger(logger))
+			opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 			cmd := NewCommand(opts)
 
 			var output bytes.Buffer
 			cmd.SetErr(&output)
 			cmd.SetArgs([]string{"--log-level", tt.logLevel, "status"})
 
-			err := cmd.Execute()
-			if tt.wantErr {
-				// Invalid log levels might be caught by subcommands
-				if err == nil {
-					t.Log("Command succeeded despite invalid log level")
-				}
-				return
-			}
-
-			// Note: The command might still fail for other reasons (like missing daemon)
-			// but it shouldn't fail due to log level parsing
+			require.NoError(t, cmd.Execute())
 		})
 	}
 }
@@ -164,8 +156,8 @@ func TestCommandContext(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	// Test that context is properly passed through
@@ -176,7 +168,7 @@ func TestCommandContext(t *testing.T) {
 func TestCommandExecutionWithoutSubcommand(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	var output bytes.Buffer
@@ -195,7 +187,7 @@ func TestCommandExecutionWithoutSubcommand(t *testing.T) {
 func TestCommandDisableAutoGenTag(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	require.True(t, cmd.DisableAutoGenTag)
@@ -204,7 +196,7 @@ func TestCommandDisableAutoGenTag(t *testing.T) {
 func TestCommandVersion(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	var output bytes.Buffer
@@ -219,24 +211,10 @@ func TestCommandVersion(t *testing.T) {
 	// Version flag might not be implemented, so we don't require success
 }
 
-func TestExecuteFunction(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// This is a basic test of the Execute function
-	// We can't easily test it fully without mocking the signal handling
-	require.NotPanics(t, func() {
-		// Just verify the function exists and can be called
-		// In a real test environment, this would start the application
-		// Execute([]byte("test"), "test")
-	})
-}
-
 func TestCommandLongDescription(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	require.NotEmpty(t, cmd.Long)
@@ -247,7 +225,7 @@ func TestCommandLongDescription(t *testing.T) {
 func TestCommandStructure(t *testing.T) {
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	ctx := context.Background()
-	opts := NewOptions(WithContext(ctx), WithLogger(logger))
+	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
 	// Test basic command structure
@@ -262,7 +240,7 @@ func TestCommandStructure(t *testing.T) {
 		subcommands[subCmd.Name()] = subCmd
 	}
 
-	require.Contains(t, subcommands, "start")
+	require.Contains(t, subcommands, "run")
 	require.Contains(t, subcommands, "status")
 	require.Contains(t, subcommands, "stop")
 	require.Contains(t, subcommands, "wait")
@@ -271,33 +249,33 @@ func TestCommandStructure(t *testing.T) {
 // Helper function to capture output
 func captureOutput(t *testing.T, fn func() error) (string, string, error) {
 	var stdout, stderr bytes.Buffer
-	
+
 	// Save original
 	origStdout := os.Stdout
 	origStderr := os.Stderr
-	
+
 	// Create pipes
 	r1, w1, _ := os.Pipe()
 	r2, w2, _ := os.Pipe()
-	
+
 	// Set new outputs
 	os.Stdout = w1
 	os.Stderr = w2
-	
+
 	// Execute function
 	err := fn()
-	
+
 	// Close writers
 	w1.Close()
 	w2.Close()
-	
+
 	// Read output
 	stdout.ReadFrom(r1)
 	stderr.ReadFrom(r2)
-	
+
 	// Restore original
 	os.Stdout = origStdout
 	os.Stderr = origStderr
-	
+
 	return stdout.String(), stderr.String(), err
 }

@@ -168,5 +168,11 @@ jobs:
             exit 1
           fi
 
+      - name: Run go vet
+        run: |
+          # Skip CGO to avoid libbpf header version conflicts
+          # CGO code is still validated during the Build step
+          CGO_ENABLED=0 go vet ./...
+
       - name: Run go mod verify
         run: go mod verify

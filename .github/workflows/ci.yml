@@ -62,6 +62,12 @@ jobs:
           which bpftool
           bpftool version
 
+      - name: Run go vet
+        run: |
+          # Run go vet in Build job where libbpf 1.5.0 is already installed
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
+          go vet ./...
+
       - name: Build xcover
         run: make xcover
 
@@ -139,35 +145,6 @@ jobs:
         with:
           go-version: '1.23.6'
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang \
-            llvm \
-            linux-headers-$(uname -r) \
-            gcc \
-            make \
-            pkg-config \
-            libelf-dev \
-            zlib1g-dev
-
-      - name: Install libbpf 1.5.0
-        run: |
-          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
-          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
-          cd /tmp/libbpf/src
-          # Install to /usr/local with proper libdir for pkg-config
-          sudo make install PREFIX=/usr/local LIBDIR=/usr/local/lib
-          sudo ldconfig
-
-      - name: Install bpftool
-        run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          cd /tmp/bpftool/src
-          make
-          sudo make install
-
       - name: Run go fmt
         run: |
           fmt_output=$(gofmt -l .)
@@ -176,17 +153,6 @@ jobs:
             echo "$fmt_output"
             exit 1
           fi
-
-      - name: Run go vet
-        run: |
-          # Verify libbpf 1.5.0 is installed
-          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
-          pkg-config --modversion libbpf
-          # Explicitly set CGO flags to use libbpf 1.5.0 headers
-          export CGO_CFLAGS="$(pkg-config --cflags libbpf)"
-          export CGO_LDFLAGS="$(pkg-config --libs libbpf)"
-          # Run go vet with libbpf 1.5.0 that includes BPF_MAP_TYPE_ARENA
-          go vet ./...
 
       - name: Run go mod verify
         run: go mod verify

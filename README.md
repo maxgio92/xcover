@@ -1,7 +1,7 @@
 # xcover
 
 [![CI](https://github.com/maxgio92/xcover/actions/workflows/ci.yml/badge.svg)](https://github.com/maxgio92/xcover/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/maxgio92/xcover)](https://github.com/maxgio92/xcover/releases/latest)
+[![Release](https://img.shields.io/github/v/tag/maxgio92/xcover)](https://github.com/maxgio92/xcover/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Profile coverage of functional tests without instrumenting your binaries.

@@ -34,7 +34,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \
@@ -101,7 +100,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \
@@ -147,7 +145,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \

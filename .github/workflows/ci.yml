@@ -42,9 +42,14 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool
+      - name: Install bpftool and libbpf
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -100,9 +105,14 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool
+      - name: Install bpftool and libbpf
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -137,9 +147,14 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool
+      - name: Install bpftool and libbpf
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install

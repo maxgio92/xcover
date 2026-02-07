@@ -170,8 +170,10 @@ jobs:
 
       - name: Run go vet
         run: |
-          # Ensure pkg-config can find the newly installed libbpf
+          # Ensure CGO uses the newly installed libbpf headers
           export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
+          export CGO_CFLAGS="-I/usr/local/include"
+          export CGO_LDFLAGS="-L/usr/local/lib64 -L/usr/local/lib"
           # Clear Go build cache to ensure fresh compilation
           go clean -cache
           go vet ./...

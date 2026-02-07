@@ -169,7 +169,12 @@ jobs:
           fi
 
       - name: Run go vet
-        run: go vet ./...
+        run: |
+          # Ensure pkg-config can find the newly installed libbpf
+          export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
+          # Clear Go build cache to ensure fresh compilation
+          go clean -cache
+          go vet ./...
 
       - name: Run go mod verify
         run: go mod verify

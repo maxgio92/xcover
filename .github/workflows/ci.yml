@@ -130,8 +130,19 @@ jobs:
             clang \
             llvm \
             libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            make \
+            pkg-config \
             libelf-dev \
             zlib1g-dev
+
+      - name: Install bpftool
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
 
       - name: Run go fmt
         run: |

@@ -42,14 +42,17 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
           sudo make install
           sudo ldconfig
-          # Then install bpftool
+
+      - name: Install bpftool
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -105,14 +108,17 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
           sudo make install
           sudo ldconfig
-          # Then install bpftool
+
+      - name: Install bpftool
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -147,14 +153,17 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
           sudo make install
           sudo ldconfig
-          # Then install bpftool
+
+      - name: Install bpftool
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -170,9 +179,11 @@ jobs:
 
       - name: Run go vet
         run: |
-          # Skip CGO to avoid libbpf header version conflicts
-          # CGO code is still validated during the Build step
-          CGO_ENABLED=0 go vet ./...
+          # Ensure CGO can find libbpf 1.5.0 headers
+          export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
+          export CGO_CFLAGS="-I/usr/local/include"
+          export CGO_LDFLAGS="-L/usr/local/lib64 -L/usr/local/lib"
+          go vet ./...
 
       - name: Run go mod verify
         run: go mod verify

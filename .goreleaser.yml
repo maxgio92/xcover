@@ -1,0 +1,143 @@
+# GoReleaser configuration for xcover
+# Reference: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Initialize and update git submodules
+    - git submodule init
+    - git submodule update --recursive
+    # Build libbpfgo statically
+    - make -C libbpfgo libbpfgo-static
+    # Generate vmlinux.h if needed
+    - sh -c 'if [ ! -f bpf/vmlinux.h ]; then bpftool btf dump file /sys/kernel/btf/vmlinux format c > bpf/vmlinux.h; fi'
+    # Create output directory
+    - mkdir -p pkg/probe/output
+    # Compile BPF programs
+    - clang -D__TARGET_ARCH_x86 -g -O2 -c -target bpf -o pkg/probe/output/trace.bpf.o bpf/trace.bpf.c
+
+builds:
+  - id: xcover
+    binary: xcover
+    main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=gcc
+    flags:
+      - -v
+    ldflags:
+      - -s -w
+      - -X github.com/maxgio92/xcover/pkg/cmd.version={{.Version}}
+      - -X github.com/maxgio92/xcover/pkg/cmd.commit={{.Commit}}
+      - -X github.com/maxgio92/xcover/pkg/cmd.date={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_CFLAGS=-I {{ dir .Env.PWD }}/libbpfgo/output
+          - CGO_LDFLAGS=-lelf -lz {{ dir .Env.PWD }}/libbpfgo/output/libbpf/libbpf.a
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_CFLAGS=-I {{ dir .Env.PWD }}/libbpfgo/output
+          - CGO_LDFLAGS=-lelf -lz {{ dir .Env.PWD }}/libbpfgo/output/libbpf/libbpf.a
+          - CC=aarch64-linux-gnu-gcc
+
+archives:
+  - id: xcover
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - pkg/probe/output/trace.bpf.o
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'CI/CD'
+      regexp: '^.*?ci(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: 'Other'
+      order: 999
+
+release:
+  github:
+    owner: maxgio92
+    name: xcover
+  draft: false
+  prerelease: auto
+  mode: append
+  header: |
+    ## xcover {{ .Tag }} ({{ .Date }})
+
+    Welcome to this new release of xcover!
+  footer: |
+    ## Installation
+
+    Download the appropriate binary for your system from the assets below.
+
+    ### Linux
+    ```bash
+    # AMD64
+    wget https://github.com/maxgio92/xcover/releases/download/{{ .Tag }}/xcover_{{ .Tag }}_linux_x86_64.tar.gz
+    tar -xzf xcover_{{ .Tag }}_linux_x86_64.tar.gz
+    sudo mv xcover /usr/local/bin/
+
+    # ARM64
+    wget https://github.com/maxgio92/xcover/releases/download/{{ .Tag }}/xcover_{{ .Tag }}_linux_arm64.tar.gz
+    tar -xzf xcover_{{ .Tag }}_linux_arm64.tar.gz
+    sudo mv xcover /usr/local/bin/
+    ```
+
+    ### Verify Installation
+    ```bash
+    xcover --version
+    ```
+
+    ## Notes
+
+    - xcover requires Linux kernel with BPF and BTF support (kernel 5.8+)
+    - Root privileges are required to run xcover
+    - The compiled BPF object (trace.bpf.o) is included in the archive
+  name_template: "{{.ProjectName}}-v{{.Version}}"

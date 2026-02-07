@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bpftool \
+            clang \
+            libbpf-dev \
+            llvm \
+            linux-headers-$(uname -r)
+
+      - name: Build
+        run: make xcover
+
+      - name: Run tests
+        run: make test
+
+      - name: Verify build artifacts
+        run: |
+          if [ ! -f "xcover" ]; then
+            echo "Error: xcover binary not found"
+            exit 1
+          fi
+          ls -lh xcover

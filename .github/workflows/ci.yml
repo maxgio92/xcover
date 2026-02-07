@@ -168,5 +168,8 @@ jobs:
             exit 1
           fi
 
+      - name: Run go vet
+        run: go vet ./...
+
       - name: Run go mod verify
         run: go mod verify

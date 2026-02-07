@@ -160,5 +160,5 @@ func (t *UserTracee) getSymbolOffset(symName string) (int64, error) {
 			Msg("failed to get function offset via helper")
 		return 0, err
 	}
-	return offset, nil
+	return int64(offset), nil
 }

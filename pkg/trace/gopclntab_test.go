@@ -26,14 +26,17 @@ func TestLoadFunctionsFromGoPclntab(t *testing.T) {
 
 import "fmt"
 
+//go:noinline
 func hello() {
 	fmt.Println("Hello")
 }
 
+//go:noinline
 func world() {
 	fmt.Println("World")
 }
 
+//go:noinline
 func greet(name string) {
 	fmt.Printf("Hello, %s!\n", name)
 }
@@ -69,9 +72,9 @@ func main() {
 	t.Run("UnstrippedBinary", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 		tracee := NewUserTracee(
-			WithExePath(binaryPath),
-			WithSymPatternInclude("main\\."),
-			WithLogger(logger),
+			WithTraceeExePath(binaryPath),
+			WithTraceeSymPatternInclude("main\\."),
+			WithTraceeLogger(logger),
 		)
 
 		err := tracee.Init()
@@ -122,9 +125,9 @@ func main() {
 	t.Run("StrippedBinary", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 		tracee := NewUserTracee(
-			WithExePath(strippedPath),
-			WithSymPatternInclude("main\\."),
-			WithLogger(logger),
+			WithTraceeExePath(strippedPath),
+			WithTraceeSymPatternInclude("main\\."),
+			WithTraceeLogger(logger),
 		)
 
 		err := tracee.Init()
@@ -191,8 +194,8 @@ int main() {
 	// Try to load functions - should fail gracefully
 	logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 	tracee := NewUserTracee(
-		WithExePath(binaryPath),
-		WithLogger(logger),
+		WithTraceeExePath(binaryPath),
+		WithTraceeLogger(logger),
 	)
 
 	err = tracee.Init()
@@ -212,10 +215,12 @@ func TestFilterFunctionsFromGoPclntab(t *testing.T) {
 
 import "fmt"
 
+//go:noinline
 func publicFunc() {
 	fmt.Println("Public")
 }
 
+//go:noinline
 func anotherPublicFunc() {
 	fmt.Println("Another Public")
 }
@@ -239,9 +244,9 @@ func main() {
 	t.Run("IncludeFilter", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 		tracee := NewUserTracee(
-			WithExePath(binaryPath),
-			WithSymPatternInclude("main\\.publicFunc$"), // Only match exact publicFunc
-			WithLogger(logger),
+			WithTraceeExePath(binaryPath),
+			WithTraceeSymPatternInclude("main\\.publicFunc$"), // Only match exact publicFunc
+			WithTraceeLogger(logger),
 		)
 
 		err := tracee.Init()
@@ -265,10 +270,10 @@ func main() {
 	t.Run("ExcludeFilter", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 		tracee := NewUserTracee(
-			WithExePath(binaryPath),
-			WithSymPatternInclude("main\\."), // Include main package functions
-			WithSymPatternExclude("another"), // Exclude anything with "another"
-			WithLogger(logger),
+			WithTraceeExePath(binaryPath),
+			WithTraceeSymPatternInclude("main\\."), // Include main package functions
+			WithTraceeSymPatternExclude("another"), // Exclude anything with "another"
+			WithTraceeLogger(logger),
 		)
 
 		err := tracee.Init()

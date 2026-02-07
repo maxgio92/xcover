@@ -4,8 +4,6 @@ import (
 	"debug/elf"
 	"regexp"
 
-	"github.com/aquasecurity/libbpfgo/helpers"
-	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/pkg/errors"
 )
 

@@ -182,6 +182,9 @@ jobs:
           # Verify libbpf 1.5.0 is installed
           export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
           pkg-config --modversion libbpf
+          # Explicitly set CGO flags to use libbpf 1.5.0 headers
+          export CGO_CFLAGS="$(pkg-config --cflags libbpf)"
+          export CGO_LDFLAGS="$(pkg-config --libs libbpf)"
           # Run go vet with libbpf 1.5.0 that includes BPF_MAP_TYPE_ARENA
           go vet ./...
 

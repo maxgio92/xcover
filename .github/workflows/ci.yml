@@ -34,7 +34,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \
@@ -42,14 +41,18 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
+        run: |
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          # Install to /usr to avoid conflicts with apt libbpf-dev
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
+          sudo make install PREFIX=/usr
+          sudo ldconfig
+
+      - name: Install bpftool
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
-          sudo make install
-          sudo ldconfig
-          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -97,7 +100,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \
@@ -105,14 +107,18 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
+        run: |
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          # Install to /usr to avoid conflicts with apt libbpf-dev
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
+          sudo make install PREFIX=/usr
+          sudo ldconfig
+
+      - name: Install bpftool
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
-          sudo make install
-          sudo ldconfig
-          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -139,7 +145,6 @@ jobs:
           sudo apt-get install -y \
             clang \
             llvm \
-            libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
             make \
@@ -147,14 +152,18 @@ jobs:
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
+      - name: Install libbpf 1.5.0
+        run: |
+          # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
+          # Install to /usr to avoid conflicts with apt libbpf-dev
+          git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+          cd /tmp/libbpf/src
+          sudo make install PREFIX=/usr
+          sudo ldconfig
+
+      - name: Install bpftool
         run: |
           git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
-          sudo make install
-          sudo ldconfig
-          # Then install bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -167,6 +176,13 @@ jobs:
             echo "$fmt_output"
             exit 1
           fi
+
+      - name: Run go vet
+        run: |
+          # Verify libbpf 1.5.0 is installed
+          pkg-config --modversion libbpf
+          # Run go vet with libbpf 1.5.0 that includes BPF_MAP_TYPE_ARENA
+          go vet ./...
 
       - name: Run go mod verify
         run: go mod verify

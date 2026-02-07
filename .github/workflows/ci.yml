@@ -44,7 +44,7 @@ jobs:
 
       - name: Install bpftool
         run: |
-          git clone --depth 1 --branch v7.3.0 https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           cd /tmp/bpftool/src
           make
           sudo make install
@@ -102,7 +102,7 @@ jobs:
 
       - name: Install bpftool
         run: |
-          git clone --depth 1 --branch v7.3.0 https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           cd /tmp/bpftool/src
           make
           sudo make install

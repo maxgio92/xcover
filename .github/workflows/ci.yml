@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            make \
+            pkg-config \
+            libelf-dev \
+            zlib1g-dev
+
+      - name: Install bpftool and libbpf
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
+
+      - name: Verify bpftool installation
+        run: |
+          which bpftool
+          bpftool version
+
+      - name: Build xcover
+        run: make xcover
+
+      - name: Verify build artifacts
+        run: |
+          ls -lh xcover
+          file xcover
+          ./xcover --help
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcover-binary
+          path: xcover
+          retention-days: 7
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            make \
+            pkg-config \
+            libelf-dev \
+            zlib1g-dev
+
+      - name: Install bpftool and libbpf
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
+
+      - name: Run tests
+        run: make test
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            make \
+            pkg-config \
+            libelf-dev \
+            zlib1g-dev
+
+      - name: Install bpftool and libbpf
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
+
+      - name: Run go fmt
+        run: |
+          fmt_output=$(gofmt -l .)
+          if [ -n "$fmt_output" ]; then
+            echo "The following files need formatting:"
+            echo "$fmt_output"
+            exit 1
+          fi
+
+      - name: Run go mod verify
+        run: go mod verify

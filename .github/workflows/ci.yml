@@ -44,10 +44,10 @@ jobs:
       - name: Install libbpf 1.5.0
         run: |
           # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
-          # Install to /usr to avoid conflicts with apt libbpf-dev
           git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
           cd /tmp/libbpf/src
-          sudo make install PREFIX=/usr
+          # Install to /usr/local with proper libdir for pkg-config
+          sudo make install PREFIX=/usr/local LIBDIR=/usr/local/lib
           sudo ldconfig
 
       - name: Install bpftool
@@ -110,10 +110,10 @@ jobs:
       - name: Install libbpf 1.5.0
         run: |
           # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
-          # Install to /usr to avoid conflicts with apt libbpf-dev
           git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
           cd /tmp/libbpf/src
-          sudo make install PREFIX=/usr
+          # Install to /usr/local with proper libdir for pkg-config
+          sudo make install PREFIX=/usr/local LIBDIR=/usr/local/lib
           sudo ldconfig
 
       - name: Install bpftool
@@ -155,10 +155,10 @@ jobs:
       - name: Install libbpf 1.5.0
         run: |
           # Install libbpf 1.5.0 which includes BPF_MAP_TYPE_ARENA support
-          # Install to /usr to avoid conflicts with apt libbpf-dev
           git clone --depth 1 --branch v1.5.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
           cd /tmp/libbpf/src
-          sudo make install PREFIX=/usr
+          # Install to /usr/local with proper libdir for pkg-config
+          sudo make install PREFIX=/usr/local LIBDIR=/usr/local/lib
           sudo ldconfig
 
       - name: Install bpftool
@@ -180,6 +180,7 @@ jobs:
       - name: Run go vet
         run: |
           # Verify libbpf 1.5.0 is installed
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}
           pkg-config --modversion libbpf
           # Run go vet with libbpf 1.5.0 that includes BPF_MAP_TYPE_ARENA
           go vet ./...

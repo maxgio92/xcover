@@ -172,6 +172,18 @@ $ cat xcover_report.json | jq .cov_by_func
 89.9786897
 ```
 
+## Roadmap
+
+The following features and improvements are planned:
+
+- [ ] Add support for Go stripped binaries (#25)
+- [ ] Increase unit test coverage (#22)
+- [ ] Test commands (#21)
+- [ ] Move to upstream libbpfgo (#20)
+- [ ] Rename project to `maxcover` (#14)
+- [ ] Refactor status bar (#10)
+- [ ] Add version command (#9)
+
 ## Development
 
 ### Prerequisites

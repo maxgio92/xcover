@@ -55,7 +55,8 @@ func (t *UserTracee) Init() error {
 	}
 
 	if err = t.loadFunctions(); err != nil {
-		// Fail fast when the tracee binary is stripped.
+		// Note: With gopclntab fallback, we should be able to handle stripped Go binaries
+		// Fail fast only if we still can't load any functions after trying all methods
 		if errors.Is(err, elf.ErrNoSymbols) || errors.Is(err, ErrNoFunctionSymbols) {
 			return err
 		}
@@ -79,33 +80,30 @@ func (t *UserTracee) validate() error {
 func (t *UserTracee) loadFunctions() error {
 	funcSyms, err := t.getFuncSyms()
 	if err != nil {
+		// If the binary is stripped and has no symbols, try loading from .gopclntab
+		// for Go binaries
+		if errors.Is(err, elf.ErrNoSymbols) {
+			t.logger.Info().Msg("binary is stripped, attempting to load symbols from .gopclntab")
+			if goPclnErr := t.loadFunctionsFromGoPclntab(); goPclnErr != nil {
+				t.logger.Debug().Err(goPclnErr).Msg("failed to load from .gopclntab")
+				return err // Return original error
+			}
+			// Successfully loaded from gopclntab
+			return nil
+		}
 		return err
 	}
 	if len(funcSyms) == 0 {
-		return ErrNoFunctionSymbols
+		// Try gopclntab as fallback when no function symbols found
+		t.logger.Info().Msg("no function symbols found, attempting to load from .gopclntab")
+		if goPclnErr := t.loadFunctionsFromGoPclntab(); goPclnErr != nil {
+			t.logger.Debug().Err(goPclnErr).Msg("failed to load from .gopclntab")
+			return ErrNoFunctionSymbols
+		}
+		return nil
 	}
 
-	t.logger.Debug().
-		Int("functions", len(funcSyms)).
-		Str("exe_path", t.exePath).
-		Str("include", t.symPatternInclude).
-		Str("exclude", t.symPatternExclude).
-		Msg("getting function offsets from symbols")
-	for _, sym := range funcSyms {
-		offset, err := helpers.SymbolToOffset(t.exePath, sym.Name)
-		if err != nil {
-			t.logger.Debug().Err(err).Str("symbol", sym.Name).Str("exe_path", t.exePath).Msg("failed to get function offset")
-		}
-		t.funcs[cookie(utils.Hash(sym.Name))] = funcInfo{
-			name:   sym.Name,
-			offset: uint64(offset),
-		}
-	}
-	if len(t.funcs) == 0 {
-		return ErrNoOffsets
-	}
-
-	return nil
+	return t.loadFunctionsFromSymbols(funcSyms)
 }
 
 func (t *UserTracee) getFuncSyms() ([]elf.Symbol, error) {

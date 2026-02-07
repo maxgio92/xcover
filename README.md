@@ -68,6 +68,24 @@ or excluding some:
 xcover run --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
+## Symbolization
+
+xcover uses symbolization to gather function symbols from target binaries. These symbols identify the functions that will be instrumented for coverage profiling.
+
+### Symbol table
+
+The symbol table in ELF binaries contains metadata about functions, including their names and addresses. xcover consumes this symbol table to discover which functions to trace during profiling. Filters (`--include`, `--exclude`) are applied against these symbols.
+
+### Stripped binaries
+
+When the standard symbol table (`.symtab`) is removed to reduce binary size, the metadata xcover needs for symbolization is eliminated, preventing standard coverage profiling. To support stripped binaries, language-specific solutions are required to recover function symbols.
+
+#### Go
+
+xcover supports Go binaries by reading the `.gopclntab` (Go Program Counter Line Table) section, which is retained even when the symbol table is removed. xcover automatically detects and extracts function symbols from `.gopclntab` as a fallback, enabling coverage profiling without additional configuration.
+
+This feature works with Go 1.2+ binaries and maintains full compatibility with symbol filtering (`--include`, `--exclude`).
+
 ## Daemon mode
 
 You can run the profiler as daemon with the `--detach` flag:

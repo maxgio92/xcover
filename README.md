@@ -1,5 +1,11 @@
 # xcover
 
+[![CI](https://github.com/maxgio92/xcover/actions/workflows/ci.yml/badge.svg)](https://github.com/maxgio92/xcover/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/maxgio92/xcover)](https://github.com/maxgio92/xcover/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/maxgio92/xcover)](https://github.com/maxgio92/xcover/blob/main/go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/maxgio92/xcover)](https://goreportcard.com/report/github.com/maxgio92/xcover)
+
 Profile coverage of functional tests without instrumenting your binaries.
 
 `xcover` (pronounced 'cross cover') enables to profile functional test coverage, by leveraging kernel instrumentation to probe functions in userland, and it's cross language.

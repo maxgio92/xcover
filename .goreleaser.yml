@@ -1,0 +1,141 @@
+version: 2
+
+project_name: xcover
+
+before:
+  hooks:
+    # Initialize submodules
+    - git submodule init
+    - git submodule update --recursive
+    # Build libbpfgo statically
+    - make -C libbpfgo libbpfgo-static
+    # Generate vmlinux.h if not present
+    - bash -c 'if [ ! -f bpf/vmlinux.h ]; then bpftool btf dump file /sys/kernel/btf/vmlinux format c > bpf/vmlinux.h; fi'
+
+builds:
+  - id: xcover
+    main: ./main.go
+    binary: xcover
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Use the build flags from the Makefile
+    flags:
+      - -v
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    # Custom build command to use the Makefile approach
+    hooks:
+      pre:
+        - bash -c 'make xcover/bpf ARCH={{ if eq .Arch "amd64" }}x86{{ else }}{{ .Arch }}{{ end }}'
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CC=gcc
+          - CGO_CFLAGS=-I {{ .Env.PWD }}/libbpfgo/output
+          - CGO_LDFLAGS=-lelf -lz {{ .Env.PWD }}/libbpfgo/output/libbpf/libbpf.a
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+          - CGO_CFLAGS=-I {{ .Env.PWD }}/libbpfgo/output
+          - CGO_LDFLAGS=-lelf -lz {{ .Env.PWD }}/libbpfgo/output/libbpf/libbpf.a
+
+archives:
+  - id: xcover
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - docs/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^feat:.*'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^fix:.*'
+      order: 1
+    - title: Performance Improvements
+      regexp: '^perf:.*'
+      order: 2
+    - title: Refactors
+      regexp: '^refactor:.*'
+      order: 3
+    - title: Other Changes
+      order: 999
+
+release:
+  github:
+    owner: maxgio92
+    name: xcover
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## xcover {{ .Tag }}
+
+    A cross-language functional test coverage profiler leveraging eBPF.
+
+    ### Installation
+
+    Download the appropriate binary for your platform below, extract it, and add it to your PATH.
+
+    ```bash
+    # Example for Linux amd64
+    curl -LO https://github.com/maxgio92/xcover/releases/download/{{ .Tag }}/xcover_{{ .Tag }}_linux_x86_64.tar.gz
+    tar -xzf xcover_{{ .Tag }}_linux_x86_64.tar.gz
+    sudo mv xcover /usr/local/bin/
+    ```
+
+    ### Verify checksums
+
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/maxgio92/xcover/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ---
+
+    Built with [GoReleaser](https://goreleaser.com)
+
+# Announcement settings for integrations
+announce:
+  skip: true

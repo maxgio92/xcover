@@ -8,6 +8,9 @@
 
 `xcover` (pronounced "cross cover") revolutionizes functional test coverage profiling by leveraging kernel instrumentation to probe userland functions. This cross-language approach measures coverage directly from ELF binaries, eliminating the need for ecosystem-specific tools like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html).
 
+<!-- TODO: Update with actual asciinema ID after recording. See demo/DEMO_SETUP.md for instructions -->
+[![asciicast](https://asciinema.org/a/PLACEHOLDER.svg)](https://asciinema.org/a/PLACEHOLDER)
+
 ![xcover demo](assets/xcover-demo.gif)
 
 ## Quickstart

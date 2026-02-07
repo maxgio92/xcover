@@ -1,0 +1,8 @@
+# Compiled binaries
+demo-app
+
+# Asciinema recordings
+*.cast
+
+# Coverage reports
+xcover-report.json

@@ -30,8 +30,6 @@ asciinema upload demo/xcover-demo.cast
 ### Option 2: Create a Real Recording (Recommended)
 
 ```bash
-cd /home/massimiliano-giovagnoli/.multiclaude/wts/xcover/calm-dolphin
-
 # Ensure binaries are built
 make xcover
 cd demo && go build -o demo-app demo-app.go && cd ..

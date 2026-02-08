@@ -12,8 +12,8 @@
 Run the provided script:
 
 ```bash
-cd /tmp/claude-1000/-home-massimiliano-giovagnoli--multiclaude-wts-xcover-bright-otter/dc713876-a77e-4dd7-bf46-04b3fd0af41f/scratchpad
-./record-demo.sh
+cd demo/
+./automated-demo.sh
 ```
 
 This will:
@@ -38,18 +38,18 @@ echo "# A cross-language coverage profiler using eBPF"
 echo
 
 # Start profiler
-sudo /home/massimiliano-giovagnoli/.multiclaude/wts/xcover/bright-otter/xcover run --detach --path /tmp/claude-1000/-home-massimiliano-giovagnoli--multiclaude-wts-xcover-bright-otter/dc713876-a77e-4dd7-bf46-04b3fd0af41f/scratchpad/demo-app
+sudo xcover run --detach --path ./demo-app
 
 # Wait for ready
-sudo /home/massimiliano-giovagnoli/.multiclaude/wts/xcover/bright-otter/xcover wait
+sudo xcover wait
 
 # Run test scenarios
-/tmp/claude-1000/-home-massimiliano-giovagnoli--multiclaude-wts-xcover-bright-otter/dc713876-a77e-4dd7-bf46-04b3fd0af41f/scratchpad/demo-app add
-/tmp/claude-1000/-home-massimiliano-giovagnoli--multiclaude-wts-xcover-bright-otter/dc713876-a77e-4dd7-bf46-04b3fd0af41f/scratchpad/demo-app multiply
-/tmp/claude-1000/-home-massimiliano-giovagnoli--multiclaude-wts-xcover-bright-otter/dc713876-a77e-4dd7-bf46-04b3fd0af41f/scratchpad/demo-app greet
+./demo-app add
+./demo-app multiply
+./demo-app greet
 
 # Stop and view report
-sudo /home/massimiliano-giovagnoli/.multiclaude/wts/xcover/bright-otter/xcover stop
+sudo xcover stop
 cat xcover-report.json | jq ".cov_by_func"
 
 # 3. Exit recording with Ctrl+D

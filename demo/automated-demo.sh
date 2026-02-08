@@ -3,8 +3,8 @@
 # Run as: sudo bash automated-demo.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEMO_APP="$SCRIPT_DIR/demo-app"
-XCOVER="$(cd "$SCRIPT_DIR/.." && pwd)/xcover"
+DEMO_APP="./demo-app"
+XCOVER="xcover"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then

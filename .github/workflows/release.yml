@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  goreleaser:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23.6'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            gcc-aarch64-linux-gnu \
+            make \
+            pkg-config \
+            libelf-dev \
+            zlib1g-dev
+
+      - name: Install bpftool and libbpf
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
+
+      - name: Verify bpftool installation
+        run: |
+          which bpftool
+          bpftool version
+
+      - name: Build libbpfgo statically
+        run: |
+          git submodule init
+          git submodule update --recursive
+          make -C libbpfgo libbpfgo-static
+
+      - name: Generate vmlinux.h
+        run: |
+          mkdir -p bpf
+          if [ ! -f bpf/vmlinux.h ]; then
+            bpftool btf dump file /sys/kernel/btf/vmlinux format c > bpf/vmlinux.h
+          fi
+
+      - name: Build BPF programs for amd64
+        run: |
+          make xcover/bpf ARCH=x86
+        env:
+          ARCH: x86
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PWD: ${{ github.workspace }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          retention-days: 7

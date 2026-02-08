@@ -13,7 +13,12 @@ import (
 )
 
 // TestLoadFunctionsFromGoPclntab tests that we can load function symbols
-// from the .gopclntab section of a stripped Go binary
+// from the .gopclntab section of a stripped Go binary.
+//
+// IMPORTANT: This test validates that offsets are correctly converted from
+// virtual addresses (VA) to file offsets. The .gopclntab section contains
+// function entry points as VAs, but uprobes require file offsets.
+// The conversion formula is: fileOffset = VA - textSection.Addr + textSection.Offset
 func TestLoadFunctionsFromGoPclntab(t *testing.T) {
 	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "xcover-gopclntab-test-*")
@@ -153,6 +158,28 @@ func main() {
 		assert.True(t, foundHello, "should have found main.hello function in stripped binary")
 		assert.True(t, foundWorld, "should have found main.world function in stripped binary")
 		assert.True(t, foundGreet, "should have found main.greet function in stripped binary")
+
+		// Verify that offsets are file offsets, not virtual addresses.
+		// This validates the fix for the bug where VA was used directly instead of converting to file offset.
+		textSection := elfFile.Section(".text")
+		require.NotNil(t, textSection, "should have .text section")
+
+		for _, fn := range tracee.funcs {
+			if fn.name == "main.hello" || fn.name == "main.world" || fn.name == "main.greet" {
+				// File offsets should be much smaller than virtual addresses.
+				// For a typical Go binary, .text starts at VA ~0x400000+ but file offset ~0x1000.
+				// So a valid file offset should be less than 1MB for our small test binary.
+				assert.Less(t, fn.offset, uint64(1024*1024),
+					"offset for %s should be a file offset, not a VA (got 0x%x)", fn.name, fn.offset)
+
+				// Also verify offset is within reasonable range (after text section start)
+				assert.GreaterOrEqual(t, fn.offset, textSection.Offset,
+					"offset for %s should be >= .text section file offset", fn.name)
+
+				t.Logf("VALIDATED: %s has file offset 0x%x (within .text @ 0x%x, VA 0x%x)",
+					fn.name, fn.offset, textSection.Offset, textSection.Addr)
+			}
+		}
 	})
 }
 

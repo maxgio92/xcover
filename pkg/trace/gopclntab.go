@@ -93,6 +93,12 @@ func (t *UserTracee) loadFunctionsFromGoPclntab() error {
 			Info:  byte(elf.STT_FUNC), // Mark as function type
 		}
 		elfSyms = append(elfSyms, sym)
+
+		t.logger.Debug().
+			Str("func", fn.Name).
+			Uint64("va", fn.Entry).
+			Uint64("file_offset", fileOffset).
+			Msg("converted VA to file offset")
 	}
 
 	// Filter symbols based on include/exclude patterns
@@ -127,10 +133,25 @@ func (t *UserTracee) loadFunctionsFromSymbols(funcSyms []elf.Symbol) error {
 		Msg("loading function offsets from symbols")
 
 	for _, sym := range funcSyms {
-		// Try to get the offset using the helper first (works for unstripped binaries)
+		// sym.Value should be a file offset
+		// - For normal ELF symbols, it's already a file offset
+		// - For symbols from .gopclntab, we convert VA to file offset before calling this function
 		offset := int64(sym.Value)
+
+		// Try to get the offset using the helper for validation/consistency,
+		// but fall back to sym.Value if it fails (which happens with stripped binaries)
 		if helperOffset, err := t.getSymbolOffset(sym.Name); err == nil {
 			offset = helperOffset
+			t.logger.Debug().
+				Str("symbol", sym.Name).
+				Int64("helper_offset", helperOffset).
+				Int64("sym_value", int64(sym.Value)).
+				Msg("using helper offset")
+		} else {
+			t.logger.Debug().
+				Str("symbol", sym.Name).
+				Int64("sym_value", int64(sym.Value)).
+				Msg("helper failed, using sym.Value as offset")
 		}
 
 		t.funcs[cookie(utils.Hash(sym.Name))] = funcInfo{

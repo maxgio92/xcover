@@ -5,65 +5,51 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="xcover"
+PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
+export $PATH
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root: sudo bash $0"
-    exit 1
-fi
+function main() {
+	# Check if running as root
+	if [ "$EUID" -ne 0 ]; then
+	    echo "Please run as root: sudo bash $0"
+	    exit 1
+	fi
 
-clear
-echo "=== xcover: Functional Test Coverage Profiler ==="
-echo
-sleep 1
+	clear
+	runCmd "# === xcover: Functional Test Coverage Profiler ==="
+	runCmd "# Profile coverage without instrumenting your binaries!"
+	echo
+	runCmd "# Let's test a demo Go application"
+	runCmd "cat demo-app.go"
+	sleep 2
+	clear
+	runCmd "go build demo-app.go"
+	runCmd "ls demo-app"
+	runCmd "# Start the profiler before running the functional tests"
+	runCmd "xcover run --detach --path demo-app --include '^main\.'"
+	runCmd "# Wait for the profiler to be ready"
+	runCmd "xcover wait"
+	runCmd "# Run test scenarios - xcover is tracing all function calls"
+	clear
+	runCmd "./demo-app add"
+	runCmd "./demo-app multiply"
+	runCmd "./demo-app greet"
+	runCmd "# Now let's stop profiler"
+	clear
+	runCmd "xcover stop"
+	runCmd "# Collect the coverage results:"
+	runCmd "cat xcover-report.json | jq '.cov_by_func'"
+	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"
+	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"
+	runCmd "cat xcover-report.json | jq"
+	runCmd "# Coverage profiled without source code changes or recompilation!"
+}
 
-echo "# Profile coverage without instrumenting your binaries!"
-echo "# Uses eBPF to trace function calls at runtime"
-echo
-sleep 2
+function runCmd() {
+	cmd=$1
+	echo "$ ${cmd}"
+	eval "${cmd}"
+	sleep 2
+}
 
-echo "$ xcover run --detach --path demo-app"
-$XCOVER run --detach --path $DEMO_APP
-sleep 2
-
-echo
-echo "$ xcover wait  # Wait for profiler to be ready"
-$XCOVER wait
-sleep 1
-
-echo
-echo "# Run test scenarios - xcover is tracing all function calls"
-echo "$ ./demo-app add"
-sleep 1
-$DEMO_APP add
-sleep 1
-
-echo "$ ./demo-app multiply"
-sleep 1
-$DEMO_APP multiply
-sleep 1
-
-echo "$ ./demo-app greet"
-sleep 1
-$DEMO_APP greet
-sleep 1
-
-echo
-echo "$ xcover stop  # Stop profiler and generate report"
-$XCOVER stop
-sleep 2
-
-echo
-echo "# View coverage results:"
-echo "$ cat xcover-report.json | jq '.cov_by_func'"
-cat xcover-report.json | jq '.cov_by_func'
-sleep 2
-
-echo
-echo "$ cat xcover-report.json | jq '.funcs_traced | length'"
-cat xcover-report.json | jq '.funcs_traced | length'
-sleep 2
-
-echo
-echo "✅ Coverage profiled without source code or recompilation!"
-sleep 2
+main $@

@@ -5,18 +5,22 @@ import (
 	"os"
 )
 
+//go:noinline
 func add(a, b int) int {
 	return a + b
 }
 
+//go:noinline
 func multiply(a, b int) int {
 	return a * b
 }
 
+//go:noinline
 func subtract(a, b int) int {
 	return a - b
 }
 
+//go:noinline
 func divide(a, b int) int {
 	if b == 0 {
 		return 0
@@ -24,6 +28,7 @@ func divide(a, b int) int {
 	return a / b
 }
 
+//go:noinline
 func greet(name string) {
 	fmt.Printf("Hello, %s!\n", name)
 }

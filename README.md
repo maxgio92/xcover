@@ -169,32 +169,36 @@ The coverage report will be available as `xcover-report.json` after stopping the
 
 ## CLI Reference
 
-### xcover
+## xcover
 
 xcover is a functional test coverage profiler
 
-#### Synopsis
+### Synopsis
+
 
 xcover is a functional test coverage profiler.
 
-Run the 'run' command to start the profiler and trace all functions in the target program.
-Wait for the profiler to be ready before executing your tests using the 'wait' command.
-Once ready, execute your functional tests while xcover captures coverage data.
-Stop the profiler to generate the final coverage report.
+Run the 'run' command to run the profiler that will trace all the functions of the tracee program.
+Wait for the profiler to be ready before running your tests, with the 'wait' command.
+Once the profiler is ready to trace all the functions, you can start running your tests.
+At the end of your tests, the profiler can be stopped and a report being collected.
 
-#### Options
+
+### Options
 
 ```
   -h, --help               help for xcover
       --log-level string   Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
 ```
 
-#### SEE ALSO
+### SEE ALSO
 
 * [xcover run](docs/xcover_run.md)	 - Run the coverage profiling for a program
 * [xcover status](docs/xcover_status.md)	 - Check the the xcover profiler status
 * [xcover stop](docs/xcover_stop.md)	 - Stop the xcover profiler daemon
 * [xcover wait](docs/xcover_wait.md)	 - Wait for the xcover profiler to be ready
+
+
 
 ## Development
 
@@ -236,3 +240,4 @@ Execute the test suite:
 ```shell
 make test
 ```
+

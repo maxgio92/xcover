@@ -78,11 +78,17 @@ func (t *UserTracee) loadFunctionsFromGoPclntab() error {
 		Msg("extracted functions from .gopclntab")
 
 	// Convert gosym.Func to elf.Symbol format for compatibility with existing code
+	// CRITICAL: fn.Entry is a virtual address, but uprobes need file offsets.
+	// We must convert: fileOffset = (virtualAddr - textVirtualAddr) + textFileOffset
+	textOffset := textSection.Offset
 	var elfSyms []elf.Symbol
 	for _, fn := range funcs {
+		// Convert virtual address to file offset
+		fileOffset := (fn.Entry - textAddr) + textOffset
+
 		sym := elf.Symbol{
 			Name:  fn.Name,
-			Value: fn.Entry,
+			Value: fileOffset, // Use file offset, not virtual address
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC), // Mark as function type
 		}
@@ -121,14 +127,8 @@ func (t *UserTracee) loadFunctionsFromSymbols(funcSyms []elf.Symbol) error {
 		Msg("loading function offsets from symbols")
 
 	for _, sym := range funcSyms {
-		// For Go binaries with .gopclntab, we can use the symbol value directly
-		// as it already represents the offset from the binary start.
-		// However, we still try to use SymbolToOffset for consistency and
-		// to handle edge cases.
+		// Try to get the offset using the helper first (works for unstripped binaries)
 		offset := int64(sym.Value)
-
-		// Try to get the offset using the helper, but fall back to sym.Value
-		// if it fails (which can happen with stripped binaries)
 		if helperOffset, err := t.getSymbolOffset(sym.Name); err == nil {
 			offset = helperOffset
 		}

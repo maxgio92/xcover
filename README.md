@@ -4,12 +4,168 @@
 [![Release](https://img.shields.io/github/v/tag/maxgio92/xcover)](https://github.com/maxgio92/xcover/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Profile coverage of functional tests without instrumenting your binaries.
+**Profile functional test coverage without instrumenting your binaries.**
 
-`xcover` (pronounced 'cross cover') enables to profile functional test coverage, by leveraging kernel instrumentation to probe functions in userland, and it's cross language.
-This makes possible to measure coverage on ELF binaries without ecosystem-specific instrumentation like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html) require.
+`xcover` (pronounced "cross cover") revolutionizes functional test coverage profiling by leveraging kernel instrumentation to probe userland functions. This cross-language approach measures coverage directly from ELF binaries, eliminating the need for ecosystem-specific tools like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html).
 
 ![xcover demo](assets/xcover-demo.gif)
+
+## Quickstart
+
+Get started with xcover in seconds. Launch the profiler in daemon mode, run your tests, then collect comprehensive coverage metrics:
+
+```shell
+$ xcover run --detach --path /path/to/bin
+$ xcover wait
+xcover is ready
+$ /path/to/bin test1
+$ /path/to/bin test2
+$ /path/to/bin test3
+$ xcover stop
+xcover is stopped
+$ cat xcover_report.json | jq .cov_by_func
+89.9786897
+```
+
+## How It Works
+
+xcover operates at the kernel level, instrumenting your binary's functions through eBPF probes. This unique approach provides several advantages:
+
+- **Language-agnostic profiling**: Works with any compiled binary
+- **Non-invasive instrumentation**: No source code modifications required
+- **Production-ready**: Minimal overhead with kernel-level efficiency
+- **Comprehensive coverage**: Traces all function calls in real-time
+
+The profiler runs as a daemon, monitoring function invocations as your tests execute. Once complete, xcover generates detailed coverage reports showing exactly which functions were exercised.
+
+## Filter
+
+Target specific processes, binaries, or functions to focus your coverage analysis.
+
+### Filter by Process
+
+Profile a specific running process by PID:
+
+```shell
+xcover run --pid PID
+```
+
+### Filter by Binary
+
+Target a specific executable path:
+
+```shell
+xcover run --path EXE_PATH
+```
+
+### Filter Functions
+
+Include specific functions using regex patterns:
+
+```shell
+xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
+```
+
+Exclude functions you don't want to trace:
+
+```shell
+xcover run --path EXE_PATH --exclude "^runtime.|^internal"
+```
+
+## Symbolization
+
+xcover relies on symbolization to discover function names and addresses within target binaries. Understanding how symbolization works helps you maximize coverage profiling effectiveness.
+
+### Symbol Table
+
+ELF binaries contain a symbol table with function metadata, including names and memory addresses. xcover consumes this table to identify traceable functions. When you apply filters (`--include`, `--exclude`), they operate against these discovered symbols.
+
+### Stripped Binaries
+
+Production binaries often strip the standard symbol table (`.symtab`) to reduce size, removing the metadata xcover needs for standard profiling. To handle stripped binaries, xcover implements language-specific fallback mechanisms.
+
+#### Go
+
+xcover seamlessly supports stripped Go binaries by reading the `.gopclntab` (Go Program Counter Line Table) section. This metadata structure persists even after stripping, providing complete function information for coverage analysis.
+
+The Go symbolization fallback:
+- Activates automatically when `.symtab` is unavailable
+- Supports Go 1.2+ binaries
+- Maintains full compatibility with symbol filtering
+- Requires no additional configuration
+
+## Daemon Mode
+
+Run xcover as a background daemon for flexible test execution. This mode enables you to start the profiler, run multiple test suites, and collect results when complete.
+
+Launch the daemon with the `--detach` flag:
+
+```shell
+$ xcover run --detach --path /path/to/bin
+```
+
+Check the profiler status:
+
+```shell
+$ xcover status
+xcover is running (PID 1234)
+```
+
+Stop the daemon and collect results:
+
+```shell
+$ xcover stop
+xcover is stopped
+```
+
+## Report
+
+xcover automatically generates comprehensive coverage reports in JSON format, detailing traced functions, acknowledged functions, coverage percentages, and executable information.
+
+### Report Structure
+
+The coverage report follows this schema:
+
+```go
+type CoverageReport struct {
+	FuncsTraced []string `json:"funcs_traced"`
+	FuncsAck    []string `json:"funcs_ack"`
+	CovByFunc   float64  `json:"cov_by_func"`
+	ExePath     string   `json:"exe_path"`
+}
+```
+
+### Generating Reports
+
+Enable reporting with the `--report` flag when running your profiler:
+
+```shell
+$ xcover run --path myapp --verbose=false --report
+^C5:02PM INF written report to xcover-report.json
+$ cat xcover-report.json | jq '.cov_by_func'
+15.601900739176347
+```
+
+## Synchronization
+
+Synchronize test execution with xcover's readiness state to ensure accurate coverage capture. The `wait` command blocks until the profiler has fully initialized and begun tracing all target functions.
+
+### Synchronization Workflow
+
+Use the `wait` command to coordinate profiler initialization with test execution:
+
+```shell
+$ xcover run --detach --path /path/to/bin
+$ xcover wait
+1:30PM INF waiting for the profiler to be ready
+1:30PM INF profiler is ready
+$ /path/to/bin test_1
+$ /path/to/bin test_2
+$ /path/to/bin test_3
+$ xcover stop
+```
+
+The coverage report will be available as `xcover-report.json` after stopping the profiler.
 
 ## CLI Reference
 
@@ -44,138 +200,6 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 
 
-## Filter
-
-### Filter by process
-
-```shell
-xcover run --pid PID
-```
-
-### Filter by binary
-
-```shell
-xcover run --path EXE_PATH
-```
-
-### Filter functions
-
-For including specific functions:
-
-```shell
-xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
-```
-
-or excluding some:
-
-```shell
-xcover run --path EXE_PATH --exclude "^runtime.|^internal"
-```
-
-## Symbolization
-
-xcover uses symbolization to gather function symbols from target binaries. These symbols identify the functions that will be instrumented for coverage profiling.
-
-### Symbol table
-
-The symbol table in ELF binaries contains metadata about functions, including their names and addresses. xcover consumes this symbol table to discover which functions to trace during profiling. Filters (`--include`, `--exclude`) are applied against these symbols.
-
-### Stripped binaries
-
-When the standard symbol table (`.symtab`) is removed to reduce binary size, the metadata xcover needs for symbolization is eliminated, preventing standard coverage profiling. To support stripped binaries, language-specific solutions are required to recover function symbols.
-
-#### Go
-
-xcover supports Go binaries by reading the `.gopclntab` (Go Program Counter Line Table) section, which is retained even when the symbol table is removed. xcover automatically detects and extracts function symbols from `.gopclntab` as a fallback, enabling coverage profiling without additional configuration.
-
-This feature works with Go 1.2+ binaries and maintains full compatibility with symbol filtering (`--include`, `--exclude`).
-
-## Daemon mode
-
-You can run the profiler as daemon with the `--detach` flag:
-
-```shell
-$ xcover run --detach --path /path/to/bin
-```
-
-Check the status with the `status` command:
-
-```shell
-$ xcover status
-xcover is running (PID 1234)
-```
-
-And stop it with the `stop` command:
-
-```shell
-$ xcover stop
-xcover is stopped
-```
-
-## Report
-
-A coverage report is generated by default, and can be controlled with the `run` command's `--report` flag.
-
-The report is provided in JSON format and contains
-* the functions that have been traced
-* the functions acknowledged
-* the coverage by function percentage
-* the executable path
-
-```go
-type CoverageReport struct {
-	FuncsTraced []string `json:"funcs_traced"`
-	FuncsAck    []string `json:"funcs_ack"`
-	CovByFunc   float64  `json:"cov_by_func"`
-	ExePath     string   `json:"exe_path"`
-}
-```
-
-For instance:
-
-```shell
-$ xcover run --path myapp --verbose=false --report
-`^C5:02PM INF written report to xcover-report.json`
-$ cat xcover-report.json | jq '.cov_by_func'
-15.601900739176347
-```
-
-## Synchronization
-
-It is possible to synchronize on the `xcover` readiness, meaning that userspace can proceed executing the tests because xcover is ready to trace them all.
-
-You can use the `wait` command to wait for the `xcover` profiler to be ready:
-
-```shell
-$ xcover run --detach --path /path/to/bin
-$ xcover wait
-1:30PM INF waiting for the profiler to be ready
-1:30PM INF profiler is ready
-$ /path/to/bin test_1
-$ /path/to/bin test_2
-$ /path/to/bin test_3
-$ xcover stop
-```
-
-and collect the coverage as `xcover-report.json`.
-
-## Quickstart
-
-A full example of usage is described below:
-
-```shell
-$ xcover run --detach --path /path/to/bin
-$ xcover wait
-xcover is ready
-$ /path/to/bin test1
-$ /path/to/bin test2
-$ /path/to/bin test3
-$ xcover stop
-xcover is stopped
-$ cat xcover_report.json | jq .cov_by_func
-89.9786897
-```
-
 ## Development
 
 ### Prerequisites
@@ -185,27 +209,33 @@ $ cat xcover_report.json | jq .cov_by_func
 - `go`
 - `libbf-dev`
 
-### Build all
+### Build All
 
-By default it statically compile xcover with libbfgo, and libbpfgo with libbpf.
+By default, xcover compiles statically with libbpfgo, linking libbpfgo with libbpf:
 
 ```shell
 make xcover
 ```
 
-### Build BPF only
+### Build BPF Only
+
+Compile only the BPF components:
 
 ```shell
 make xcover/bpf
 ```
 
-### Build frontend only
+### Build Frontend Only
+
+Compile only the frontend application:
 
 ```shell
 make xcover/frontend
 ```
 
-### Run test
+### Run Tests
+
+Execute the test suite:
 
 ```shell
 make test

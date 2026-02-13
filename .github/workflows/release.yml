@@ -77,6 +77,11 @@ jobs:
         env:
           ARCH: x86
 
+      - name: Configure git to ignore submodule changes
+        run: |
+          git config diff.ignoreSubmodules dirty
+          git submodule foreach --recursive 'git config diff.ignoreSubmodules dirty'
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:

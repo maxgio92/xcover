@@ -157,3 +157,26 @@ func BenchmarkIdle(b *testing.B) {
 
 	results.Idle = summarise(samples)
 }
+
+// BenchmarkMiss measures uprobe overhead on the miss path.
+// N distinct functions are each called exactly once, so every uprobe firing
+// hits the full slow path (cookie not in seen_funcs → map update →
+// ringbuf reserve → submit).
+func BenchmarkMiss(b *testing.B) {
+	cancel := startTracer(b, missBinary, `^func_[0-9]+$`)
+	defer cancel()
+
+	var samples []float64
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns, err := runTarget(missBinary)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.ReportMetric(ns, "ns/call")
+		samples = append(samples, ns)
+	}
+
+	results.Miss = summarise(samples)
+}

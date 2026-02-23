@@ -111,3 +111,49 @@ func BenchmarkBaseline(b *testing.B) {
 
 	results.Baseline = summarise(samples)
 }
+
+// BenchmarkHit measures uprobe overhead on the steady-state hit path.
+// target_func is probed and called N times: after the first call its cookie
+// is already in seen_funcs, so all subsequent firings take the fast path
+// (map lookup hit → early return).
+func BenchmarkHit(b *testing.B) {
+	cancel := startTracer(b, hitBinary, `^target_func$`)
+	defer cancel()
+
+	var samples []float64
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns, err := runTarget(hitBinary)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.ReportMetric(ns, "ns/call")
+		samples = append(samples, ns)
+	}
+
+	results.Hit = summarise(samples)
+}
+
+// BenchmarkIdle measures the overhead on code that is not probed while a
+// probe is attached to a different function in the same binary.
+// target_func is probed but never called; idle_func is timed instead.
+// Expected result: idle ≈ baseline, showing probes don't affect unprobed paths.
+func BenchmarkIdle(b *testing.B) {
+	cancel := startTracer(b, idleBinary, `^target_func$`)
+	defer cancel()
+
+	var samples []float64
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ns, err := runTarget(idleBinary)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.ReportMetric(ns, "ns/call")
+		samples = append(samples, ns)
+	}
+
+	results.Idle = summarise(samples)
+}

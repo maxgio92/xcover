@@ -5,7 +5,7 @@ import (
 	"embed"
 	"path/filepath"
 
-	bpf "github.com/maxgio92/libbpfgo"
+	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 )

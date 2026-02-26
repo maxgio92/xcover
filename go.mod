@@ -3,8 +3,8 @@ module github.com/maxgio92/xcover
 go 1.23.6
 
 require (
+	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1
 	github.com/aquasecurity/libbpfgo/helpers v0.4.5
-	github.com/maxgio92/libbpfgo v0.8.0-libbpf-1.5.0.20250418083050-76085eb28951
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.9.1

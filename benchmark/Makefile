@@ -2,7 +2,7 @@ CC     ?= gcc
 CFLAGS ?= -O0 -g
 
 # Number of distinct functions generated for the miss scenario.
-N ?= 1000
+N ?= 10000
 
 # Project root (one level up from benchmark/).
 ROOTDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)

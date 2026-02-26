@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#define N 1000000
+#define N 10000
 
 int __attribute__((noinline)) target_func(int a, int b)
 {

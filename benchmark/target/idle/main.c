@@ -14,7 +14,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#define N 1000000
+#define N 10000
 
 /* Probed by xcover, but not called during the timed loop. */
 int __attribute__((noinline)) target_func(int a, int b)

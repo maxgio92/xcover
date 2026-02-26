@@ -6,6 +6,8 @@ N ?= 10000
 
 # Time or iterations spent on each scenario benchmark.
 # When time is provided, number of iterations (b.N) is calculated.
+# Iterations share the BPF state, that is, uprobes and maps are
+# loaded and unloaded just once across all.
 #
 # To accurately measure the miss scenario, b.N must be 1.
 #
@@ -51,6 +53,16 @@ N ?= 10000
 # * b.N must be 1 to accurately bench the miss scenario.
 BENCHTIME ?= 1x
 
+# Count do not share the BPF state, that is, uprobes and maps are
+# loaded and unloaded just once across all.
+# -benchtime=1x  run each benchmark for exactly 1 iteration (b.N=1). Prevents
+#                the seen_funcs BPF map from carrying over into subsequent
+#                iterations, which would turn miss measurements into hit ones.
+# -count=100     call each benchmark 100 times independently, restarting the
+#                tracer and resetting the BPF map each time. Produces 100 clean
+#                samples per scenario for reliable p50/p99 estimation.
+COUNT ?= 1
+
 # Project root (one level up from benchmark/).
 ROOTDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 
@@ -74,7 +86,7 @@ bench: libbpfgo-static all
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -bench=. -run='^$$' -v -count=1 -benchtime=$(BENCHTIME) .
+		go test -bench=. -run='^$$' -v -count=1 -benchtime=$(BENCHTIME) -count=$(COUNT) .
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:

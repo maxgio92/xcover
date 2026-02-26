@@ -4,6 +4,9 @@ CFLAGS ?= -O0 -g
 # Number of distinct functions generated for the miss scenario.
 N ?= 10000
 
+# Time spent on each scenario.
+BENCHTIME ?= 10s
+
 # Project root (one level up from benchmark/).
 ROOTDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 
@@ -27,7 +30,7 @@ bench: libbpfgo-static all
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -bench=. -run='^$$' -v -count=1 .
+		go test -bench=. -run='^$$' -v -count=1 -benchtime=$(BENCHTIME) .
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:

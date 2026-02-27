@@ -57,6 +57,14 @@ func TestMain(m *testing.M) {
 		Hit:      summarise(hitSamples),
 		Idle:     summarise(idleSamples),
 		Miss:     summarise(missSamples),
+		Deltas: Deltas{
+			IdleVsBaseline: diffSummary(report.Idle, report.Baseline),
+			HitVsBaseline:  diffSummary(report.Hit, report.Baseline),
+			HitVsIdle:      diffSummary(report.Hit, report.Idle),
+			MissVsBaseline: diffSummary(report.Miss, report.Baseline),
+			MissVsIdle:     diffSummary(report.Miss, report.Idle),
+			MissVsHit:      diffSummary(report.Miss, report.Hit),
+		},
 	}
 	if err := writeReport(reportPath, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)

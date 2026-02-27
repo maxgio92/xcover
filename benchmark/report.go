@@ -24,6 +24,35 @@ type Report struct {
 	// Miss: uprobe overhead on the cold path — every function is called once,
 	// so every firing hits the slow path (map update + ringbuf submit).
 	Miss Summary `json:"miss"`
+	// Deltas holds pairwise overhead differences between scenarios.
+	Deltas Deltas `json:"deltas"`
+}
+
+// Delta holds the element-wise difference (a - b) between two Summary values.
+// All duration fields are in nanoseconds per call.
+type Delta struct {
+	Mean float64 `json:"mean_ns"`
+	P50  float64 `json:"p50_ns"`
+	P99  float64 `json:"p99_ns"`
+}
+
+// Deltas holds pairwise overhead comparisons between scenarios.
+type Deltas struct {
+	IdleVsBaseline Delta `json:"idle_vs_baseline"`
+	HitVsBaseline  Delta `json:"hit_vs_baseline"`
+	HitVsIdle      Delta `json:"hit_vs_idle"`
+	MissVsBaseline Delta `json:"miss_vs_baseline"`
+	MissVsIdle     Delta `json:"miss_vs_idle"`
+	MissVsHit      Delta `json:"miss_vs_hit"`
+}
+
+// diffSummary returns the element-wise difference a - b.
+func diffSummary(a, b Summary) Delta {
+	return Delta{
+		Mean: round2(a.Mean - b.Mean),
+		P50:  round2(a.P50 - b.P50),
+		P99:  round2(a.P99 - b.P99),
+	}
 }
 
 // Summary holds per-scenario descriptive statistics computed from the

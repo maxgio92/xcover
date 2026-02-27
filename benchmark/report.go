@@ -28,12 +28,12 @@ type Report struct {
 	Overheads Overheads `json:"overheads"`
 }
 
-// Overhead holds the relative latency overhead of scenario a over scenario b,
-// expressed as a decimal fraction: 0.10 means a is 10% slower than b.
+// Overhead holds the slowdown of scenario a relative to scenario b,
+// expressed as a multiplier: 2.0 means a takes twice as long as b.
 type Overhead struct {
-	Mean float64 `json:"mean_pct"`
-	P50  float64 `json:"p50_pct"`
-	P99  float64 `json:"p99_pct"`
+	Mean float64 `json:"mean_x"`
+	P50  float64 `json:"p50_x"`
+	P99  float64 `json:"p99_x"`
 }
 
 // Overheads holds pairwise relative overhead comparisons between scenarios.
@@ -46,27 +46,24 @@ type Overheads struct {
 	MissVsHit      Overhead `json:"miss_vs_hit"`
 }
 
-// relOverhead returns the element-wise relative overhead (a - b) / b.
+// relOverhead returns the element-wise slowdown multiplier a / b.
 func relOverhead(a, b Summary) Overhead {
 	return Overhead{
-		Mean: round4(relDiff(a.Mean, b.Mean)),
-		P50:  round4(relDiff(a.P50, b.P50)),
-		P99:  round4(relDiff(a.P99, b.P99)),
+		Mean: round2(ratio(a.Mean, b.Mean)),
+		P50:  round2(ratio(a.P50, b.P50)),
+		P99:  round2(ratio(a.P99, b.P99)),
 	}
 }
 
-// relDiff returns (a - b) / b, or 0 if b is zero.
-func relDiff(a, b float64) float64 {
+// ratio returns a / b, or 0 if b is zero.
+func ratio(a, b float64) float64 {
 	if b == 0 {
 		return 0
 	}
-	return (a - b) / b
+	return a / b
 }
 
-// round4 rounds v to four decimal places.
-func round4(v float64) float64 {
-	return math.Round(v*10000) / 10000
-}
+
 
 // Summary holds per-scenario descriptive statistics computed from the
 // ns/call samples collected across benchmark iterations.

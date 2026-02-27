@@ -65,10 +65,10 @@ Results are written to `bench-report.json`. Summaries are computed across all `-
   "hit":      { "..." },
   "miss":     { "..." },
   "overheads": {
-    "hit_vs_baseline":  { "mean_pct": 799.29, "p50_pct": "...", "p99_pct": "..." },
-    "miss_vs_hit":      { "mean_pct": 0.80,   "p50_pct": "...", "p99_pct": "..." }
+    "hit_vs_baseline":  { "mean_x": 800.29, "p50_x": "...", "p99_x": "..." },
+    "miss_vs_hit":      { "mean_x": 1.80,   "p50_x": "...", "p99_x": "..." }
   }
 }
 ```
 
-Overhead values are `(a - b) / b` as a decimal fraction: `0.80` means scenario `a` costs 80% more than `b` (i.e., `a = 1.80 × b`).
+Overhead values are the slowdown multiplier `a / b`: `1.80` means scenario `a` takes 1.8× as long as `b`. `1.0` means identical cost.

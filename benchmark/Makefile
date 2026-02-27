@@ -80,10 +80,8 @@ CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 all: hit idle miss
 
 ## bench: build libbpfgo-static, C targets, and run Go benchmarks.
-# The bench is pinned to a CPU.
 bench: libbpfgo-static all
-	@taskset -c 0 \
-	sudo \
+	@sudo \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \

@@ -53,22 +53,14 @@ func TestMain(m *testing.M) {
 		Hit:      summarise(hitSamples),
 		Idle:     summarise(idleSamples),
 		Miss:     summarise(missSamples),
-		Deltas: Deltas{
-			IdleVsBaseline: diffSummary(report.Idle, report.Baseline),
-			HitVsBaseline:  diffSummary(report.Hit, report.Baseline),
-			HitVsIdle:      diffSummary(report.Hit, report.Idle),
-			MissVsBaseline: diffSummary(report.Miss, report.Baseline),
-			MissVsIdle:     diffSummary(report.Miss, report.Idle),
-			MissVsHit:      diffSummary(report.Miss, report.Hit),
-		},
 	}
-	report.Deltas = Deltas{
-		IdleVsBaseline: diffSummary(report.Idle, report.Baseline),
-		HitVsBaseline:  diffSummary(report.Hit, report.Baseline),
-		HitVsIdle:      diffSummary(report.Hit, report.Idle),
-		MissVsBaseline: diffSummary(report.Miss, report.Baseline),
-		MissVsIdle:     diffSummary(report.Miss, report.Idle),
-		MissVsHit:      diffSummary(report.Miss, report.Hit),
+	report.Overheads = Overheads{
+		IdleVsBaseline: relOverhead(report.Idle, report.Baseline),
+		HitVsBaseline:  relOverhead(report.Hit, report.Baseline),
+		HitVsIdle:      relOverhead(report.Hit, report.Idle),
+		MissVsBaseline: relOverhead(report.Miss, report.Baseline),
+		MissVsIdle:     relOverhead(report.Miss, report.Idle),
+		MissVsHit:      relOverhead(report.Miss, report.Hit),
 	}
 	if err := writeReport(reportPath, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)

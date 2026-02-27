@@ -24,35 +24,48 @@ type Report struct {
 	// Miss: uprobe overhead on the cold path — every function is called once,
 	// so every firing hits the slow path (map update + ringbuf submit).
 	Miss Summary `json:"miss"`
-	// Deltas holds pairwise overhead differences between scenarios.
-	Deltas Deltas `json:"deltas"`
+	// Overheads holds pairwise relative overhead comparisons between scenarios.
+	Overheads Overheads `json:"overheads"`
 }
 
-// Delta holds the element-wise difference (a - b) between two Summary values.
-// All duration fields are in nanoseconds per call.
-type Delta struct {
-	Mean float64 `json:"mean_ns"`
-	P50  float64 `json:"p50_ns"`
-	P99  float64 `json:"p99_ns"`
+// Overhead holds the relative latency overhead of scenario a over scenario b,
+// expressed as a decimal fraction: 0.10 means a is 10% slower than b.
+type Overhead struct {
+	Mean float64 `json:"mean_pct"`
+	P50  float64 `json:"p50_pct"`
+	P99  float64 `json:"p99_pct"`
 }
 
-// Deltas holds pairwise overhead comparisons between scenarios.
-type Deltas struct {
-	IdleVsBaseline Delta `json:"idle_vs_baseline"`
-	HitVsBaseline  Delta `json:"hit_vs_baseline"`
-	HitVsIdle      Delta `json:"hit_vs_idle"`
-	MissVsBaseline Delta `json:"miss_vs_baseline"`
-	MissVsIdle     Delta `json:"miss_vs_idle"`
-	MissVsHit      Delta `json:"miss_vs_hit"`
+// Overheads holds pairwise relative overhead comparisons between scenarios.
+type Overheads struct {
+	IdleVsBaseline Overhead `json:"idle_vs_baseline"`
+	HitVsBaseline  Overhead `json:"hit_vs_baseline"`
+	HitVsIdle      Overhead `json:"hit_vs_idle"`
+	MissVsBaseline Overhead `json:"miss_vs_baseline"`
+	MissVsIdle     Overhead `json:"miss_vs_idle"`
+	MissVsHit      Overhead `json:"miss_vs_hit"`
 }
 
-// diffSummary returns the element-wise difference a - b.
-func diffSummary(a, b Summary) Delta {
-	return Delta{
-		Mean: round2(a.Mean - b.Mean),
-		P50:  round2(a.P50 - b.P50),
-		P99:  round2(a.P99 - b.P99),
+// relOverhead returns the element-wise relative overhead (a - b) / b.
+func relOverhead(a, b Summary) Overhead {
+	return Overhead{
+		Mean: round4(relDiff(a.Mean, b.Mean)),
+		P50:  round4(relDiff(a.P50, b.P50)),
+		P99:  round4(relDiff(a.P99, b.P99)),
 	}
+}
+
+// relDiff returns (a - b) / b, or 0 if b is zero.
+func relDiff(a, b float64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return (a - b) / b
+}
+
+// round4 rounds v to four decimal places.
+func round4(v float64) float64 {
+	return math.Round(v*10000) / 10000
 }
 
 // Summary holds per-scenario descriptive statistics computed from the

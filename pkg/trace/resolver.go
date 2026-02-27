@@ -3,9 +3,10 @@ package trace
 import (
 	"debug/elf"
 	"debug/gosym"
+	"fmt"
+	"io"
 	"regexp"
 
-	"github.com/aquasecurity/libbpfgo/helpers"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 )
@@ -16,38 +17,38 @@ type FunctionEntry struct {
 	Offset uint64
 }
 
-// FunctionResolver resolves the set of functions to trace from a binary path.
-// It returns a list of FunctionEntry values ready for uprobe attachment.
-type FunctionResolver func(path string) ([]FunctionEntry, error)
+// FunctionResolver resolves the set of functions to trace from a binary.
+// It accepts an io.ReaderAt so callers are not tied to the filesystem,
+// making the resolver easier to test and compose.
+type FunctionResolver func(r io.ReaderAt) ([]FunctionEntry, error)
 
 // SymbolTableResolver returns a FunctionResolver backed by the ELF symbol table,
 // with a .gopclntab fallback for stripped Go binaries.
 func SymbolTableResolver(logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
-	return func(path string) ([]FunctionEntry, error) {
-		f, err := elf.Open(path)
+	return func(r io.ReaderAt) ([]FunctionEntry, error) {
+		f, err := elf.NewFile(r)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to open ELF file")
+			return nil, errors.Wrap(err, "failed to parse ELF")
 		}
-		defer f.Close()
 
 		syms, err := funcSymsFromELF(f, include, exclude, bindInclude, bindExclude)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
-				return funcEntriesFromGoPclntab(f, path, include, exclude, bindInclude, bindExclude, logger)
+				return funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
 			}
 			return nil, err
 		}
 		if len(syms) == 0 {
 			logger.Info().Msg("no function symbols found, attempting .gopclntab fallback")
-			entries, goPclnErr := funcEntriesFromGoPclntab(f, path, include, exclude, bindInclude, bindExclude, logger)
+			entries, goPclnErr := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
 			if goPclnErr != nil {
 				return nil, ErrNoFunctionSymbols
 			}
 			return entries, nil
 		}
 
-		return funcEntriesFromSymbols(path, syms, logger)
+		return funcEntriesFromSymbols(f, syms, logger)
 	}
 }
 
@@ -72,17 +73,19 @@ func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExcl
 }
 
 // funcEntriesFromSymbols converts a list of ELF function symbols to FunctionEntry values.
-func funcEntriesFromSymbols(path string, syms []elf.Symbol, logger log.Logger) ([]FunctionEntry, error) {
+// sym.Value carries a virtual address; vaToFileOffset converts it to the file offset
+// required for uprobe attachment.
+func funcEntriesFromSymbols(f *elf.File, syms []elf.Symbol, logger log.Logger) ([]FunctionEntry, error) {
 	var entries []FunctionEntry
 	for _, sym := range syms {
-		offset := int64(sym.Value)
-		if helperOffset, err := helpers.SymbolToOffset(path, sym.Name); err == nil {
-			offset = helperOffset
-			logger.Debug().Str("symbol", sym.Name).Int64("offset", offset).Msg("resolved offset via helper")
+		offset := sym.Value
+		if fileOffset, err := vaToFileOffset(f, sym.Value); err == nil {
+			offset = fileOffset
+			logger.Debug().Str("symbol", sym.Name).Uint64("offset", offset).Msg("resolved file offset from VA")
 		} else {
-			logger.Debug().Str("symbol", sym.Name).Int64("offset", offset).Msg("helper failed, using sym.Value as offset")
+			logger.Debug().Str("symbol", sym.Name).Uint64("offset", offset).Msg("VA conversion failed, using sym.Value as offset")
 		}
-		entries = append(entries, FunctionEntry{Name: sym.Name, Offset: uint64(offset)})
+		entries = append(entries, FunctionEntry{Name: sym.Name, Offset: offset})
 	}
 	if len(entries) == 0 {
 		return nil, ErrNoOffsets
@@ -92,7 +95,9 @@ func funcEntriesFromSymbols(path string, syms []elf.Symbol, logger log.Logger) (
 
 // funcEntriesFromGoPclntab extracts function entries from the .gopclntab section.
 // This works even for stripped Go binaries where the ELF symbol table is absent.
-func funcEntriesFromGoPclntab(f *elf.File, path, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
+// Offsets in .gopclntab are virtual addresses; they are converted to file offsets
+// using the .text section header before being returned.
+func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
 	pclntabSection := f.Section(".gopclntab")
 	if pclntabSection == nil {
 		return nil, errors.New("no .gopclntab section found - not a Go binary or section stripped")
@@ -121,6 +126,9 @@ func funcEntriesFromGoPclntab(f *elf.File, path, include, exclude string, bindIn
 		return nil, errors.New("no functions found in .gopclntab")
 	}
 
+	// Convert VA→file offset up front; funcEntriesFromSymbols will pass these
+	// through vaToFileOffset which will fail (they are already file offsets) and
+	// fall back to sym.Value — which is correct.
 	var elfSyms []elf.Symbol
 	for _, fn := range table.Funcs {
 		fileOffset := (fn.Entry - textAddr) + textOffset
@@ -142,7 +150,21 @@ func funcEntriesFromGoPclntab(f *elf.File, path, include, exclude string, bindIn
 		return nil, ErrNoFunctionSymbols
 	}
 
-	return funcEntriesFromSymbols(path, filtered, logger)
+	return funcEntriesFromSymbols(f, filtered, logger)
+}
+
+// vaToFileOffset converts a virtual address to a file offset using the
+// binary's PT_LOAD program headers.
+func vaToFileOffset(f *elf.File, va uint64) (uint64, error) {
+	for _, prog := range f.Progs {
+		if prog.Type != elf.PT_LOAD {
+			continue
+		}
+		if va >= prog.Vaddr && va < prog.Vaddr+prog.Filesz {
+			return va - prog.Vaddr + prog.Off, nil
+		}
+	}
+	return 0, fmt.Errorf("VA 0x%x not covered by any loadable segment", va)
 }
 
 // shouldInclude reports whether sym passes the include/exclude filters.

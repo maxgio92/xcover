@@ -1,10 +1,14 @@
-# xcover uprobe latency benchmark
+# xcover latency benchmark
 
 Measures the per-call overhead that xcover's uprobe-based tracing adds to a target binary, across three distinct execution paths.
 
 ## Background
 
-xcover attaches a BPF program to every traced function via `uprobe_multi`. When a traced function is called, the kernel transfers control to the BPF handler before resuming the function. The handler does one of two things depending on whether it has seen this function before:
+xcover attaches a BPF program to every traced function via `uprobe_multi`. When a traced function is called, the kernel transfers control to the BPF handler before resuming the function.
+
+**How the kernel intercepts the call:** the target function's entry point is patched *in the process's virtual memory* (the on-disk binary is not modified) with a breakpoint instruction (`int3`). The original instruction is saved. When the CPU hits `int3` it raises a trap, transitioning to kernel mode. The kernel runs the uprobe BPF handler, then single-steps the saved original instruction and returns to userspace. This kernel/user round-trip on every call is the core **cost of uprobe**-based tracing.
+
+The handler does one of two things depending on whether it has seen this function before:
 
 **Hit path** - the function's cookie is already in the `seen_funcs` BPF hash map:
 ```
@@ -38,12 +42,17 @@ Each scenario has a C target binary that times its own execution using `clock_ge
 ```sh
 # Build targets and run 100 rounds
 make bench
-
-# Custom count
-sudo go test -v -run='^$' -bench=. -benchtime=1x -count=10 ./benchmark/
 ```
 
-Requires root (or `CAP_BPF` + `CAP_PERFMON`) to load BPF programs.
+> Requires `sudo` (because of needed `CAP_BPF` + `CAP_PERFMON`) to load BPF programs.
+
+### Custom rounds
+
+```
+make -e COUNT=ROUNDS bench
+```
+
+where `ROUNDS` is a integer number that is passed to `go test -bench -count=ROUNDS`.
 
 ## Report
 

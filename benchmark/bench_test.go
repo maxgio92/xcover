@@ -26,6 +26,11 @@ const (
 	// tracerWarmup is the time given to the tracer to attach uprobes
 	// before the target binary is executed.
 	tracerWarmup = 300 * time.Millisecond
+	// tracerCooldown is the time waited after cancelling the tracer to let
+	// the kernel fully detach uprobes and unload the BPF program. Without
+	// this, uprobe handlers accumulate across -count runs, causing ns/call
+	// to grow monotonically with each count iteration.
+	tracerCooldown = 500 * time.Millisecond
 )
 
 var results = &Report{}
@@ -92,7 +97,12 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 	// Allow time for uprobes to attach before the target runs.
 	time.Sleep(tracerWarmup)
 
-	return cancel
+	// Wrap cancel to include a cooldown sleep so callers get the teardown
+	// delay transparently via defer cancel().
+	return func() {
+		cancel()
+		time.Sleep(tracerCooldown)
+	}
 }
 
 // BenchmarkBaseline measures plain function-call overhead with no probes

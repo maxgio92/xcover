@@ -63,8 +63,6 @@ func ratio(a, b float64) float64 {
 	return a / b
 }
 
-
-
 // Summary holds per-scenario descriptive statistics computed from the
 // ns/call samples collected across benchmark iterations.
 type Summary struct {

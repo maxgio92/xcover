@@ -61,7 +61,7 @@ BENCHTIME ?= 1x
 # -count=100     call each benchmark 100 times independently, restarting the
 #                tracer and resetting the BPF map each time. Produces 100 clean
 #                samples per scenario for reliable p50/p99 estimation.
-COUNT ?= 1
+COUNT ?= 100
 
 # Project root (one level up from benchmark/).
 ROOTDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)

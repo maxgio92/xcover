@@ -54,7 +54,7 @@ N ?= 10000
 BENCHTIME ?= 1x
 
 # Count do not share the BPF state, that is, uprobes and maps are
-# loaded and unloaded just once across all.
+# loaded and unloaded at every bench round (e.g. count=100, 100 load/unload).
 # -benchtime=1x  run each benchmark for exactly 1 iteration (b.N=1). Prevents
 #                the seen_funcs BPF map from carrying over into subsequent
 #                iterations, which would turn miss measurements into hit ones.
@@ -80,17 +80,22 @@ CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 all: hit idle miss
 
 ## bench: build libbpfgo-static, C targets, and run Go benchmarks.
+# The bench is pinned to a CPU.
 bench: libbpfgo-static all
-	@sudo \
+	@taskset -c 0 \
+	sudo \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -bench=. -run='^$$' -v -count=1 -benchtime=$(BENCHTIME) -count=$(COUNT) .
+		go test -bench=. -run='^$$' -v \
+			-benchtime=$(BENCHTIME) \
+			-count=$(COUNT) \
+			.
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:
-	$(MAKE) -C $(ROOTDIR) libbpfgo-static
+	@$(MAKE) -C $(ROOTDIR) libbpfgo-static
 
 ## hit: compile the hit scenario target binary.
 hit: target/hit/hit

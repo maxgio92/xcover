@@ -33,7 +33,16 @@ const (
 	tracerCooldown = 500 * time.Millisecond
 )
 
-var results = &Report{}
+// Package-level sample slices accumulate ns/call values across all -count
+// rounds. With -count=N each Benchmark* function runs N times; appending
+// here (rather than using a local slice per run) means summarise() in
+// TestMain sees the full population, not just the last round's samples.
+var (
+	baselineSamples []float64
+	hitSamples      []float64
+	idleSamples     []float64
+	missSamples     []float64
+)
 
 func TestMain(m *testing.M) {
 	if err := buildTargets(); err != nil {
@@ -43,7 +52,13 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	if err := writeReport(reportPath, results); err != nil {
+	report := &Report{
+		Baseline: summarise(baselineSamples),
+		Hit:      summarise(hitSamples),
+		Idle:     summarise(idleSamples),
+		Miss:     summarise(missSamples),
+	}
+	if err := writeReport(reportPath, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)
 	}
 
@@ -108,18 +123,14 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 // BenchmarkBaseline measures plain function-call overhead with no probes
 // attached. This is the reference point for computing uprobe overhead.
 func BenchmarkBaseline(b *testing.B) {
-	var samples []float64
-
 	for i := 0; i < b.N; i++ {
 		ns, err := runTarget(hitBinary)
 		if err != nil {
 			b.Fatal(err)
 		}
 		b.ReportMetric(ns, "ns/call")
-		samples = append(samples, ns)
+		baselineSamples = append(baselineSamples, ns)
 	}
-
-	results.Baseline = summarise(samples)
 }
 
 // BenchmarkHit measures uprobe overhead on the steady-state hit path.
@@ -130,8 +141,6 @@ func BenchmarkHit(b *testing.B) {
 	cancel := startTracer(b, hitBinary, `^target_func$`)
 	defer cancel()
 
-	var samples []float64
-
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns, err := runTarget(hitBinary)
@@ -139,10 +148,8 @@ func BenchmarkHit(b *testing.B) {
 			b.Fatal(err)
 		}
 		b.ReportMetric(ns, "ns/call")
-		samples = append(samples, ns)
+		hitSamples = append(hitSamples, ns)
 	}
-
-	results.Hit = summarise(samples)
 }
 
 // BenchmarkIdle measures the overhead on code that is not probed while a
@@ -153,8 +160,6 @@ func BenchmarkIdle(b *testing.B) {
 	cancel := startTracer(b, idleBinary, `^target_func$`)
 	defer cancel()
 
-	var samples []float64
-
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns, err := runTarget(idleBinary)
@@ -162,10 +167,8 @@ func BenchmarkIdle(b *testing.B) {
 			b.Fatal(err)
 		}
 		b.ReportMetric(ns, "ns/call")
-		samples = append(samples, ns)
+		idleSamples = append(idleSamples, ns)
 	}
-
-	results.Idle = summarise(samples)
 }
 
 // BenchmarkMiss measures uprobe overhead on the miss path.
@@ -176,8 +179,6 @@ func BenchmarkMiss(b *testing.B) {
 	cancel := startTracer(b, missBinary, `^func_[0-9]+$`)
 	defer cancel()
 
-	var samples []float64
-
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ns, err := runTarget(missBinary)
@@ -185,8 +186,6 @@ func BenchmarkMiss(b *testing.B) {
 			b.Fatal(err)
 		}
 		b.ReportMetric(ns, "ns/call")
-		samples = append(samples, ns)
+		missSamples = append(missSamples, ns)
 	}
-
-	results.Miss = summarise(samples)
 }

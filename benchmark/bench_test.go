@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,11 +27,6 @@ const (
 	// tracerWarmup is the time given to the tracer to attach uprobes
 	// before the target binary is executed.
 	tracerWarmup = 300 * time.Millisecond
-	// tracerCooldown is the time waited after cancelling the tracer to let
-	// the kernel fully detach uprobes and unload the BPF program. Without
-	// this, uprobe handlers accumulate across -count runs, causing ns/call
-	// to grow monotonically with each count iteration.
-	tracerCooldown = 500 * time.Millisecond
 )
 
 // Package-level sample slices accumulate ns/call values across all -count
@@ -123,16 +119,24 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 		cancel()
 		tb.Fatalf("tracer init: %v", err)
 	}
-	go tracer.Run(ctx) //nolint:errcheck
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tracer.Run(ctx) //nolint:errcheck
+	}()
 
 	// Allow time for uprobes to attach before the target runs.
 	time.Sleep(tracerWarmup)
 
-	// Wrap cancel to include a cooldown sleep so callers get the teardown
-	// delay transparently via defer cancel().
+	// Cancel the context and wait for Run() to return. Run() defers
+	// CloseBPFMod(), so by the time Wait() unblocks all BPF links have
+	// been destroyed and the kernel has detached the uprobes. No sleep
+	// needed - the next tracer only starts once the previous one is gone.
 	return func() {
 		cancel()
-		time.Sleep(tracerCooldown)
+		wg.Wait()
 	}
 }
 

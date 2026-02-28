@@ -59,6 +59,15 @@ test: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 		GOARCH=$(GOARCH) \
 		go test -ldflags=${LDFLAGS} -v $(TEST_PATH)
 
+.PHONY: test-integration
+test-integration: TEST_PATH ?= ./...
+test-integration: $(LIBBPFGO)-static | $(PROGRAM)/bpf
+	CC=gcc \
+	CGO_CFLAGS=$(CGO_CFLAGS) \
+	CGO_LDFLAGS=$(CGO_LDFLAGS) \
+		GOARCH=$(GOARCH) \
+		go test -tags integration -ldflags=${LDFLAGS} -v $(TEST_PATH)
+
 .PHONY: docs
 docs:
 	CC=gcc \

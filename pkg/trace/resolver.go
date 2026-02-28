@@ -47,7 +47,9 @@ func SymbolTableResolver(logger log.Logger, include, exclude string, bindInclude
 			return entries, nil
 		}
 
-		return funcEntriesFromSymbols(f, syms, logger)
+		return funcEntriesFromSymbols(syms, func(va uint64) (uint64, error) {
+			return vaToFileOffset(f, va)
+		}, logger)
 	}
 }
 
@@ -72,17 +74,14 @@ func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExcl
 }
 
 // funcEntriesFromSymbols converts a list of ELF function symbols to FunctionEntry values.
-// sym.Value carries a virtual address; vaToFileOffset converts it to the file offset
-// required for uprobe attachment.
-func funcEntriesFromSymbols(f *elf.File, syms []elf.Symbol, logger log.Logger) ([]FunctionEntry, error) {
+// toOffset converts sym.Value (a virtual address) to the file offset required for uprobe attachment.
+func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, error), logger log.Logger) ([]FunctionEntry, error) {
 	var entries []FunctionEntry
 	for _, sym := range syms {
-		offset := sym.Value
-		if fileOffset, err := vaToFileOffset(f, sym.Value); err == nil {
-			offset = fileOffset
-			logger.Debug().Str("symbol", sym.Name).Uint64("offset", offset).Msg("resolved file offset from VA")
-		} else {
-			logger.Debug().Str("symbol", sym.Name).Uint64("offset", offset).Msg("VA conversion failed, using sym.Value as offset")
+		offset, err := toOffset(sym.Value)
+		if err != nil {
+			logger.Debug().Str("symbol", sym.Name).Err(err).Msg("failed to resolve file offset, skipping")
+			continue
 		}
 		entries = append(entries, FunctionEntry{Name: sym.Name, Offset: offset})
 	}
@@ -123,31 +122,25 @@ func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude,
 		return nil, errors.New("no functions found in .gopclntab")
 	}
 
-	// Convert VA→file offset up front; funcEntriesFromSymbols will pass these
-	// through vaToFileOffset which will fail (they are already file offsets) and
-	// fall back to sym.Value — which is correct.
-	var elfSyms []elf.Symbol
+	var syms []elf.Symbol
 	for _, fn := range table.Funcs {
-		fileOffset := (fn.Entry - textAddr) + textOffset
-		elfSyms = append(elfSyms, elf.Symbol{
+		sym := elf.Symbol{
 			Name:  fn.Name,
-			Value: fileOffset,
+			Value: fn.Entry, // raw VA; toOffset below handles the conversion
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC),
-		})
-	}
-
-	var filtered []elf.Symbol
-	for _, sym := range elfSyms {
+		}
 		if shouldInclude(sym, include, exclude, bindInclude, bindExclude) {
-			filtered = append(filtered, sym)
+			syms = append(syms, sym)
 		}
 	}
-	if len(filtered) == 0 {
+	if len(syms) == 0 {
 		return nil, ErrNoFunctionSymbols
 	}
 
-	return funcEntriesFromSymbols(f, filtered, logger)
+	return funcEntriesFromSymbols(syms, func(va uint64) (uint64, error) {
+		return (va - textAddr) + textOffset, nil
+	}, logger)
 }
 
 // vaToFileOffset converts a virtual address to a file offset using the

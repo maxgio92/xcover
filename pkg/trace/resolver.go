@@ -18,8 +18,7 @@ type FunctionEntry struct {
 }
 
 // FunctionResolver resolves the set of functions to trace from a binary.
-// It accepts an io.ReaderAt so callers are not tied to the filesystem,
-// making the resolver easier to test and compose.
+// It accepts an io.ReaderAt.
 type FunctionResolver func(r io.ReaderAt) ([]FunctionEntry, error)
 
 // SymbolTableResolver returns a FunctionResolver backed by the ELF symbol table,
@@ -93,10 +92,8 @@ func funcEntriesFromSymbols(f *elf.File, syms []elf.Symbol, logger log.Logger) (
 	return entries, nil
 }
 
-// funcEntriesFromGoPclntab extracts function entries from the .gopclntab section.
-// This works even for stripped Go binaries where the ELF symbol table is absent.
-// Offsets in .gopclntab are virtual addresses; they are converted to file offsets
-// using the .text section header before being returned.
+// funcEntriesFromGoPclntab extracts function entries from the .gopclntab section,
+// which is retained even in stripped Go binaries.
 func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
 	pclntabSection := f.Section(".gopclntab")
 	if pclntabSection == nil {

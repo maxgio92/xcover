@@ -2,7 +2,6 @@ package trace
 
 import (
 	"debug/elf"
-	"os"
 
 	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/pkg/errors"
@@ -43,18 +42,12 @@ func (t *UserTracee) Init() error {
 		Str("exclude", t.symPatternExclude).
 		Msg("collecting functions")
 
-	f, err := os.Open(t.exePath)
-	if err != nil {
-		return errors.Wrap(err, "failed to open binary")
-	}
-	defer f.Close()
-
 	resolver := t.resolver
 	if resolver == nil {
-		resolver = SymbolTableResolver(t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+		resolver = SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 	}
 
-	entries, err := resolver(f)
+	entries, err := resolver()
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve functions")
 	}

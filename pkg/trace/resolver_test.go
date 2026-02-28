@@ -1,0 +1,103 @@
+package trace_test
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/maxgio92/xcover/pkg/trace"
+)
+
+// TestSymbolTableResolver_Direct calls SymbolTableResolver with an *os.File
+// directly, bypassing UserTracee. This verifies the resolver contract
+// independently of the tracee wiring.
+func TestSymbolTableResolver_Direct(t *testing.T) {
+	f, err := os.Open(testBinary)
+	require.NoError(t, err)
+	defer f.Close()
+
+	resolver := trace.SymbolTableResolver(testLogger, "", testExcludedSyms, nil, nil)
+	entries, err := resolver(f)
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.NotEmpty(t, e.Name)
+		assert.NotZero(t, e.Offset)
+	}
+}
+
+// TestSymbolTableResolver_IncludePattern verifies that the include filter is
+// applied when calling the resolver directly.
+func TestSymbolTableResolver_IncludePattern(t *testing.T) {
+	f, err := os.Open(testBinary)
+	require.NoError(t, err)
+	defer f.Close()
+
+	resolver := trace.SymbolTableResolver(testLogger, `^main\.`, "", nil, nil)
+	entries, err := resolver(f)
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.Regexp(t, `^main\.`, e.Name)
+	}
+}
+
+// TestSymbolTableResolver_NoMatch verifies that ErrNoFunctionSymbols is
+// returned when the include pattern matches nothing.
+func TestSymbolTableResolver_NoMatch(t *testing.T) {
+	f, err := os.Open(testBinary)
+	require.NoError(t, err)
+	defer f.Close()
+
+	resolver := trace.SymbolTableResolver(testLogger, `^nonexistentsymbol\.$`, "", nil, nil)
+	_, err = resolver(f)
+	assert.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
+}
+
+// TestSymbolTableResolver_InMemoryReader verifies that the resolver works with
+// an io.ReaderAt backed by an in-memory buffer, not just *os.File.
+func TestSymbolTableResolver_InMemoryReader(t *testing.T) {
+	data, err := os.ReadFile(testBinary)
+	require.NoError(t, err)
+
+	resolver := trace.SymbolTableResolver(testLogger, "", testExcludedSyms, nil, nil)
+	entries, err := resolver(bytes.NewReader(data))
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+}
+
+// TestWithTraceeResolver_CustomResolver verifies that a custom FunctionResolver
+// injected via WithTraceeResolver is called by Init() instead of the default.
+func TestWithTraceeResolver_CustomResolver(t *testing.T) {
+	want := []trace.FunctionEntry{
+		{Name: "custom.Alpha", Offset: 0x1000},
+		{Name: "custom.Beta", Offset: 0x2000},
+	}
+
+	called := false
+	custom := func(_ io.ReaderAt) ([]trace.FunctionEntry, error) {
+		called = true
+		return want, nil
+	}
+
+	tracee := trace.NewUserTracee(
+		trace.WithTraceeExePath(testBinary),
+		trace.WithTraceeResolver(custom),
+		trace.WithTraceeLogger(testLogger),
+	)
+	err := tracee.Init()
+	require.NoError(t, err)
+	assert.True(t, called, "custom resolver was not called")
+
+	names := tracee.GetFuncNames()
+	assert.Contains(t, names, "custom.Alpha")
+	assert.Contains(t, names, "custom.Beta")
+
+	offsets := tracee.GetFuncOffsets()
+	assert.Contains(t, offsets, uint64(0x1000))
+	assert.Contains(t, offsets, uint64(0x2000))
+}

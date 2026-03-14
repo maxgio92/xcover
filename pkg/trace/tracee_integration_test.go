@@ -191,42 +191,28 @@ func main() {
 	})
 }
 
-// TestLoadFunctionsFromGoPclntab_NoGoPclntab tests that we handle non-Go binaries gracefully
+// TestLoadFunctionsFromGoPclntab_NoGoPclntab verifies that a stripped non-Go binary
+// (no symbol table, no .gopclntab) is handled by RecoveryResolver, returning
+// synthesized func_0x<addr> entries rather than an error.
 func TestLoadFunctionsFromGoPclntab_NoGoPclntab(t *testing.T) {
-	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "xcover-gopclntab-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create a simple C program to test with
 	testProgramPath := filepath.Join(tmpDir, "testprogram.c")
-	testProgram := `#include <stdio.h>
-
-void hello() {
-    printf("Hello\\n");
-}
-
-int main() {
-    hello();
-    return 0;
-}
-`
-	err = os.WriteFile(testProgramPath, []byte(testProgram), 0644)
+	err = os.WriteFile(testProgramPath, []byte(`#include <stdio.h>
+void hello() { printf("Hello\n"); }
+int main() { hello(); return 0; }
+`), 0644)
 	require.NoError(t, err)
 
-	// Build the test program with gcc
 	binaryPath := filepath.Join(tmpDir, "testprogram")
-	cmd := exec.Command("gcc", "-o", binaryPath, testProgramPath)
-	output, err := cmd.CombinedOutput()
+	out, err := exec.Command("gcc", "-o", binaryPath, testProgramPath).CombinedOutput()
 	if err != nil {
-		t.Skipf("gcc not available or failed: %v, output: %s", err, output)
+		t.Skipf("gcc not available: %v: %s", err, out)
 	}
+	require.NoError(t, exec.Command("strip", binaryPath).Run())
 
-	// Strip it
-	cmd = exec.Command("strip", binaryPath)
-	require.NoError(t, cmd.Run())
-
-	// Try to load functions - should fail gracefully
 	logger := zerolog.New(os.Stdout).Level(zerolog.DebugLevel)
 	tracee := NewUserTracee(
 		WithTraceeExePath(binaryPath),
@@ -234,7 +220,11 @@ int main() {
 	)
 
 	err = tracee.Init(t.Context())
-	assert.Error(t, err, "should fail to load functions from non-Go stripped binary")
+	require.NoError(t, err, "RecoveryResolver should handle a stripped non-Go binary")
+	assert.NotEmpty(t, tracee.funcs)
+	for _, fn := range tracee.funcs {
+		assert.Regexp(t, `^func_0x[0-9a-f]+$`, fn.name)
+	}
 }
 
 // TestGoPclntabOffsetCalculation verifies that offsets from .gopclntab are

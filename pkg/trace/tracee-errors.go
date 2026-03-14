@@ -6,6 +6,7 @@ import (
 
 var (
 	ErrNoFunctionSymbols = errors.New("no functions found")
+	ErrNoSymbolTable     = errors.New("no symbol table available")
 	ErrNoOffsets         = errors.New("no function offsets found")
 	ErrExePathEmpty      = errors.New("exe path is empty")
 	ErrElfFileNil        = errors.New("elf file is nil")

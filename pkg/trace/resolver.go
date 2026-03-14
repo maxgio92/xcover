@@ -47,7 +47,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
-				return funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+				entries, err := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+				if err != nil {
+					return nil, errors.Wrap(ErrNoSymbolTable, err.Error())
+				}
+				return entries, nil
 			}
 			return nil, err
 		}

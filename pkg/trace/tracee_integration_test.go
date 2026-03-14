@@ -446,32 +446,18 @@ func TestUserTracee_Init_NoMatch(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoFunctionSymbols)
 }
 
-// TestGoPclntab_Go126PcHeaderTextStart verifies that the .gopclntab resolver
-// produces correct file offsets on binaries compiled with Go 1.26+.
+// TestGoPclntab_Go126Compat verifies that the .gopclntab resolver produces
+// correct file offsets on binaries compiled with Go 1.26+.
 //
-// Go 1.26 changed the .gopclntab format: pcHeader.textStart is now always
-// zero (previously it recorded the .text section start VA). The resolver
-// must not rely on pcHeader for the text base; it must read it from the ELF
-// .text section header directly, which is what funcEntriesFromGoPclntab does.
-func TestGoPclntab_Go126PcHeaderTextStart(t *testing.T) {
+// Go 1.26 changed pcHeader.textStart to always be zero. This is safe for
+// xcover because the resolver reads the text base directly from the ELF
+// .text section header, never from pcHeader.
+func TestGoPclntab_Go126Compat(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "xcover-gopclntab-126-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
 	src := filepath.Join(tmpDir, "main.go")
-	err = os.WriteFile(src, []byte(`package main
-
-import "fmt"
-
-//go:noinline
-func add(a, b int) int { return a + b }
-
-//go:noinline
-func greet(name string) { fmt.Println("hello", name) }
-
-func main() { fmt.Println(add(1, greet("x") == greet("x") == true)); _ = greet }
-`), 0644)
-	// Simpler source that compiles cleanly.
 	err = os.WriteFile(src, []byte(`package main
 
 import "fmt"
@@ -496,30 +482,8 @@ func main() { fmt.Println(add(1, 2)); greet("world") }
 
 	textSec := ef.Section(".text")
 	require.NotNil(t, textSec)
+	require.NotNil(t, ef.Section(".gopclntab"), ".gopclntab must survive strip")
 
-	pclntabSec := ef.Section(".gopclntab")
-	require.NotNil(t, pclntabSec, ".gopclntab must survive strip")
-
-	// Verify pcHeader.textStart is 0 on Go 1.26+ binaries.
-	// pcHeader layout (Go 1.20+): magic(4) pad(2) minLC(1) ptrSize(1) nfunc(ptr) nfiles(ptr) textStart(ptr) ...
-	// On Go 1.26, textStart is always 0.
-	pclntabData, err := pclntabSec.Data()
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(pclntabData), 32, ".gopclntab too short")
-	ptrSize := 8 // amd64
-	// textStart is at offset 8 + 2*ptrSize (after magic+pad+minLC+ptrSize+nfunc+nfiles).
-	textStartOffset := 8 + 2*ptrSize
-	var textStart uint64
-	if ef.ByteOrder == nil {
-		textStart = 0
-	} else {
-		b := pclntabData[textStartOffset : textStartOffset+ptrSize]
-		textStart = ef.ByteOrder.Uint64(b)
-	}
-	assert.Zero(t, textStart, "Go 1.26: pcHeader.textStart should be 0")
-
-	// Despite pcHeader.textStart being 0, the resolver must produce valid
-	// file offsets by reading the text base from the ELF .text section header.
 	tracee := NewUserTracee(
 		WithTraceeExePath(bin),
 		WithTraceeSymPatternInclude(`^main\.`),

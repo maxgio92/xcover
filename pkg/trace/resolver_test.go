@@ -42,32 +42,3 @@ func TestWithTraceeResolver_CustomResolver(t *testing.T) {
 	assert.Contains(t, offsets, uint64(0x1000))
 	assert.Contains(t, offsets, uint64(0x2000))
 }
-
-// TestRecoveryResolver_HighConfidenceOnly verifies that RecoveryResolver only
-// returns candidates at ConfidenceHigh, and that names are synthesized as func_0x<addr>.
-func TestRecoveryResolver_HighConfidenceOnly(t *testing.T) {
-	called := false
-
-	// Inject a fake resolver to verify the contract without a real binary.
-	entries := []trace.FunctionEntry{
-		{Name: "func_0x1000", Offset: 0x1000},
-	}
-	custom := func(_ context.Context) ([]trace.FunctionEntry, error) {
-		called = true
-		return entries, nil
-	}
-
-	tracee := trace.NewUserTracee(
-		trace.WithTraceeExePath("dummy"),
-		trace.WithTraceeResolver(custom),
-		trace.WithTraceeLogger(testLogger),
-	)
-	err := tracee.Init(t.Context())
-	require.NoError(t, err)
-	assert.True(t, called)
-
-	names := tracee.GetFuncNames()
-	for _, n := range names {
-		assert.Regexp(t, `^func_0x[0-9a-f]+$`, n, "synthesized name should match func_0x<hex>")
-	}
-}

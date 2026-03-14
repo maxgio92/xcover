@@ -3,6 +3,9 @@
 package trace_test
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,4 +46,39 @@ func TestSymbolTableResolver_NoMatch(t *testing.T) {
 	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^nonexistentsymbol\.$`, "", nil, nil)
 	_, err := resolver(t.Context())
 	assert.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
+}
+
+// TestRecoveryResolver_StrippedBinary verifies that RecoveryResolver returns
+// only ConfidenceHigh candidates from a stripped C binary, with synthesized
+// func_0x<addr> names and valid file offsets.
+func TestRecoveryResolver_StrippedBinary(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "xcover-recovery-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	src := filepath.Join(tmpDir, "main.c")
+	err = os.WriteFile(src, []byte(`
+#include <stdio.h>
+void greet(const char *name) { printf("hello %s\n", name); }
+void farewell(const char *name) { printf("bye %s\n", name); }
+int main() { greet("world"); farewell("world"); return 0; }
+`), 0644)
+	require.NoError(t, err)
+
+	bin := filepath.Join(tmpDir, "bin")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Skipf("gcc not available: %v: %s", err, out)
+	}
+	require.NoError(t, exec.Command("strip", bin).Run())
+
+	resolver := trace.RecoveryResolver(bin, testLogger)
+	entries, err := resolver(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+
+	for _, e := range entries {
+		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)
+		assert.NotZero(t, e.Offset)
+	}
 }

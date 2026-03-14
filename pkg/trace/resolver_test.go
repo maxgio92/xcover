@@ -1,6 +1,7 @@
 package trace_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +20,7 @@ func TestWithTraceeResolver_CustomResolver(t *testing.T) {
 	}
 
 	called := false
-	custom := func() ([]trace.FunctionEntry, error) {
+	custom := func(_ context.Context) ([]trace.FunctionEntry, error) {
 		called = true
 		return want, nil
 	}
@@ -29,7 +30,7 @@ func TestWithTraceeResolver_CustomResolver(t *testing.T) {
 		trace.WithTraceeResolver(custom),
 		trace.WithTraceeLogger(testLogger),
 	)
-	err := tracee.Init()
+	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 	assert.True(t, called, "custom resolver was not called")
 

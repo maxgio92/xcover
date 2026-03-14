@@ -90,7 +90,7 @@ func main() {
 			WithTraceeLogger(logger),
 		)
 
-		err := tracee.Init()
+		err := tracee.Init(t.Context())
 		require.NoError(t, err, "should load functions from unstripped binary")
 		assert.Greater(t, len(tracee.funcs), 0, "should have loaded functions")
 
@@ -143,7 +143,7 @@ func main() {
 			WithTraceeLogger(logger),
 		)
 
-		err := tracee.Init()
+		err := tracee.Init(t.Context())
 		require.NoError(t, err, "should load functions from stripped binary via .gopclntab")
 		assert.Greater(t, len(tracee.funcs), 0, "should have loaded functions from .gopclntab")
 
@@ -233,7 +233,7 @@ int main() {
 		WithTraceeLogger(logger),
 	)
 
-	err = tracee.Init()
+	err = tracee.Init(t.Context())
 	assert.Error(t, err, "should fail to load functions from non-Go stripped binary")
 }
 
@@ -287,7 +287,7 @@ func main() {
 		WithTraceeLogger(logger),
 	)
 
-	err = tracee.Init()
+	err = tracee.Init(t.Context())
 	require.NoError(t, err, "should load functions from stripped binary via .gopclntab")
 	require.Greater(t, len(tracee.funcs), 0, "should have loaded functions")
 
@@ -362,7 +362,7 @@ func main() {
 			WithTraceeLogger(logger),
 		)
 
-		err := tracee.Init()
+		err := tracee.Init(t.Context())
 		require.NoError(t, err)
 
 		// Should only have main.publicFunc, not main.anotherPublicFunc
@@ -389,7 +389,7 @@ func main() {
 			WithTraceeLogger(logger),
 		)
 
-		err := tracee.Init()
+		err := tracee.Init(t.Context())
 		require.NoError(t, err)
 
 		// Should have main.publicFunc but not main.anotherPublicFunc
@@ -418,7 +418,7 @@ func TestUserTracee_Init(t *testing.T) {
 		WithTraceeLogger(logger),
 		WithTraceeSymPatternExclude(integrationTestExcludedSyms),
 	)
-	err := tracee.Init()
+	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, tracee.GetFuncNames())
 	require.NotEmpty(t, tracee.GetFuncOffsets())
@@ -429,7 +429,7 @@ func TestUserTracee_Init(t *testing.T) {
 		WithTraceeLogger(logger),
 		WithTraceeSymPatternExclude(integrationTestExcludedSyms),
 	)
-	err = tracee.Init()
+	err = tracee.Init(t.Context())
 	require.Error(t, err)
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -441,7 +441,7 @@ func TestUserTracee_Init_NoMatch(t *testing.T) {
 		WithTraceeExePath(integrationTestBinary),
 		WithTraceeSymPatternInclude("^nonexistentSymbol$"),
 	)
-	err := tracee.Init()
+	err := tracee.Init(t.Context())
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrNoFunctionSymbols)
 }
@@ -489,7 +489,7 @@ func main() { fmt.Println(add(1, 2)); greet("world") }
 		WithTraceeSymPatternInclude(`^main\.`),
 		WithTraceeLogger(zerolog.New(os.Stderr)),
 	)
-	require.NoError(t, tracee.Init())
+	require.NoError(t, tracee.Init(t.Context()))
 	require.NotEmpty(t, tracee.funcs)
 
 	for _, fn := range tracee.funcs {

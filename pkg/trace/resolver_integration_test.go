@@ -16,7 +16,7 @@ import (
 // independently of the tracee wiring.
 func TestSymbolTableResolver_Direct(t *testing.T) {
 	resolver := trace.SymbolTableResolver(testBinary, testLogger, "", testExcludedSyms, nil, nil)
-	entries, err := resolver()
+	entries, err := resolver(t.Context())
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries)
 	for _, e := range entries {
@@ -29,7 +29,7 @@ func TestSymbolTableResolver_Direct(t *testing.T) {
 // applied when calling the resolver directly.
 func TestSymbolTableResolver_IncludePattern(t *testing.T) {
 	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^main\.`, "", nil, nil)
-	entries, err := resolver()
+	entries, err := resolver(t.Context())
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries)
 	for _, e := range entries {
@@ -41,6 +41,6 @@ func TestSymbolTableResolver_IncludePattern(t *testing.T) {
 // returned when the include pattern matches nothing.
 func TestSymbolTableResolver_NoMatch(t *testing.T) {
 	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^nonexistentsymbol\.$`, "", nil, nil)
-	_, err := resolver()
+	_, err := resolver(t.Context())
 	assert.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
 }

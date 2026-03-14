@@ -27,7 +27,7 @@ func TestNewUserTracee_Defaults(t *testing.T) {
 
 func TestUserTracee_Validate(t *testing.T) {
 	tracee := trace.NewUserTracee()
-	err := tracee.Init()
+	err := tracee.Init(t.Context())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exe path is empty")
 	require.ErrorIs(t, err, trace.ErrExePathEmpty)

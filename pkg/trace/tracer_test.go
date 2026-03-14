@@ -20,7 +20,7 @@ func TestHandleEvent_Verbose(t *testing.T) {
 		WithTraceeSymPatternExclude(testExcludedSyms),
 	)
 	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction"}}
-	err := tracee.Init()
+	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 
 	tracer := NewUserTracer(

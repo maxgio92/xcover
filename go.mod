@@ -1,6 +1,6 @@
 module github.com/maxgio92/xcover
 
-go 1.24.1
+go 1.26.1
 
 require (
 	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1

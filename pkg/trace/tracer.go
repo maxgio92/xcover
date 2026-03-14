@@ -102,7 +102,7 @@ func (t *UserTracer) Init(ctx context.Context) error {
 
 	// Initialize the tracee includes to load all the data about
 	// the tracee, like symbols and function offsets.
-	if err := t.tracee.Init(); err != nil {
+	if err := t.tracee.Init(ctx); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")
 	}
 	if err := t.validateTracee(); err != nil {

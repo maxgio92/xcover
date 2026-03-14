@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"context"
 	"debug/elf"
 
 	"github.com/maxgio92/xcover/internal/utils"
@@ -30,7 +31,7 @@ func NewUserTracee(opts ...UserTraceeOption) *UserTracee {
 	return tracee
 }
 
-func (t *UserTracee) Init() error {
+func (t *UserTracee) Init(ctx context.Context) error {
 	if err := t.validate(); err != nil {
 		return err
 	}
@@ -47,7 +48,7 @@ func (t *UserTracee) Init() error {
 		resolver = SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 	}
 
-	entries, err := resolver()
+	entries, err := resolver(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve functions")
 	}

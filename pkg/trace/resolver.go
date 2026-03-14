@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"context"
 	"debug/elf"
 	"debug/gosym"
 	"fmt"
@@ -18,18 +19,27 @@ type FunctionEntry struct {
 
 // FunctionResolver resolves the set of functions to trace from a binary.
 // It is self-contained: it owns its own I/O and closes any resources it opens.
-type FunctionResolver func() ([]FunctionEntry, error)
+// ctx is checked between steps; cancellation aborts the resolution early.
+type FunctionResolver func(ctx context.Context) ([]FunctionEntry, error)
 
 // SymbolTableResolver returns a FunctionResolver backed by the ELF symbol table,
 // with a .gopclntab fallback for stripped Go binaries.
 // path is the binary to open; the resolver opens and closes it itself.
 func SymbolTableResolver(path string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
-	return func() ([]FunctionEntry, error) {
+	return func(ctx context.Context) ([]FunctionEntry, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		f, err := elf.Open(path)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open binary")
 		}
 		defer f.Close()
+
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 
 		syms, err := funcSymsFromELF(f, include, exclude, bindInclude, bindExclude)
 		if err != nil {
@@ -127,7 +137,7 @@ func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude,
 	for _, fn := range table.Funcs {
 		sym := elf.Symbol{
 			Name:  fn.Name,
-			Value: fn.Entry, // raw VA; toOffset below handles the conversion
+			Value: fn.Entry,
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC),
 		}

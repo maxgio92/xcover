@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1
 	github.com/aquasecurity/libbpfgo/helpers v0.4.5
+	github.com/maxgio92/resurgo v0.4.1
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.9.1

@@ -5,8 +5,10 @@ import (
 	"debug/elf"
 	"debug/gosym"
 	"fmt"
+	"os"
 	"regexp"
 
+	"github.com/maxgio92/resurgo"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
 )
@@ -192,4 +194,60 @@ func shouldInclude(sym elf.Symbol, include, exclude string, bindInclude, bindExc
 		return regexp.MustCompile(include).MatchString(sym.Name)
 	}
 	return true
+}
+
+// RecoveryResolver returns a FunctionResolver backed by binary analysis via resurgo.
+// It is used as a last resort when the ELF symbol table and .gopclntab are both unavailable
+// (e.g. a fully stripped non-Go binary).
+//
+// Only candidates at ConfidenceHigh are accepted - those confirmed by compiler-emitted
+// .eh_frame FDE entries. Functions have no symbol names; they are assigned synthetic
+// names of the form func_0x<hex_addr>.
+func RecoveryResolver(path string, logger log.Logger) FunctionResolver {
+	return func(ctx context.Context) ([]FunctionEntry, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to open binary")
+		}
+		defer f.Close()
+
+		candidates, err := resurgo.DetectFunctionsFromELF(f)
+		if err != nil {
+			return nil, errors.Wrap(err, "resurgo: failed to detect functions")
+		}
+
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		ef, err := elf.NewFile(f)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to parse ELF")
+		}
+		defer ef.Close()
+
+		var entries []FunctionEntry
+		for _, c := range candidates {
+			if c.Confidence != resurgo.ConfidenceHigh {
+				continue
+			}
+			offset, err := vaToFileOffset(ef, c.Address)
+			if err != nil {
+				logger.Debug().Uint64("addr", c.Address).Err(err).Msg("skipping candidate")
+				continue
+			}
+			entries = append(entries, FunctionEntry{
+				Name:   fmt.Sprintf("func_0x%x", c.Address),
+				Offset: offset,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, ErrNoFunctionSymbols
+		}
+		return entries, nil
+	}
 }

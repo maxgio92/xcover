@@ -50,7 +50,11 @@ func (t *UserTracee) Init(ctx context.Context) error {
 
 	entries, err := resolver(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to resolve functions")
+		t.logger.Info().Msg("symbol resolution failed, falling back to binary recovery")
+		entries, err = RecoveryResolver(t.exePath, t.logger)(ctx)
+		if err != nil {
+			return errors.Wrap(err, "failed to resolve functions")
+		}
 	}
 
 	for _, e := range entries {

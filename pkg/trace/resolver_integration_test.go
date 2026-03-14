@@ -49,8 +49,8 @@ func TestSymbolTableResolver_NoMatch(t *testing.T) {
 }
 
 // TestRecoveryResolver_StrippedBinary verifies that RecoveryResolver returns
-// only ConfidenceHigh candidates from a stripped C binary, with synthesized
-// func_0x<addr> names and valid file offsets.
+// entries with synthesized func_0x<addr> names and valid file offsets
+// from a stripped C binary.
 func TestRecoveryResolver_StrippedBinary(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "xcover-recovery-*")
 	require.NoError(t, err)

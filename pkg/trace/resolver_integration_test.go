@@ -86,6 +86,7 @@ int main() {
 	resolver := trace.RecoveryResolver(bin, testLogger)
 	entries, err := resolver(t.Context())
 	require.NoError(t, err)
+	// The C source defines greet, farewell, and main; _start is the ELF entry point.
 	assert.Len(t, entries, 4)
 
 	for _, e := range entries {

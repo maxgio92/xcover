@@ -86,7 +86,7 @@ int main() {
 	resolver := trace.RecoveryResolver(bin, testLogger)
 	entries, err := resolver(t.Context())
 	require.NoError(t, err)
-	require.NotEmpty(t, entries)
+	assert.Len(t, entries, 4)
 
 	for _, e := range entries {
 		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)

@@ -5,7 +5,6 @@ import (
 	"debug/elf"
 	"debug/gosym"
 	"fmt"
-	"os"
 	"regexp"
 
 	"github.com/maxgio92/resurgo"
@@ -213,13 +212,13 @@ func RecoveryResolver(path string, logger log.Logger) FunctionResolver {
 			return nil, err
 		}
 
-		f, err := os.Open(path)
+		ef, err := elf.Open(path)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open binary")
 		}
-		defer f.Close()
+		defer ef.Close()
 
-		candidates, err := resurgo.DetectFunctionsFromELF(f)
+		candidates, err := resurgo.DetectFunctionsFromELF(ef)
 		if err != nil {
 			return nil, errors.Wrap(err, "resurgo: failed to detect functions")
 		}
@@ -227,12 +226,6 @@ func RecoveryResolver(path string, logger log.Logger) FunctionResolver {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
-		ef, err := elf.NewFile(f)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to parse ELF")
-		}
-		defer ef.Close()
 
 		var entries []FunctionEntry
 		for _, c := range candidates {

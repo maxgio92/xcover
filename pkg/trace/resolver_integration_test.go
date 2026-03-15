@@ -3,6 +3,7 @@
 package trace_test
 
 import (
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,10 +15,9 @@ import (
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
-// TestSymbolTableResolver_Direct calls SymbolTableResolver directly with a real
-// binary path, bypassing UserTracee. This verifies the resolver contract
-// independently of the tracee wiring.
-func TestSymbolTableResolver_Direct(t *testing.T) {
+// TestSymbolTableResolver_Symtab calls SymbolTableResolver against an unstripped
+// binary, exercising the ELF symbol table path.
+func TestSymbolTableResolver_Symtab(t *testing.T) {
 	resolver := trace.SymbolTableResolver(testBinary, testLogger, "", testExcludedSyms, nil, nil)
 	entries, err := resolver(t.Context())
 	require.NoError(t, err)
@@ -28,24 +28,56 @@ func TestSymbolTableResolver_Direct(t *testing.T) {
 	}
 }
 
-// TestSymbolTableResolver_IncludePattern verifies that the include filter is
-// applied when calling the resolver directly.
-func TestSymbolTableResolver_IncludePattern(t *testing.T) {
-	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^main\.`, "", nil, nil)
+// TestSymbolTableResolver_GoPclntab verifies that SymbolTableResolver falls back
+// to .gopclntab for a stripped Go binary, and that the returned offsets are
+// valid file offsets (not virtual addresses) within the .text section.
+//
+// This also covers Go 1.26+ compat: pcHeader.textStart is always zero in 1.26,
+// so the resolver must derive the text base from the ELF .text section header
+// rather than from pcHeader.
+func TestSymbolTableResolver_GoPclntab(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "xcover-gopclntab-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	src := filepath.Join(tmpDir, "main.go")
+	err = os.WriteFile(src, []byte(`package main
+
+import "fmt"
+
+//go:noinline
+func add(a, b int) int { return a + b }
+
+//go:noinline
+func greet(name string) { fmt.Println("hello", name) }
+
+func main() { fmt.Println(add(1, 2)); greet("world") }
+`), 0644)
+	require.NoError(t, err)
+
+	bin := filepath.Join(tmpDir, "bin")
+	require.NoError(t, exec.Command("go", "build", "-o", bin, src).Run())
+	require.NoError(t, exec.Command("strip", bin).Run())
+
+	ef, err := elf.Open(bin)
+	require.NoError(t, err)
+	defer ef.Close()
+
+	textSec := ef.Section(".text")
+	require.NotNil(t, textSec)
+	require.NotNil(t, ef.Section(".gopclntab"), ".gopclntab must survive strip")
+
+	resolver := trace.SymbolTableResolver(bin, testLogger, `^main\.`, "", nil, nil)
 	entries, err := resolver(t.Context())
 	require.NoError(t, err)
-	assert.NotEmpty(t, entries)
-	for _, e := range entries {
-		assert.Regexp(t, `^main\.`, e.Name)
-	}
-}
+	require.NotEmpty(t, entries)
 
-// TestSymbolTableResolver_NoMatch verifies that ErrNoFunctionSymbols is
-// returned when the include pattern matches nothing.
-func TestSymbolTableResolver_NoMatch(t *testing.T) {
-	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^nonexistentsymbol\.$`, "", nil, nil)
-	_, err := resolver(t.Context())
-	assert.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
+	for _, e := range entries {
+		assert.GreaterOrEqual(t, e.Offset, textSec.Offset,
+			"%s: offset should be >= .text file offset", e.Name)
+		assert.Less(t, e.Offset, textSec.Offset+textSec.Size,
+			"%s: offset should be within .text section", e.Name)
+	}
 }
 
 // TestRecoveryResolver_StrippedBinary verifies that RecoveryResolver returns
@@ -81,4 +113,35 @@ int main() { greet("world"); farewell("world"); return 0; }
 		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)
 		assert.NotZero(t, e.Offset)
 	}
+}
+
+// TestSymbolTableResolver_Filters verifies include and exclude pattern filtering.
+func TestSymbolTableResolver_Filters(t *testing.T) {
+	t.Run("Include", func(t *testing.T) {
+		resolver := trace.SymbolTableResolver(testBinary, testLogger, `^main\.`, "", nil, nil)
+		entries, err := resolver(t.Context())
+		require.NoError(t, err)
+		assert.NotEmpty(t, entries)
+		for _, e := range entries {
+			assert.Regexp(t, `^main\.`, e.Name)
+		}
+	})
+
+	t.Run("Exclude", func(t *testing.T) {
+		resolver := trace.SymbolTableResolver(testBinary, testLogger, "", `^runtime\.`, nil, nil)
+		entries, err := resolver(t.Context())
+		require.NoError(t, err)
+		assert.NotEmpty(t, entries)
+		for _, e := range entries {
+			assert.NotRegexp(t, `^runtime\.`, e.Name)
+		}
+	})
+}
+
+// TestSymbolTableResolver_NoMatch verifies that ErrNoFunctionSymbols is
+// returned when the include pattern matches nothing.
+func TestSymbolTableResolver_NoMatch(t *testing.T) {
+	resolver := trace.SymbolTableResolver(testBinary, testLogger, `^nonexistentsymbol\.$`, "", nil, nil)
+	_, err := resolver(t.Context())
+	assert.ErrorIs(t, err, trace.ErrNoFunctionSymbols)
 }

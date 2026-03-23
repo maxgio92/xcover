@@ -3,13 +3,12 @@ module github.com/maxgio92/xcover
 go 1.26.1
 
 require (
-	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1
-	github.com/aquasecurity/libbpfgo/helpers v0.4.5
+	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1.0.20251010210924-f23a41262be1
 	github.com/maxgio92/resurgo v0.4.2
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.31.0
 )
 

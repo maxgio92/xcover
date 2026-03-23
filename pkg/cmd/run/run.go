@@ -15,6 +15,8 @@ import (
 	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
+	"github.com/maxgio92/xcover/pkg/inject"
+	"github.com/maxgio92/xcover/pkg/procwatch"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
@@ -98,6 +100,26 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	if o.userspaceBPF {
 		if err := bpftime.EnsureSyscallServer(); err != nil {
 			return errors.Wrap(err, "failed to inject bpftime syscall-server")
+		}
+
+		watcher, err := procwatch.New(o.comm)
+		if err != nil {
+			return errors.Wrap(err, "failed to create process watcher")
+		}
+
+		o.Logger.Info().
+			Str("path", o.comm).
+			Msg("waiting for tracee process to appear")
+
+		pid, err := watcher.Watch(o.Ctx)
+		if err != nil {
+			return errors.Wrap(err, "failed to detect tracee process")
+		}
+
+		o.Logger.Info().Int("pid", pid).Msg("tracee detected, injecting bpftime agent")
+
+		if err := inject.InjectAgent(pid); err != nil {
+			return errors.Wrap(err, "failed to inject bpftime agent")
 		}
 	}
 

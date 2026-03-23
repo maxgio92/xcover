@@ -42,6 +42,13 @@ var syscallServerLib []byte
 //go:embed libs/bpftime-agent.so
 var agentLib []byte
 
+// AgentLibBytes returns a copy of the embedded bpftime agent library bytes.
+func AgentLibBytes() []byte {
+	b := make([]byte, len(agentLib))
+	copy(b, agentLib)
+	return b
+}
+
 const (
 	// envSentinel is set in the environment after a successful re-exec so
 	// that the second invocation does not re-exec again indefinitely.

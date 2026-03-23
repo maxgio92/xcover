@@ -8,6 +8,7 @@ import (
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
+	"golang.org/x/sys/unix"
 )
 
 //go:embed output/*
@@ -30,7 +31,13 @@ type Probe struct {
 	bpfProg *bpf.BPFProg
 	links   []*bpf.BPFLink
 
+	// rawFds holds the perf event and link FDs created by attachUprobeWithCookie
+	// (userspace BPF mode). They must be kept open for the lifetime of the probe.
+	rawFds []int
+
 	EvtBuf *bpf.RingBuffer
+
+	userspaceBPF bool
 
 	logger log.Logger
 }
@@ -43,8 +50,22 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
+// WithUserspaceBPF configures the probe to use the classic single-uprobe
+// perf_event_open path instead of uprobe_multi. bpftime supports the former
+// but silently no-ops the latter, so this must be set when running under
+// bpftime.
+func WithUserspaceBPF() Option {
+	return func(p *Probe) {
+		p.userspaceBPF = true
+	}
+}
+
 func NewProbe(opts ...Option) *Probe {
-	return new(Probe)
+	p := new(Probe)
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 func (p *Probe) read(path string) ([]byte, error) {
@@ -84,8 +105,13 @@ func (p *Probe) Init(_ context.Context) error {
 		return errors.Wrapf(err, "failed to get bpf program: %s", p.Name)
 	}
 
-	if err := p.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
-		return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+	// uprobe_multi requires an explicit expected attach type so the kernel knows
+	// to use BPF_LINK_TYPE_UPROBE_MULTI. For the classic single-uprobe path
+	// (bpftime mode) we leave expected_attach_type at its default (0).
+	if !p.userspaceBPF {
+		if err := p.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
+			return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+		}
 	}
 
 	if err := p.bpfMod.BPFLoadObject(); err != nil {
@@ -107,6 +133,10 @@ func (p *Probe) configureBPFLogger() {
 }
 
 func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uint64) error {
+	if p.userspaceBPF {
+		return p.attachSingleUprobes(exePath, offsets, cookies)
+	}
+
 	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
 	if err != nil {
 		p.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies))
@@ -148,6 +178,8 @@ func (p *Probe) CloseEventBuf() {
 // the BPF module. Links must be explicitly destroyed because AttachUprobeMulti
 // returns a BPFLink that is the sole owner of the uprobe attachment - closing
 // the module alone does not detach the probes.
+// In userspace BPF mode, the raw perf event and link FDs opened by
+// attachUprobeWithCookie are closed here instead.
 // Must be called after CloseEventBuf so the ring buffer poll goroutine has
 // already stopped.
 func (p *Probe) CloseBPFMod() {
@@ -155,6 +187,10 @@ func (p *Probe) CloseBPFMod() {
 		link.Destroy()
 	}
 	p.links = nil
+	for _, fd := range p.rawFds {
+		unix.Close(fd)
+	}
+	p.rawFds = nil
 	if p.bpfMod != nil {
 		p.bpfMod.Close()
 	}

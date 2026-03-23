@@ -95,7 +95,11 @@ func (t *UserTracer) Init(ctx context.Context) error {
 		return err
 	}
 
-	t.probe = probe.NewProbe(probe.WithLogger(t.logger))
+	probeOpts := []probe.Option{probe.WithLogger(t.logger)}
+	if t.userspaceBPF {
+		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	}
+	t.probe = probe.NewProbe(probeOpts...)
 	if err := t.probe.Init(ctx); err != nil {
 		return errors.Wrap(err, "error initializing BPF probe")
 	}

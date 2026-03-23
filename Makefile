@@ -115,6 +115,21 @@ endif
 $(OUTPUT):
 	mkdir -p $(OUTPUT)
 
+# container build
+
+BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:72ee27774a05f00a717e1d4cee67b150cd375f2a3edfd3b018eb88a0e86601e3
+
+.PHONY: xcover-container
+xcover-container:
+	docker run --rm \
+		--user $(shell id -u):$(shell id -g) \
+		-e GOCACHE=/work/.cache/go-build \
+		-v /sys/kernel/btf:/sys/kernel/btf:ro \
+		-v $(current_dir):/work \
+		-w /work \
+		$(BUILD_IMAGE) \
+		make xcover
+
 .PHONY: clean
 clean:
 	rm -rf $(OUTPUT)

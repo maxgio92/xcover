@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/trace"
@@ -33,10 +34,11 @@ type Options struct {
 	symExcludePattern string
 	symIncludePattern string
 
-	detach  bool
-	verbose bool
-	report  bool
-	status  bool
+	detach      bool
+	verbose     bool
+	report      bool
+	status      bool
+	userspaceBPF bool
 
 	*options.Options
 }
@@ -65,6 +67,7 @@ It supports programs compiled to ELF.
 	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
 	cmd.Flags().BoolVar(&o.report, "report", true, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
 	cmd.Flags().BoolVar(&o.status, "status", true, "Periodically print a status of the trace")
+	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental)")
 
 	cmd.MarkFlagRequired("path")
 
@@ -91,6 +94,12 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		o.Logger.Fatal().Err(err).Msg("invalid log level")
 	}
 	o.Logger = o.Logger.Level(logLevel)
+
+	if o.userspaceBPF {
+		if err := bpftime.EnsureSyscallServer(); err != nil {
+			return errors.Wrap(err, "failed to inject bpftime syscall-server")
+		}
+	}
 
 	tracee := trace.NewUserTracee(
 		trace.WithTraceeExePath(o.comm),

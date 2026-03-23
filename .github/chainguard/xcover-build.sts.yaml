@@ -1,0 +1,5 @@
+issuer: https://token.actions.githubusercontent.com
+subject: repo:maxgio92/xcover-build:ref:refs/heads/main
+permissions:
+  contents: write
+  pull_requests: write

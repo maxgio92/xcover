@@ -70,7 +70,11 @@ func (p *Probe) Init(_ context.Context) error {
 		return errors.Wrap(err, "error reading bpf program file")
 	}
 
-	p.bpfMod, err = bpf.NewModuleFromBuffer(p.Data(), p.Name)
+	p.bpfMod, err = bpf.NewModuleFromBufferArgs(bpf.NewModuleArgs{
+		BPFObjBuff:      p.Data(),
+		BPFObjName:      p.Name,
+		SkipMemlockBump: true,
+	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to load bpf module: %s", p.Name)
 	}

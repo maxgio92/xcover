@@ -27,3 +27,5 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/aquasecurity/libbpfgo => github.com/maxgio92/libbpfgo v0.0.0-20260324172613-cc9e1ae113eb

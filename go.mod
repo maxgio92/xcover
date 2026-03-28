@@ -3,12 +3,13 @@ module github.com/maxgio92/xcover
 go 1.26.1
 
 require (
-	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1.0.20251010210924-f23a41262be1
+	github.com/aquasecurity/libbpfgo v0.9.2-libbpf-1.5.1
 	github.com/maxgio92/resurgo v0.4.2
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
 )
 
@@ -24,7 +25,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.24.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

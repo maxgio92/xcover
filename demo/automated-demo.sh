@@ -20,11 +20,15 @@ function main() {
 	runCmd "# Profile coverage without instrumenting your binaries!"
 	echo
 	runCmd "# Let's test a demo Go application"
-	runCmd "cat demo-app.go"
+	runCmd "bat demo-app.go"
 	sleep 2
 	clear
 	runCmd "go build demo-app.go"
 	runCmd "ls demo-app"
+	runCmd "readelf --symbols demo-app | wc -l"
+	runCmd "# Let's strip the binary, because this must be a production binary"
+	runCmd "strip --strip-all demo-app"
+	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Start the profiler before running the functional tests"
 	runCmd "xcover run --detach --path demo-app --include '^main\.'"
 	runCmd "# Wait for the profiler to be ready"
@@ -34,7 +38,7 @@ function main() {
 	runCmd "./demo-app add"
 	runCmd "./demo-app multiply"
 	runCmd "./demo-app greet"
-	runCmd "# Now let's stop profiler"
+	runCmd "# Now let's stop the profiler"
 	clear
 	runCmd "xcover stop"
 	runCmd "# Collect the coverage results:"
@@ -42,7 +46,7 @@ function main() {
 	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"
 	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"
 	runCmd "cat xcover-report.json | jq"
-	runCmd "# Coverage profiled without source code changes or recompilation!"
+	runCmd "# Coverage profiled without source code changes or recompilation on production binaries!"
 }
 
 function runCmd() {

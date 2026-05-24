@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
-	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/trace"
@@ -136,7 +135,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		trace.WithTracerVerbose(o.verbose),
 		trace.WithTracerReport(o.report),
 		trace.WithTracerStatus(o.status),
-		trace.WithTracerUserspaceBPF(o.userspaceBPF),
 		trace.WithTracerTracee(tracee),
 	)
 

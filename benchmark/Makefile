@@ -75,21 +75,13 @@ LIBBPFGO     := $(ROOTDIR)/libbpfgo
 CGO_CFLAGS   = "-I $(LIBBPFGO)/output"
 CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 
-# bpftime shared libraries embedded in the xcover binary.
-BPFTIME_SYSCALL_SERVER := $(ROOTDIR)/pkg/bpftime/libs/bpftime-syscall-server.so
-
-# Shared memory size for the bpftime userspace runtime (MB).
-BPFTIME_SHM_MB ?= 2048
-
-.PHONY: all hit idle miss bench bench-userspace bench-all libbpfgo-static clean
+.PHONY: all hit idle miss bench libbpfgo-static clean
 
 all: hit idle miss
 
-## bench: build libbpfgo-static, C targets, and run kernel-mode Go benchmarks.
-## Output: bench-report-kernel.json
+## bench: build libbpfgo-static, C targets, and run Go benchmarks.
 bench: libbpfgo-static all
 	@sudo \
-	BENCH_REPORT_PATH=bench-report-kernel.json \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
@@ -98,28 +90,6 @@ bench: libbpfgo-static all
 			-benchtime=$(BENCHTIME) \
 			-count=$(COUNT) \
 			.
-
-## bench-userspace: build libbpfgo-static, C targets, and run userspace-mode
-## (bpftime) Go benchmarks. The syscall-server is preloaded for the whole
-## go test process so that xcover's BPF syscalls are handled in userspace.
-## Output: bench-report-userspace.json
-bench-userspace: libbpfgo-static all
-	@sudo \
-	LD_PRELOAD=$(BPFTIME_SYSCALL_SERVER) \
-	BPFTIME_SHM_MEMORY_MB=$(BPFTIME_SHM_MB) \
-	BENCH_REPORT_PATH=bench-report-userspace.json \
-	CC=gcc \
-	CGO_CFLAGS=$(CGO_CFLAGS) \
-	CGO_LDFLAGS=$(CGO_LDFLAGS) \
-		GOARCH=$(GOARCH) \
-		go test -bench=. -run='^$$' -v \
-			-benchtime=$(BENCHTIME) \
-			-count=$(COUNT) \
-			.
-
-## bench-all: run kernel and userspace benchmarks sequentially.
-## Produces bench-report-kernel.json and bench-report-userspace.json.
-bench-all: bench bench-userspace
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:

@@ -9,11 +9,10 @@ import (
 type UserTracerOptions struct {
 	cookiesMapName string
 
-	report       bool
-	status       bool
-	verbose      bool
-	userspaceBPF bool
-	writer       io.Writer
+	report  bool
+	status  bool
+	verbose bool
+	writer  io.Writer
 
 	logger log.Logger
 }
@@ -53,11 +52,5 @@ func WithTracerWriter(w io.Writer) UserTracerOpt {
 func WithTracerTracee(tracee *UserTracee) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.tracee = tracee
-	}
-}
-
-func WithTracerUserspaceBPF(enabled bool) UserTracerOpt {
-	return func(opts *UserTracer) {
-		opts.userspaceBPF = enabled
 	}
 }

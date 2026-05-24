@@ -117,7 +117,7 @@ $(OUTPUT):
 
 # container build
 
-BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:2810932df48c729ea90107ff4bac919fa5bced0305af708c0c4955024972cdea
+BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:4ffba594bd34b3e53d88ba78e3823e06d7a1ec7bcb69e398e69886fe338297b2
 
 .PHONY: xcover-container
 xcover-container:
@@ -130,61 +130,8 @@ xcover-container:
 		$(BUILD_IMAGE) \
 		make xcover
 
-# bpftime userspace BPF runtime
-#
-# Build the bpftime shared libraries and copy them into the embed directory so
-# that "go build" picks them up when compiling xcover with userspace BPF support.
-#
-# Prerequisites: cmake >= 3.16, a C++17 compiler, libelf, zlib.
-
-BPFTIME_GIT      := https://github.com/eunomia-bpf/bpftime.git
-BPFTIME_DIR      := bpftime-src
-BPFTIME_BUILD    := $(BPFTIME_DIR)/build
-BPFTIME_LIBS_DST := pkg/bpftime/libs
-BPFTIME_LIBBPF_C := $(BPFTIME_DIR)/third_party/bpftool/libbpf/src/libbpf.c
-
-.PHONY: bpftime-libs
-bpftime-libs:
-	@if [ ! -d $(BPFTIME_DIR) ]; then \
-		$(git) clone --recurse-submodules $(BPFTIME_GIT) $(BPFTIME_DIR); \
-	fi
-	# Fix const-qualifier discards in bpftool-bundled libbpf, hard errors under GCC 14+.
-	# Upstream fix: libbpf commit f5dcbae (2026-03-12). Remove once bpftime updates submodule.
-	python3 -c "\
-f = open('$(BPFTIME_LIBBPF_C)', 'r'); s = f.read(); f.close(); \
-s = s.replace('\tchar *res;\n',                                               '\tconst char *res;\n',           1); \
-s = s.replace('\t\tchar sym_trim[256], *psym_trim = sym_trim, *sym_sfx;\n',   '\t\tchar sym_trim[256], *psym_trim = sym_trim;\n\t\tconst char *sym_sfx;\n', 1); \
-s = s.replace('\t\t\tchar *next_path;\n',                                     '\t\t\tconst char *next_path;\n', 1); \
-f = open('$(BPFTIME_LIBBPF_C)', 'w'); f.write(s); f.close()"
-	# Fix add_bpf_link not propagating bpf_cookie from BPF_LINK_CREATE args.
-	# The bpf_link_handler(bpf_link_create_args) constructor never sets attach_cookie,
-	# so bpf_get_attach_cookie() always returns 0 for perf-event uprobes.
-	# Use the cookie-aware bpf_link_handler(prog_id, target_fd, cookie) constructor
-	# directly from add_bpf_link when attach_type == BPF_PERF_EVENT (41).
-	python3 -c "\
-f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'r'); s = f.read(); f.close(); \
-s = s.replace(\
-	'\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
-	'\tif (args->attach_type == 41) {\n\t\treturn manager->set_handler(fd,\n\t\t\tbpftime::bpf_link_handler(args->prog_fd, args->target_fd,\n\t\t\t\tstd::optional<uint64_t>(args->perf_event.bpf_cookie)),\n\t\t\tsegment);\n\t}\n\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
-	1); \
-f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'w'); f.write(s); f.close()"
-	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DBPFTIME_UBPF_JIT=ON \
-		-DBPFTIME_LLVM_JIT=OFF
-	cmake --build $(BPFTIME_BUILD) --parallel
-	cp $(BPFTIME_BUILD)/runtime/syscall-server/libbpftime-syscall-server.so \
-		$(BPFTIME_LIBS_DST)/bpftime-syscall-server.so
-	cp $(BPFTIME_BUILD)/runtime/agent/libbpftime-agent.so \
-		$(BPFTIME_LIBS_DST)/bpftime-agent.so
-	@echo "bpftime libraries copied to $(BPFTIME_LIBS_DST)"
-
 .PHONY: clean
 clean:
 	rm -rf $(OUTPUT)
 	rm -rf $(LIBBPFGO)
 	rm bpf/$(VMLINUXH)
-
-.PHONY: clean-bpftime
-clean-bpftime:
-	rm -rf $(BPFTIME_DIR)

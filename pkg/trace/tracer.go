@@ -95,7 +95,11 @@ func (t *UserTracer) Init(ctx context.Context) error {
 		return err
 	}
 
-	t.probe = probe.NewProbe(probe.WithLogger(t.logger))
+	probeOpts := []probe.Option{probe.WithLogger(t.logger)}
+	if t.userspaceBPF {
+		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	}
+	t.probe = probe.NewProbe(probeOpts...)
 	if err := t.probe.Init(ctx); err != nil {
 		return errors.Wrap(err, "error initializing BPF probe")
 	}
@@ -177,8 +181,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 func (t *UserTracer) attachProbe(ctx context.Context) {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
-	offsets := t.tracee.GetFuncOffsets()
-	cookies := t.tracee.GetFuncCookies()
+	offsets, cookies := t.tracee.GetFuncOffsetsAndCookies()
 
 	for i := 0; i < len(offsets); i += batchSize {
 		end := i + batchSize

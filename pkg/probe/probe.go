@@ -3,6 +3,7 @@ package probe
 import (
 	"context"
 	"embed"
+	"fmt"
 	"path/filepath"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -32,6 +33,8 @@ type Probe struct {
 
 	EvtBuf *bpf.RingBuffer
 
+	userspaceBPF bool
+
 	logger log.Logger
 }
 
@@ -43,8 +46,22 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
+// WithUserspaceBPF configures the probe to use the classic single-uprobe
+// perf_event_open path instead of uprobe_multi. bpftime supports the former
+// but silently no-ops the latter, so this must be set when running under
+// bpftime.
+func WithUserspaceBPF() Option {
+	return func(p *Probe) {
+		p.userspaceBPF = true
+	}
+}
+
 func NewProbe(opts ...Option) *Probe {
-	return new(Probe)
+	p := new(Probe)
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 func (p *Probe) read(path string) ([]byte, error) {
@@ -84,8 +101,13 @@ func (p *Probe) Init(_ context.Context) error {
 		return errors.Wrapf(err, "failed to get bpf program: %s", p.Name)
 	}
 
-	if err := p.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
-		return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+	// uprobe_multi requires an explicit expected attach type so the kernel knows
+	// to use BPF_LINK_TYPE_UPROBE_MULTI. For the classic single-uprobe path
+	// (bpftime mode) we leave expected_attach_type at its default (0).
+	if !p.userspaceBPF {
+		if err := p.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
+			return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+		}
 	}
 
 	if err := p.bpfMod.BPFLoadObject(); err != nil {
@@ -107,6 +129,10 @@ func (p *Probe) configureBPFLogger() {
 }
 
 func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uint64) error {
+	if p.userspaceBPF {
+		return p.attachSingleUprobes(exePath, offsets, cookies)
+	}
+
 	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
 	if err != nil {
 		p.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies))
@@ -146,8 +172,8 @@ func (p *Probe) CloseEventBuf() {
 
 // CloseBPFMod destroys all BPF links (detaching uprobes) and then closes
 // the BPF module. Links must be explicitly destroyed because AttachUprobeMulti
-// returns a BPFLink that is the sole owner of the uprobe attachment - closing
-// the module alone does not detach the probes.
+// and AttachUprobeWithOpts both return a BPFLink that is the sole owner of the
+// uprobe attachment - closing the module alone does not detach the probes.
 // Must be called after CloseEventBuf so the ring buffer poll goroutine has
 // already stopped.
 func (p *Probe) CloseBPFMod() {
@@ -158,4 +184,42 @@ func (p *Probe) CloseBPFMod() {
 	if p.bpfMod != nil {
 		p.bpfMod.Close()
 	}
+}
+
+// attachSingleUprobes attaches the probe to each (offset, cookie) pair using
+// bpf_program__attach_uprobe_opts via libbpfgo. This is the path used in
+// userspace BPF mode (bpftime), which supports single uprobes via perf_event_open
+// but silently no-ops BPF_TRACE_UPROBE_MULTI.
+func (p *Probe) attachSingleUprobes(exePath string, offsets, cookies []uint64) error {
+	var firstErr error
+	attached := 0
+
+	for i, offset := range offsets {
+		cookie := cookies[i]
+		link, err := p.bpfProg.AttachUprobeWithOpts(-1, exePath, offset, cookie)
+		if err != nil {
+			p.logger.Debug().
+				Err(err).
+				Uint64("offset", offset).
+				Uint64("cookie", cookie).
+				Msg("failed to attach uprobe with opts")
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		p.links = append(p.links, link)
+		attached++
+	}
+
+	if attached == 0 && len(offsets) > 0 {
+		return fmt.Errorf("all %d uprobe attachments failed (first error: %w)", len(offsets), firstErr)
+	}
+
+	p.logger.Debug().
+		Int("attached", attached).
+		Int("total", len(offsets)).
+		Msg("single uprobes attached")
+
+	return nil
 }

@@ -87,21 +87,20 @@ func (t *UserTracee) ShouldIncludeSymbol(sym elf.Symbol) bool {
 	return shouldInclude(sym, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 }
 
-// GetFuncOffsetsAndCookies returns the function offsets and their corresponding
-// cookies as parallel slices. Both slices are built in a single map iteration
-// so offset[i] and cookie[i] always refer to the same function.
-//
-// The previous GetFuncOffsets / GetFuncCookies helpers iterated the map
-// separately, which produced different random orderings on each call and
-// caused cookie mismatches when attaching uprobes.
-func (t *UserTracee) GetFuncOffsetsAndCookies() (offsets, cookies []uint64) {
-	offsets = make([]uint64, 0, len(t.funcs))
-	cookies = make([]uint64, 0, len(t.funcs))
-	for c, f := range t.funcs {
-		offsets = append(offsets, f.offset)
+func (t *UserTracee) GetFuncOffsets() []uint64 {
+	offsets := make([]uint64, len(t.funcs))
+	for i := range t.funcs {
+		offsets = append(offsets, t.funcs[i].offset)
+	}
+	return offsets
+}
+
+func (t *UserTracee) GetFuncCookies() []uint64 {
+	cookies := make([]uint64, len(t.funcs))
+	for c := range t.funcs {
 		cookies = append(cookies, uint64(c))
 	}
-	return
+	return cookies
 }
 
 func (t *UserTracee) GetFuncNames() []string {

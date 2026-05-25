@@ -142,6 +142,9 @@ func (o *Options) daemonize() error {
 	args = append(args, fmt.Sprintf("--report=%s", strconv.FormatBool(o.report)))
 	args = append(args, fmt.Sprintf("--status=%s", strconv.FormatBool(o.status)))
 	args = append(args, fmt.Sprintf("--verbose=%s", strconv.FormatBool(o.verbose)))
+	if o.userspaceBPF {
+		args = append(args, "--userspace-bpf")
+	}
 
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

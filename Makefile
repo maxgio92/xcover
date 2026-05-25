@@ -163,14 +163,14 @@ s = s.replace('\t\tchar sym_trim[256], *psym_trim = sym_trim, *sym_sfx;\n',   '\
 s = s.replace('\t\t\tchar *next_path;\n',                                     '\t\t\tconst char *next_path;\n', 1); \
 f = open('$(BPFTIME_LIBBPF_C)', 'w'); f.write(s); f.close()"
 	# Fix conflicting declaration of bpf_stream_vprintk in bpftool-bundled libbpf vs
-	# vmlinux.h generated from kernel 6.15+. Patch the source header so the guard
-	# propagates when bpftool copies it into the bootstrap build directory.
+	# vmlinux.h generated from kernel 6.15+. The bundled libbpf declares the helper
+	# with 5 params; the kernel BTF declares it with 4. Drop the bundled decl; the
+	# bpftool skeleton sources do not call bpf_stream_printk/bpf_stream_vprintk.
 	python3 -c "\
 import re; \
-bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/src/libbpf/include/bpf/bpf_helpers.h'; \
+bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/libbpf/src/bpf_helpers.h'; \
 f = open(bpf_h, 'r'); s = f.read(); f.close(); \
-s = re.sub(r'(extern int bpf_stream_vprintk\b[^;]+;)', \
-           r'#ifndef bpf_stream_vprintk\n\1\n#endif', s, count=1); \
+s = re.sub(r'extern int bpf_stream_vprintk\b[^;]+;\s*', '', s, count=1); \
 f = open(bpf_h, 'w'); f.write(s); f.close()"
 	# Fix add_bpf_link not propagating bpf_cookie from BPF_LINK_CREATE args.
 	# The bpf_link_handler(bpf_link_create_args) constructor never sets attach_cookie,
@@ -188,7 +188,10 @@ f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'w'); f.write(s)
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \
 		-DBPFTIME_LLVM_JIT=OFF
-	cmake --build $(BPFTIME_BUILD) --parallel
+	# Prepend llvm-config --libdir so the built bpftool can resolve libLLVM.so
+	# when invoked at skel.h generation time. No-op when llvm-config is absent.
+	LD_LIBRARY_PATH="$$(llvm-config --libdir 2>/dev/null):$$LD_LIBRARY_PATH" \
+		cmake --build $(BPFTIME_BUILD) --parallel
 	cp $(BPFTIME_BUILD)/runtime/syscall-server/libbpftime-syscall-server.so \
 		$(BPFTIME_LIBS_DST)/bpftime-syscall-server.so
 	cp $(BPFTIME_BUILD)/runtime/agent/libbpftime-agent.so \

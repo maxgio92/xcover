@@ -229,12 +229,14 @@ func (t *UserTracer) handleEvent(data []byte) {
 		t.logger.Err(err).Msg("failed to read event")
 	}
 
+	t.logger.Info().Uint64("cookie", uint64(event.Cookie)).Msg("ring buffer event received")
+
 	if t.tracee == nil {
 		return
 	}
 	fun, ok := t.tracee.funcs[event.Cookie]
 	if !ok {
-		t.logger.Err(ErrFuncNotFoundForCookie).Msg("failed getting function from cookie")
+		t.logger.Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(event.Cookie)).Msg("failed getting function from cookie")
 	}
 
 	if _, ok := t.ack.Load(event.Cookie); !ok {

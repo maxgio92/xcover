@@ -163,11 +163,7 @@ func (p *Probe) InitEventBuf(ctx context.Context) (chan []byte, error) {
 // to channel. Go runtime locks the goroutine to the thread when receiving
 // the callback from C.
 func (p *Probe) PollEventBuf() {
-	for {
-		if err := p.EvtBuf.Poll(evtRingBufPollTimeout); err != nil {
-			return
-		}
-	}
+	p.EvtBuf.Poll(evtRingBufPollTimeout)
 }
 
 func (p *Probe) CloseEventBuf() {

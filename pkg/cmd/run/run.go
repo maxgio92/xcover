@@ -172,6 +172,9 @@ func (o *Options) daemonize() error {
 	if o.noBuildIDCheck {
 		args = append(args, "--no-build-id-check")
 	}
+	if o.userspaceBPF {
+		args = append(args, "--userspace-bpf")
+	}
 
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

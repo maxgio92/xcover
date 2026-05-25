@@ -41,15 +41,15 @@ function main() {
 	runCmd "rm -f /dev/shm/bpftime_*"
 	sleep 1
 	runCmd "# Step 3: start the profiler in userspace BPF mode"
-	runCmd "BPFTIME_SHM_MEMORY_MB=2048 xcover run --detach --path demo-app --include '^main\.' --userspace-bpf"
+	runCmd "BPFTIME_SHM_MEMORY_MB=2048 BPFTIME_VM_NAME=ubpf xcover run --detach --path demo-app --include '^main\.' --userspace-bpf"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "xcover wait"
 	sleep 1
 	clear
 	runCmd "# Step 4: run test scenarios with the agent preloaded"
-	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app add"
-	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app multiply"
-	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app greet"
+	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app add"
+	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app multiply"
+	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app greet"
 	clear
 	runCmd "# Step 5: stop and collect results"
 	runCmd "xcover stop"

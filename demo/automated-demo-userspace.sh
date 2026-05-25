@@ -25,7 +25,7 @@ function main() {
 	runCmd "bat demo-app.go"
 	sleep 2
 	clear
-	runCmd "go build demo-app.go"
+	runCmd "go build -ldflags='-linkmode external' demo-app.go"
 	runCmd "ls demo-app"
 	runCmd "# Let's strip the binary — this is a production binary"
 	runCmd "strip --strip-all demo-app"

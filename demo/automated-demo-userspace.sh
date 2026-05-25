@@ -21,11 +21,11 @@ function main() {
 	runCmd "# === xcover: Userspace BPF mode (powered by bpftime) ==="
 	runCmd "# Same coverage profiling — zero kernel traps!"
 	echo
-	runCmd "# Let's test a demo Go application"
-	runCmd "bat demo-app.go"
+	runCmd "# Let's test a demo C application"
+	runCmd "bat demo-app.c"
 	sleep 2
 	clear
-	runCmd "go build -gcflags='-N -l' -ldflags='-linkmode external' demo-app.go"
+	runCmd "gcc -O0 -o demo-app demo-app.c"
 	runCmd "ls demo-app"
 	runCmd "# Let's strip the binary — this is a production binary"
 	runCmd "strip --strip-all demo-app"
@@ -41,7 +41,7 @@ function main() {
 	runCmd "rm -f /dev/shm/bpftime_*"
 	sleep 1
 	runCmd "# Step 3: start the profiler in userspace BPF mode"
-	runCmd "BPFTIME_SHM_MEMORY_MB=2048 BPFTIME_VM_NAME=ubpf xcover run --detach --path demo-app --include '^main\.' --userspace-bpf"
+	runCmd "BPFTIME_SHM_MEMORY_MB=2048 BPFTIME_VM_NAME=ubpf xcover run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "xcover wait"
 	sleep 1

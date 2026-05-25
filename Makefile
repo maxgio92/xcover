@@ -166,16 +166,25 @@ bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/libbpf/src/bpf_helpers.h'; \
 f = open(bpf_h, 'r'); s = f.read(); f.close(); \
 s = re.sub(r'extern int bpf_stream_vprintk\b[^;]+;\s*', '', s, count=1); \
 f = open(bpf_h, 'w'); f.write(s); f.close()"
-	# Fix add_bpf_link not propagating bpf_cookie from BPF_LINK_CREATE args.
-	# The bpf_link_handler(bpf_link_create_args) constructor never sets attach_cookie,
-	# so bpf_get_attach_cookie() always returns 0 for perf-event uprobes.
-	# Use the cookie-aware bpf_link_handler(prog_id, target_fd, cookie) constructor
-	# directly from add_bpf_link when attach_type == BPF_PERF_EVENT (41).
+	# Fix add_bpf_link for BPF_PERF_EVENT (attach_type=41) links:
+	#
+	# 1. libbpf's probe_perf_link() calls bpf_link_create(prog_fd, -1, BPF_PERF_EVENT)
+	#    with an invalid perf fd to probe for FEAT_PERF_LINK support. It expects EBADF
+	#    back. bpftime used to succeed (returning a valid handler index), so
+	#    kernel_supports(FEAT_PERF_LINK) returned false → libbpf fell back to the ioctl
+	#    path which rejects non-zero cookies with EOPNOTSUPP → all uprobe attachments
+	#    failed silently → no events → funcs_ack=0.
+	#    Fix: validate target_fd via bpftime_is_perf_event_fd() and return EBADF if it
+	#    is not a valid perf event fd, matching the kernel behaviour the probe expects.
+	#
+	# 2. The bpf_link_handler(bpf_link_create_args) constructor never copies
+	#    args.perf_event.bpf_cookie into attach_cookie, so bpf_get_attach_cookie()
+	#    would always return 0. Use the cookie-aware constructor when target_fd is valid.
 	python3 -c "\
 f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'r'); s = f.read(); f.close(); \
 s = s.replace(\
 	'\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
-	'\tif (args->attach_type == 41) {\n\t\treturn manager->set_handler(fd,\n\t\t\tbpftime::bpf_link_handler(args->prog_fd, args->target_fd,\n\t\t\t\tstd::optional<uint64_t>(args->perf_event.bpf_cookie)),\n\t\t\tsegment);\n\t}\n\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
+	'\tif (args->attach_type == 41) {\n\t\tif (!bpftime_is_perf_event_fd(args->target_fd)) {\n\t\t\terrno = EBADF;\n\t\t\treturn -1;\n\t\t}\n\t\treturn manager->set_handler(fd,\n\t\t\tbpftime::bpf_link_handler(args->prog_fd, args->target_fd,\n\t\t\t\tstd::optional<uint64_t>(args->perf_event.bpf_cookie)),\n\t\t\tsegment);\n\t}\n\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
 	1); \
 f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \

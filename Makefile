@@ -156,12 +156,12 @@ s = s.replace('\tchar *res;\n',                                               '\
 s = s.replace('\t\tchar sym_trim[256], *psym_trim = sym_trim, *sym_sfx;\n',   '\t\tchar sym_trim[256], *psym_trim = sym_trim;\n\t\tconst char *sym_sfx;\n', 1); \
 s = s.replace('\t\t\tchar *next_path;\n',                                     '\t\t\tconst char *next_path;\n', 1); \
 f = open('$(BPFTIME_LIBBPF_C)', 'w'); f.write(s); f.close()"
-	# Fix conflicting declaration of bpf_stream_vprintk in bootstrap libbpf vs
-	# vmlinux.h generated from kernel 6.15+. The bootstrap bpf_helpers.h redeclares
-	# the helper with an older signature; guard it so vmlinux.h wins.
+	# Fix conflicting declaration of bpf_stream_vprintk in bpftool-bundled libbpf vs
+	# vmlinux.h generated from kernel 6.15+. Patch the source header so the guard
+	# propagates when bpftool copies it into the bootstrap build directory.
 	python3 -c "\
 import re; \
-bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/src/bootstrap/libbpf/include/bpf/bpf_helpers.h'; \
+bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/src/libbpf/include/bpf/bpf_helpers.h'; \
 f = open(bpf_h, 'r'); s = f.read(); f.close(); \
 s = re.sub(r'(extern int bpf_stream_vprintk\b[^;]+;)', \
            r'#ifndef bpf_stream_vprintk\n\1\n#endif', s, count=1); \

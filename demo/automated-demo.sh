@@ -2,11 +2,20 @@
 # Automated xcover demo for asciinema
 # Run as: sudo bash automated-demo.sh
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="xcover"
 PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
-export $PATH
+export PATH
+
+function cleanup() {
+    xcover stop 2>/dev/null || true
+    pkill -f "xcover run" 2>/dev/null || true
+}
+
+trap cleanup EXIT
 
 function main() {
 	# Check if running as root

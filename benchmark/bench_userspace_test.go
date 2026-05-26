@@ -1,6 +1,6 @@
-//go:build linux
+//go:build linux && userspace
 
-package benchmarkuserspace
+package benchmark
 
 import (
 	"context"
@@ -19,23 +19,17 @@ import (
 )
 
 const (
-	hitBinary  = "../benchmark/target/hit/hit"
-	idleBinary = "../benchmark/target/idle/idle"
-	missBinary = "../benchmark/target/miss/miss"
+	reportPathUserspace = "bench-report-userspace.json"
 
-	reportPath = "bench-report-userspace.json"
-
-	// tracerWarmup is the time given to the tracer to attach uprobes via
-	// bpftime before the target binary is executed.
-	tracerWarmup = 1 * time.Second
+	// Userspace attach via bpftime SHM negotiation needs a longer warmup
+	// than kernel uprobes.
+	tracerWarmupUserspace = 1 * time.Second
 )
 
 // agentLibPath is the path to the extracted bpftime agent library, set in
 // TestMain and used by runTargetUserspace.
 var agentLibPath string
 
-// Package-level sample slices accumulate ns/call values across all -count
-// rounds.
 var (
 	baselineSamples []float64
 	hitSamples      []float64
@@ -45,8 +39,9 @@ var (
 
 func TestMain(m *testing.M) {
 	// Ensure the bpftime syscall-server is loaded into this process before
-	// any BPF operations. On the first call this re-execs the process with
-	// LD_PRELOAD set; on the second (re-exec'd) call this is a no-op.
+	// any BPF operations. On the first invocation this re-execs the process
+	// with LD_PRELOAD set; the re-exec'd process finds the sentinel and
+	// continues normally.
 	if err := bpftime.EnsureSyscallServer(); err != nil {
 		fmt.Fprintf(os.Stderr, "bpftime: load syscall-server: %v\n", err)
 		os.Exit(1)
@@ -62,7 +57,11 @@ func TestMain(m *testing.M) {
 	}
 	defer os.Remove(agentLibPath)
 
-	// Clean up any stale bpftime shared memory from a previous run.
+	if err := buildTargets(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build targets: %v\n", err)
+		os.Exit(1)
+	}
+
 	cleanSHM()
 
 	code := m.Run()
@@ -81,15 +80,22 @@ func TestMain(m *testing.M) {
 		MissVsIdle:     relOverhead(report.Miss, report.Idle),
 		MissVsHit:      relOverhead(report.Miss, report.Hit),
 	}
-	if err := writeReport(reportPath, report); err != nil {
+	if err := writeReport(reportPathUserspace, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)
 	}
 
 	os.Exit(code)
 }
 
-// cleanSHM removes stale bpftime shared memory segments that would cause
-// the next run to fail with EEXIST or bad_alloc.
+// buildTargets compiles the C target binaries.
+func buildTargets() error {
+	cmd := exec.Command("make", "all")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// cleanSHM removes stale bpftime shared memory segments.
 func cleanSHM() {
 	entries, err := os.ReadDir("/dev/shm")
 	if err != nil {
@@ -127,8 +133,7 @@ func runTargetBaseline(binary string) (float64, error) {
 }
 
 // startTracerUserspace initialises and starts an xcover tracer in userspace
-// BPF mode for the given binary and symbol include pattern. The returned
-// cancel function must be called to stop the tracer.
+// BPF mode. The returned cancel function must be called to stop the tracer.
 func startTracerUserspace(tb testing.TB, binary, include string) context.CancelFunc {
 	tb.Helper()
 
@@ -160,14 +165,11 @@ func startTracerUserspace(tb testing.TB, binary, include string) context.CancelF
 		tracer.Run(ctx) //nolint:errcheck
 	}()
 
-	// Userspace attach via bpftime SHM negotiation needs a longer warmup
-	// than kernel uprobes.
-	time.Sleep(tracerWarmup)
+	time.Sleep(tracerWarmupUserspace)
 
 	return func() {
 		cancel()
 		wg.Wait()
-		// Remove SHM after each round so the next round starts clean.
 		cleanSHM()
 	}
 }
@@ -186,9 +188,8 @@ func BenchmarkBaseline(b *testing.B) {
 }
 
 // BenchmarkHit measures userspace BPF overhead on the steady-state hit path.
-// target_func is probed and called N times: after the first call its cookie
-// is in seen_funcs, so subsequent firings take the fast path (map lookup hit).
-// No kernel trap — BPF runs inside the tracee via the bpftime agent.
+// No kernel trap — the BPF program runs inside the tracee via the bpftime
+// agent.
 func BenchmarkHit(b *testing.B) {
 	cancel := startTracerUserspace(b, hitBinary, `^target_func$`)
 	defer cancel()
@@ -222,8 +223,7 @@ func BenchmarkIdle(b *testing.B) {
 }
 
 // BenchmarkMiss measures userspace BPF overhead on the cold path.
-// N distinct functions are each called exactly once — every firing takes the
-// slow path (cookie not in seen_funcs → map update → ringbuf reserve → submit).
+// Every firing hits the slow path (map update + ringbuf reserve + submit).
 func BenchmarkMiss(b *testing.B) {
 	cancel := startTracerUserspace(b, missBinary, `^func_[0-9]+$`)
 	defer cancel()

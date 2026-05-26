@@ -43,14 +43,14 @@ int handle_user_function(struct pt_regs *ctx) {
 
 	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
 	if (!event) {
-		bpf_printk("error submitting event to ring buffer for user function with cookie %s\n", cookie);
+		bpf_printk("error submitting event to ring buffer for user function with cookie %llu\n", cookie);
 
 		return 0;
 	}
 
 	event->cookie = cookie;
 	bpf_ringbuf_submit(event, ringbuffer_flags);
-	bpf_printk("submitted event to ring buffer for user function with cookie %s\n", cookie);
+	bpf_printk("submitted event to ring buffer for user function with cookie %llu\n", cookie);
 
 	return 0;
 }

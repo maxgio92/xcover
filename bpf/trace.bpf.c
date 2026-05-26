@@ -1,3 +1,4 @@
+#define BPF_NO_GLOBAL_DATA
 #include "vmlinux.h"
 
 #include <bpf/bpf_helpers.h>
@@ -8,10 +9,14 @@ struct event_t {
     __u64 cookie; /* Cookie is a function identifier */
 };
 
-/* Function trace event ring buffer */
+/* Function trace event ring buffer.
+ * 256KB matches upstream bpftime examples and fits comfortably in the
+ * bpftime shared memory segment. 256MB (1<<28) failed to allocate in SHM,
+ * causing ring_buffer__new to return EPERM and bpf_ringbuf_reserve to
+ * dereference an unmapped page. */
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 28); /* 256MB buffer */
+    __uint(max_entries, 256 * 1024);
 } events SEC(".maps");
 
 /* Function trace report tracking map */
@@ -21,8 +26,6 @@ struct {
     __type(key, u64);           /* Function cookie */
     __type(value, u8);          /* Report marker */
 } seen_funcs SEC(".maps");
-
-long ringbuffer_flags = 0;
 
 SEC("uprobe/handle_user_function")
 int handle_user_function(struct pt_regs *ctx) {
@@ -49,7 +52,7 @@ int handle_user_function(struct pt_regs *ctx) {
 	}
 
 	event->cookie = cookie;
-	bpf_ringbuf_submit(event, ringbuffer_flags);
+	bpf_ringbuf_submit(event, 0);
 	bpf_printk("submitted event to ring buffer for user function with cookie %llu\n", cookie);
 
 	return 0;

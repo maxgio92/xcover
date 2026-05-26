@@ -87,14 +87,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// buildTargets compiles the C target binaries.
-func buildTargets() error {
-	cmd := exec.Command("make", "all")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 // cleanSHM removes stale bpftime shared memory segments.
 func cleanSHM() {
 	entries, err := os.ReadDir("/dev/shm")

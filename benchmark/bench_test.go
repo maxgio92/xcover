@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,10 +17,6 @@ import (
 )
 
 const (
-	hitBinary  = "./target/hit/hit"
-	idleBinary = "./target/idle/idle"
-	missBinary = "./target/miss/miss"
-
 	reportPath = "bench-report.json"
 
 	// tracerWarmup is the time given to the tracer to attach uprobes
@@ -67,14 +62,6 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(code)
-}
-
-// buildTargets runs make in the benchmark directory to compile all C targets.
-func buildTargets() error {
-	cmd := exec.Command("make", "all")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 // runTarget executes the binary and returns the ns/call value it prints.

@@ -927,6 +927,31 @@ This is worth exploring out loud, which is why it's in the talk.
 
 ---
 
+# Limitations & what's next
+
+**Userspace BPF mode**
+- Requires dynamically linked tracee — no static or musl binaries
+- Function inlining defeats uprobe-based interception (no entry point to hook)
+- Frida Gum interceptor: some aggressive compiler optimisations (tail-call elision, LTO) are not yet handled
+
+**Upstream gaps we're tracking**
+- **bpftime**: bundled `bpftool` submodule is stale — GCC 14 and kernel 6.15+ build fixes are in libbpf/bpftool but not yet pulled in; we carry local patches in the meantime
+- **libbpfgo**: no `AttachUprobeWithCookie` API — single-uprobe attach with per-probe `bpf_cookie` requires raw syscalls today; [issue pending](https://github.com/aquasecurity/libbpfgo)
+
+**What we're working on**
+- Contribute bpftool submodule bump to bpftime upstream
+- File and land `AttachUprobeWithCookie` in libbpfgo
+- Remove local workaround patches as upstream absorbs the fixes
+- Transparent process injection (drop the explicit `LD_PRELOAD` step)
+
+<!--
+Be honest about the rough edges. The LD_PRELOAD requirement is the most visible one — users notice it immediately.
+The upstream gaps are being addressed: bpftime PR #570 already landed the bpf_cookie fix, and we're tracking the rest.
+The goal is to make the userspace path as frictionless as the kernel path.
+-->
+
+---
+
 # Wrapping up
 
 **The binary you ship is the binary you test.**

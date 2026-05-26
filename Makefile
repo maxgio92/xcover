@@ -144,6 +144,9 @@ xcover-container:
 # Prerequisites: cmake >= 3.16, a C++17 compiler, libelf, zlib.
 
 BPFTIME_GIT      := https://github.com/eunomia-bpf/bpftime.git
+# Pinned to 5bf24b21af85 (2026-05-25): includes fix for bpf_link attach_cookie and
+# FEAT_PERF_LINK detection (PR #570). Bump this when pulling in further upstream fixes.
+BPFTIME_COMMIT   := 5bf24b21af856f79a6aa3bd8da6e4dcfbe1d95d4
 BPFTIME_DIR      := bpftime-src
 BPFTIME_BUILD    := $(BPFTIME_DIR)/build
 BPFTIME_LIBS_DST := pkg/bpftime/libs
@@ -153,9 +156,12 @@ BPFTIME_LIBBPF_C := $(BPFTIME_DIR)/third_party/bpftool/libbpf/src/libbpf.c
 bpftime-libs:
 	@if [ ! -d $(BPFTIME_DIR) ]; then \
 		$(git) clone --recurse-submodules $(BPFTIME_GIT) $(BPFTIME_DIR); \
+		$(git) -C $(BPFTIME_DIR) checkout $(BPFTIME_COMMIT); \
+		$(git) -C $(BPFTIME_DIR) submodule update --init --recursive; \
 	fi
 	# Fix const-qualifier discards in bpftool-bundled libbpf, hard errors under GCC 14+.
-	# Upstream fix: libbpf commit f5dcbae (2026-03-12). Remove once bpftime updates submodule.
+	# Upstream fix: libbpf commit f5dcbae (2026-03-12). Remove once bpftime bumps its
+	# bpftool submodule past that date.
 	python3 -c "\
 f = open('$(BPFTIME_LIBBPF_C)', 'r'); s = f.read(); f.close(); \
 s = s.replace('\tchar *res;\n',                                               '\tconst char *res;\n',           1); \
@@ -166,33 +172,14 @@ f = open('$(BPFTIME_LIBBPF_C)', 'w'); f.write(s); f.close()"
 	# vmlinux.h generated from kernel 6.15+. The bundled libbpf declares the helper
 	# with 5 params; the kernel BTF declares it with 4. Drop the bundled decl; the
 	# bpftool skeleton sources do not call bpf_stream_printk/bpf_stream_vprintk.
+	# Remove once bpftime bumps its bpftool submodule past bpftool commit 640fb7ceed18
+	# (2025-11-10).
 	python3 -c "\
 import re; \
 bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/libbpf/src/bpf_helpers.h'; \
 f = open(bpf_h, 'r'); s = f.read(); f.close(); \
 s = re.sub(r'extern int bpf_stream_vprintk\b[^;]+;\s*', '', s, count=1); \
 f = open(bpf_h, 'w'); f.write(s); f.close()"
-	# Fix add_bpf_link for BPF_PERF_EVENT (attach_type=41) links:
-	#
-	# 1. libbpf's probe_perf_link() calls bpf_link_create(prog_fd, -1, BPF_PERF_EVENT)
-	#    with an invalid perf fd to probe for FEAT_PERF_LINK support. It expects EBADF
-	#    back. bpftime used to succeed (returning a valid handler index), so
-	#    kernel_supports(FEAT_PERF_LINK) returned false → libbpf fell back to the ioctl
-	#    path which rejects non-zero cookies with EOPNOTSUPP → all uprobe attachments
-	#    failed silently → no events → funcs_ack=0.
-	#    Fix: validate target_fd via bpftime_is_perf_event_fd() and return EBADF if it
-	#    is not a valid perf event fd, matching the kernel behaviour the probe expects.
-	#
-	# 2. The bpf_link_handler(bpf_link_create_args) constructor never copies
-	#    args.perf_event.bpf_cookie into attach_cookie, so bpf_get_attach_cookie()
-	#    would always return 0. Use the cookie-aware constructor when target_fd is valid.
-	python3 -c "\
-f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'r'); s = f.read(); f.close(); \
-s = s.replace(\
-	'\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
-	'\tif (args->attach_type == 41) {\n\t\tif (!bpftime_is_perf_event_fd(args->target_fd)) {\n\t\t\terrno = EBADF;\n\t\t\treturn -1;\n\t\t}\n\t\treturn manager->set_handler(fd,\n\t\t\tbpftime::bpf_link_handler(args->prog_fd, args->target_fd,\n\t\t\t\tstd::optional<uint64_t>(args->perf_event.bpf_cookie)),\n\t\t\tsegment);\n\t}\n\treturn manager->set_handler(fd, bpftime::bpf_link_handler(*args),\n\t\t\t\t    segment);\n}', \
-	1); \
-f = open('$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp', 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \

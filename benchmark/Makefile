@@ -75,12 +75,17 @@ LIBBPFGO     := $(ROOTDIR)/libbpfgo
 CGO_CFLAGS   = "-I $(LIBBPFGO)/output"
 CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 
-.PHONY: all hit idle miss bench libbpfgo-static clean
+# bpftime shared libraries (embedded into the xcover binary at build time).
+# Must be built with: make -C $(ROOTDIR) bpftime-libs
+BPFTIME_AGENT := $(ROOTDIR)/pkg/bpftime/libs/bpftime-agent.so
+
+.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean
 
 all: hit idle miss
 
-## bench: build libbpfgo-static, C targets, and run Go benchmarks.
-bench: libbpfgo-static all
+## bench-kernel: build libbpfgo-static, C targets, and run kernel uprobe benchmarks.
+## Requires sudo (CAP_BPF + CAP_PERFMON).
+bench bench-kernel: libbpfgo-static all
 	@sudo \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
@@ -88,6 +93,24 @@ bench: libbpfgo-static all
 		GOARCH=$(GOARCH) \
 		go test -bench=. -run='^$$' -v \
 			-benchtime=$(BENCHTIME) \
+			-count=$(COUNT) \
+			.
+
+## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
+## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
+bench-userspace: libbpfgo-static all
+	@if [ ! -f "$(BPFTIME_AGENT)" ] || [ ! -s "$(BPFTIME_AGENT)" ]; then \
+		echo "ERROR: bpftime agent library not found: $(BPFTIME_AGENT)"; \
+		echo "       Run: make -C $(ROOTDIR) bpftime-libs"; \
+		exit 1; \
+	fi
+	CC=gcc \
+	CGO_CFLAGS=$(CGO_CFLAGS) \
+	CGO_LDFLAGS=$(CGO_LDFLAGS) \
+	GOARCH=$(GOARCH) \
+	BPFTIME_SHM_MEMORY_MB=2048 \
+		go test -tags userspace -bench=. -run='^$$' -v \
+			-benchtime=1x \
 			-count=$(COUNT) \
 			.
 

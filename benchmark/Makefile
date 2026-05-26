@@ -98,7 +98,7 @@ bench bench-kernel: libbpfgo-static all
 
 ## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
 ## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
-bench-userspace: libbpfgo-static bpf-object all
+bench-userspace: libbpfgo-static all
 	@if [ ! -f "$(BPFTIME_AGENT)" ] || [ ! -s "$(BPFTIME_AGENT)" ]; then \
 		echo "ERROR: bpftime agent library not found: $(BPFTIME_AGENT)"; \
 		echo "       Run: make -C $(ROOTDIR) bpftime-libs"; \
@@ -117,10 +117,6 @@ bench-userspace: libbpfgo-static bpf-object all
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:
 	@$(MAKE) -C $(ROOTDIR) libbpfgo-static
-
-## bpf-object: recompile the BPF object so the embedded bytecode is up to date.
-bpf-object:
-	@$(MAKE) -C $(ROOTDIR) xcover/bpf
 
 ## hit: compile the hit scenario target binary.
 hit: target/hit/hit

@@ -11,6 +11,17 @@ XCOVER="xcover"
 PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
 export PATH
 
+function cleanup() {
+    xcover stop 2>/dev/null || true
+    pkill -f "xcover run" 2>/dev/null || true
+    rm -f /dev/shm/bpftime_*
+    if [ -n "${XCOVER_AGENT:-}" ] && [ -f "${XCOVER_AGENT}" ]; then
+        rm -f "${XCOVER_AGENT}"
+    fi
+}
+
+trap cleanup EXIT
+
 function main() {
 	if [ "$EUID" -ne 0 ]; then
 	    echo "Please run as root: sudo bash $0"

@@ -117,20 +117,17 @@ func runTargetUserspace(binary string) (float64, error) {
 	env = append(env,
 		fmt.Sprintf("LD_PRELOAD=%s", agentLibPath),
 		"BPFTIME_VM_NAME=ubpf",
-		// Route bpftime agent logs to stderr so they're captured on crash.
-		"BPFTIME_LOG_OUTPUT=console",
-		"SPDLOG_LEVEL=debug",
 	)
 	cmd := exec.Command(binary)
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
-			return 0, fmt.Errorf("%w\nagent stderr:\n%s", err, exitErr.Stderr)
-		}
 		return 0, err
 	}
-	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	// bpftime's bpf_printk writes to stdout, so the output may contain log
+	// lines before the timing result. The binary always prints the float last.
+	last := lastLine(string(out))
+	return strconv.ParseFloat(last, 64)
 }
 
 // runTargetBaseline executes the target binary without bpftime injection.
@@ -144,6 +141,17 @@ func runTargetBaseline(binary string) (float64, error) {
 		return 0, err
 	}
 	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+}
+
+// lastLine returns the last non-empty line of s, trimmed of whitespace.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return l
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 // filterEnv returns a copy of env with all entries for the given key removed.

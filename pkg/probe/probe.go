@@ -191,33 +191,17 @@ func (p *Probe) CloseBPFMod() {
 // userspace BPF mode (bpftime), which supports single uprobes via perf_event_open
 // but silently no-ops BPF_TRACE_UPROBE_MULTI.
 func (p *Probe) attachSingleUprobes(exePath string, offsets, cookies []uint64) error {
-	var firstErr error
-	attached := 0
-
 	for i, offset := range offsets {
 		cookie := cookies[i]
 		link, err := p.bpfProg.AttachUprobeWithOpts(-1, exePath, offset, cookie)
 		if err != nil {
-			p.logger.Debug().
-				Err(err).
-				Uint64("offset", offset).
-				Uint64("cookie", cookie).
-				Msg("failed to attach uprobe with opts")
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
+			return fmt.Errorf("attach uprobe at offset 0x%x cookie 0x%x: %w", offset, cookie, err)
 		}
 		p.links = append(p.links, link)
-		attached++
-	}
-
-	if attached == 0 && len(offsets) > 0 {
-		return fmt.Errorf("all %d uprobe attachments failed (first error: %w)", len(offsets), firstErr)
 	}
 
 	p.logger.Debug().
-		Int("attached", attached).
+		Int("attached", len(p.links)).
 		Int("total", len(offsets)).
 		Msg("single uprobes attached")
 

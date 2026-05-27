@@ -174,6 +174,23 @@ bpf_h = '$(BPFTIME_DIR)/third_party/bpftool/libbpf/src/bpf_helpers.h'; \
 f = open(bpf_h, 'r'); s = f.read(); f.close(); \
 s = re.sub(r'extern int bpf_stream_vprintk\b[^;]+;\s*', '', s, count=1); \
 f = open(bpf_h, 'w'); f.write(s); f.close()"
+	# Fix __destruct_shm crash when injected_pids is null (LD_PRELOAD agent path).
+	# open_type is set in the member initializer list before the constructor body,
+	# so even a partially-constructed bpftime_shm has open_type == SHM_OPEN_ONLY.
+	# If the SHM open fails (or is never initialised), injected_pids stays null and
+	# erase() crashes the tracee on exit.  Guard both sides defensively.
+	python3 -c "\
+shm = '$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp'; \
+f = open(shm, 'r'); s = f.read(); f.close(); \
+s = s.replace( \
+	'\tif (bpftime::shm_holder.global_shared_memory.get_open_type() ==\n\t    bpftime::shm_open_type::SHM_OPEN_ONLY) {', \
+	'\tif (global_shm_initialized &&\n\t    bpftime::shm_holder.global_shared_memory.get_open_type() ==\n\t    bpftime::shm_open_type::SHM_OPEN_ONLY) {', \
+	1); \
+s = s.replace( \
+	'void bpftime_shm::remove_pid_from_alive_agent_set(int pid)\n{\n\tinjected_pids->erase(pid);\n}', \
+	'void bpftime_shm::remove_pid_from_alive_agent_set(int pid)\n{\n\tif (injected_pids != nullptr) {\n\t\tinjected_pids->erase(pid);\n\t}\n}', \
+	1); \
+f = open(shm, 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \

@@ -185,6 +185,11 @@ func startTracerUserspace(tb testing.TB, binary, include string) context.CancelF
 
 	time.Sleep(tracerWarmupUserspace)
 
+	if os.Getenv("XCOVER_PAUSE_TRACEE") == "1" {
+		fmt.Printf("\n>>> SHM ready. In another terminal run:\n    catchsegv env LD_PRELOAD=%s BPFTIME_VM_NAME=ubpf BPFTIME_LOG_OUTPUT=console SPDLOG_LEVEL=debug %s\n>>> Press Enter when done.\n", agentLibPath, binary)
+		fmt.Scanln()
+	}
+
 	return func() {
 		cancel()
 		wg.Wait()

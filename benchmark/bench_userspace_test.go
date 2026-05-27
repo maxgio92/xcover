@@ -103,11 +103,15 @@ func cleanSHM() {
 // runTargetUserspace executes the target binary with the bpftime agent
 // injected via LD_PRELOAD and returns the ns/call value the binary prints.
 func runTargetUserspace(binary string) (float64, error) {
-	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(),
+	// Strip any LD_PRELOAD inherited from the test process (the syscall-server
+	// memfd path set by EnsureSyscallServer) so only the agent gets loaded.
+	env := filterEnv(os.Environ(), "LD_PRELOAD")
+	env = append(env,
 		fmt.Sprintf("LD_PRELOAD=%s", agentLibPath),
 		"BPFTIME_VM_NAME=ubpf",
 	)
+	cmd := exec.Command(binary)
+	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, err
@@ -117,11 +121,27 @@ func runTargetUserspace(binary string) (float64, error) {
 
 // runTargetBaseline executes the target binary without bpftime injection.
 func runTargetBaseline(binary string) (float64, error) {
-	out, err := exec.Command(binary).Output()
+	// Strip LD_PRELOAD so the syscall-server doesn't load in the baseline
+	// process — baseline must be a clean run with no bpftime overhead.
+	cmd := exec.Command(binary)
+	cmd.Env = filterEnv(os.Environ(), "LD_PRELOAD")
+	out, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
 	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+}
+
+// filterEnv returns a copy of env with all entries for the given key removed.
+func filterEnv(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // startTracerUserspace initialises and starts an xcover tracer in userspace

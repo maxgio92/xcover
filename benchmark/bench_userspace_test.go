@@ -62,7 +62,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	cleanSHM()
+	// Do NOT call cleanSHM() here. The syscall-server's start_up() fires
+	// during library initialisation (before TestMain runs), via the openat
+	// interception. Removing the SHM here kills that session and call_once
+	// prevents it from being recreated, leaving all tracees unable to open it.
+	//
+	// Handler cleanup between benchmarks is handled naturally: probe.CloseBPFMod
+	// closes every BPF fd, the server intercepts close() and frees the slot.
+	// Any truly stale SHM from a previous crashed run is cleared by bpftime's
+	// own begin_new_session() → reset_server_state() on re-init.
 
 	code := m.Run()
 
@@ -197,7 +205,6 @@ func startTracerUserspace(tb testing.TB, binary, include string) context.CancelF
 	return func() {
 		cancel()
 		wg.Wait()
-		cleanSHM()
 	}
 }
 

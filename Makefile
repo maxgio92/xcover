@@ -246,3 +246,5 @@ clean:
 .PHONY: clean-bpftime
 clean-bpftime:
 	rm -rf $(BPFTIME_DIR)
+	rm $(current_dir)/pkg/bpftime/libs/bpftime-syscall-server.so
+	rm $(current_dir)/pkg/bpftime/libs/bpftime-agent.so

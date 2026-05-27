@@ -109,11 +109,17 @@ func runTargetUserspace(binary string) (float64, error) {
 	env = append(env,
 		fmt.Sprintf("LD_PRELOAD=%s", agentLibPath),
 		"BPFTIME_VM_NAME=ubpf",
+		// Route bpftime agent logs to stderr so they're captured on crash.
+		"BPFTIME_LOG_OUTPUT=console",
+		"SPDLOG_LEVEL=debug",
 	)
 	cmd := exec.Command(binary)
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			return 0, fmt.Errorf("%w\nagent stderr:\n%s", err, exitErr.Stderr)
+		}
 		return 0, err
 	}
 	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)

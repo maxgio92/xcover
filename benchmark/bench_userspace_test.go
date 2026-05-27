@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"syscall"
-
 	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/trace"
 	"github.com/rs/zerolog"
@@ -40,18 +38,6 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	// The miss scenario attaches 10,000 uprobes (×2 fds each = 20,000 fds).
-	// Raise the open-file soft limit so bpftime's open_fake_fd() doesn't fail.
-	const wantNofile = 65536
-	var rl syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err == nil && rl.Cur < wantNofile {
-		rl.Cur = wantNofile
-		if rl.Max < wantNofile {
-			rl.Cur = rl.Max // can't exceed hard limit without root
-		}
-		syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rl) //nolint:errcheck
-	}
-
 	// Ensure the bpftime syscall-server is loaded into this process before
 	// any BPF operations. On the first invocation this re-execs the process
 	// with LD_PRELOAD set; the re-exec'd process finds the sentinel and

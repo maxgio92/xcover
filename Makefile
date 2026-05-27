@@ -191,6 +191,38 @@ s = s.replace( \
 	'void bpftime_shm::remove_pid_from_alive_agent_set(int pid)\n{\n\tif (injected_pids != nullptr) {\n\t\tinjected_pids->erase(pid);\n\t}\n}', \
 	1); \
 f = open(shm, 'w'); f.write(s); f.close()"
+	# Fix OOB crash in handler_manager when the OS fd value exceeds max_fd_count.
+	# set_handler() calls is_allocated() which returns false for fd >= size, then
+	# does handlers[fd] — an unchecked OOB write.  get_handler() / operator[] also
+	# index directly without a bounds check.  Add guards to all three so that
+	# exhausting the handler slots returns -ENOSPC (or an unused_handler sentinel)
+	# instead of crashing the tracer process with a SIGSEGV.
+	# Also patch open_fake_fd() to close the real /dev/null fd and return -1 when
+	# it would exceed the array bounds, avoiding an OS fd leak on top of the crash.
+	python3 -c "\
+hm = '$(BPFTIME_DIR)/runtime/src/handler/handler_manager.cpp'; \
+f = open(hm, 'r'); s = f.read(); f.close(); \
+s = s.replace( \
+	'int handler_manager::set_handler(int fd, handler_variant &&handler,\n\t\t\t\t managed_shared_memory &memory)\n{\n\tif (is_allocated(fd)) {', \
+	'int handler_manager::set_handler(int fd, handler_variant &&handler,\n\t\t\t\t managed_shared_memory &memory)\n{\n\tif (fd < 0 || (std::size_t)fd >= handlers.size()) {\n\t\tSPDLOG_ERROR(\"set_handler: fd {} out of range [0, {})\", fd, handlers.size());\n\t\treturn -ENOSPC;\n\t}\n\tif (is_allocated(fd)) {', \
+	1); \
+s = s.replace( \
+	'const handler_variant &handler_manager::get_handler(int fd) const\n{\n\treturn handlers[fd];\n}', \
+	'const handler_variant &handler_manager::get_handler(int fd) const\n{\n\tstatic const handler_variant oob_handler = unused_handler{};\n\tif (fd < 0 || (std::size_t)fd >= handlers.size()) return oob_handler;\n\treturn handlers[fd];\n}', \
+	1); \
+s = s.replace( \
+	'const handler_variant &handler_manager::operator[](int idx) const\n{\n\treturn handlers[idx];\n}', \
+	'const handler_variant &handler_manager::operator[](int idx) const\n{\n\tstatic const handler_variant oob_handler = unused_handler{};\n\tif (idx < 0 || (std::size_t)idx >= handlers.size()) return oob_handler;\n\treturn handlers[idx];\n}', \
+	1); \
+f = open(hm, 'w'); f.write(s); f.close()"
+	python3 -c "\
+shm = '$(BPFTIME_DIR)/runtime/src/bpftime_shm_internal.cpp'; \
+f = open(shm, 'r'); s = f.read(); f.close(); \
+s = s.replace( \
+	'int bpftime_shm::open_fake_fd()\n{\n\tint fd = open(\"/dev/null\", O_RDONLY);\n\tint cnt = 5;\n\twhile (fd <= 2 && fd >= 0 && --cnt > 0) {\n\t\tfd = dup(fd);\n\t}\n\treturn fd;\n}', \
+	'int bpftime_shm::open_fake_fd()\n{\n\tint fd = open(\"/dev/null\", O_RDONLY);\n\tint cnt = 5;\n\twhile (fd <= 2 && fd >= 0 && --cnt > 0) {\n\t\tfd = dup(fd);\n\t}\n\tif (fd >= 0 && (std::size_t)fd >= manager->size()) {\n\t\tclose(fd);\n\t\terrno = ENOSPC;\n\t\treturn -1;\n\t}\n\treturn fd;\n}', \
+	1); \
+f = open(shm, 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \

@@ -125,7 +125,7 @@ xcover-container:
 		--user $(shell id -u):$(shell id -g) \
 		-e GOCACHE=/work/.cache/go-build \
 		-v /sys/kernel/btf:/sys/kernel/btf:ro \
-		-v $(current_dir):/work \
+		-v $(current_dir):/work:z \
 		-w /work \
 		$(BUILD_IMAGE) \
 		make xcover

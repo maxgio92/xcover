@@ -67,3 +67,82 @@ array bounds, causing silent OOB writes and memory corruption.
 - `set_handler`: return `-ENOSPC` for out-of-range fds before the `is_allocated` check.
 - `get_handler` / `operator[]`: return a static `unused_handler` sentinel for OOB indices.
 - `open_fake_fd`: close the fd and return `-1` with `errno=ENOSPC` when the value would exceed `manager->size()`.
+
+## 0003 — link close leaks perf event handler slot
+
+**File:** `runtime/src/handler/handler_manager.cpp`
+
+**Suggested commit message:**
+```
+fix(handler_manager): cascade link close to free perf event handler slot
+
+When a BPF_PERF_EVENT link is destroyed (close(link_fd)), libbpf relies
+on the kernel to drop the perf event reference. In bpftime userspace that
+never happens: clear_id_at() for a bpf_link_handler only freed the link
+slot, leaving the associated perf event handler permanently allocated.
+One slot leaked per uprobe per attach/detach cycle, exhausting the
+handler pool across repeated benchmark rounds.
+
+In clear_id_at(), when clearing a bpf_link_handler, set the link slot to
+unused_handler first (to prevent infinite recursion via the perf event
+handler's own link scan), then cascade to clear_id_at(attach_target_id)
+to free the perf event handler.
+```
+
+**Root cause:** `clear_id_at()` had no branch for `bpf_link_handler`. It fell
+through to `handlers[fd] = unused_handler()` without touching the perf event
+handler referenced by `attach_target_id`. The kernel drops its perf event
+reference when a link fd is closed; bpftime must do this explicitly.
+
+**Fix:** Add an `else if` branch for `bpf_link_handler` in `clear_id_at()`.
+Clear the link slot first, then call `clear_id_at(attach_target_id, memory)`
+to cascade cleanup to the perf event handler.
+
+## 0004 — GCC 14 const-qualifier errors in bpftool-bundled libbpf
+
+**File:** `third_party/bpftool/libbpf/src/libbpf.c`
+
+**Suggested commit message:**
+```
+fix(libbpf): fix const-qualifier discards hard-erroring under GCC 14
+
+Three string pointer variables are assigned from string literals or
+const-returning functions but declared as non-const char *. GCC 14
+promotes these implicit const-qualifier discards from warnings to
+hard errors, breaking the build.
+
+Upstream fix: libbpf commit f5dcbae (2026-03-12).
+Remove once bpftime bumps its bpftool submodule past that date.
+```
+
+**Root cause:** GCC 14 changed the default for `-Wdiscarded-qualifiers` to
+be an error. Three variables in `libbpf.c` assign const strings to non-const
+pointers.
+
+**Fix:** Change `char *res`, `char *sym_sfx`, and `char *next_path` to
+`const char *` at their declaration sites.
+
+## 0005 — conflicting bpf_stream_vprintk declaration vs kernel 6.15+
+
+**File:** `third_party/bpftool/libbpf/src/bpf_helpers.h`
+
+**Suggested commit message:**
+```
+fix(bpf_helpers): remove conflicting bpf_stream_vprintk declaration
+
+The bundled bpf_helpers.h declares bpf_stream_vprintk with 5 parameters.
+vmlinux.h generated from kernel 6.15+ BTF declares it with 4. The
+conflicting declaration causes a compilation error. The bpftool skeleton
+sources do not call bpf_stream_printk or bpf_stream_vprintk, so the
+bundled declaration can be safely removed.
+
+Upstream fix: bpftool commit 640fb7ceed18 (2025-11-10).
+Remove once bpftime bumps its bpftool submodule past that date.
+```
+
+**Root cause:** The parameter count of `bpf_stream_vprintk` changed between
+the bpftool-bundled libbpf and the kernel 6.15+ BTF, causing a conflicting
+declaration error when both headers are included.
+
+**Fix:** Remove the `bpf_stream_vprintk` declaration from
+`bpf_helpers.h` using a regex substitution.

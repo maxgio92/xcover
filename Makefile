@@ -31,6 +31,8 @@ BPFTOOL_GIT := https://github.com/libbpf/bpftool.git
 LIBBPFGO_GIT := https://github.com/aquasecurity/libbpfgo.git
 LIBBPFGO := libbpfgo
 
+BPFTIME := bpftime-libs
+
 # frontend
 
 LDFLAGS = # ASLR and PIE don't hurt. "-linkmode external -extldflags '-no-pie'"
@@ -143,7 +145,6 @@ xcover-container:
 #
 # Prerequisites: cmake >= 3.16, a C++17 compiler, libelf, zlib.
 
-BPFTIME          := bpftime-libs
 BPFTIME_GIT      := https://github.com/eunomia-bpf/bpftime.git
 # Pinned to 5bf24b21af85 (2026-05-25): includes fix for bpf_link attach_cookie and
 # FEAT_PERF_LINK detection (PR #570). Bump this when pulling in further upstream fixes.

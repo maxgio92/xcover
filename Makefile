@@ -152,6 +152,10 @@ BPFTIME_DIR      := bpftime-src
 BPFTIME_BUILD    := $(BPFTIME_DIR)/build
 BPFTIME_LIBS_DST := pkg/bpftime/libs
 BPFTIME_LIBBPF_C := $(BPFTIME_DIR)/third_party/bpftool/libbpf/src/libbpf.c
+# Prefer brew-installed llvm@18 (compatible with bpftime's LLVM JIT) over any
+# system LLVM. If llvm@18 is not installed, LLVM18_PREFIX is empty and the
+# cmake flags below are omitted, falling back to whatever cmake finds.
+LLVM18_PREFIX    := $(shell brew --prefix llvm@18 2>/dev/null)
 
 .PHONY: bpftime-libs
 bpftime-libs:
@@ -250,10 +254,13 @@ f = open(hm, 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \
-		-DBPFTIME_LLVM_JIT=OFF
-	# Prepend llvm-config --libdir so the built bpftool can resolve libLLVM.so
-	# when invoked at skel.h generation time. No-op when llvm-config is absent.
-	LD_LIBRARY_PATH="$$(llvm-config --libdir 2>/dev/null):$$LD_LIBRARY_PATH" \
+		-DBPFTIME_LLVM_JIT=ON \
+		$(if $(LLVM18_PREFIX),-DLLVM_DIR=$(LLVM18_PREFIX)/lib/cmake/llvm) \
+		$(if $(LLVM18_PREFIX),-DCMAKE_C_COMPILER=$(LLVM18_PREFIX)/bin/clang) \
+		$(if $(LLVM18_PREFIX),-DCMAKE_CXX_COMPILER=$(LLVM18_PREFIX)/bin/clang++)
+	# Prepend llvm@18 (and fallback llvm-config) libdir so bpftool can resolve
+	# libLLVM.so at skel.h generation time.
+	LD_LIBRARY_PATH="$(LLVM18_PREFIX)/lib:$$(llvm-config --libdir 2>/dev/null):$$LD_LIBRARY_PATH" \
 		cmake --build $(BPFTIME_BUILD) --parallel
 	cp $(BPFTIME_BUILD)/runtime/syscall-server/libbpftime-syscall-server.so \
 		$(BPFTIME_LIBS_DST)/bpftime-syscall-server.so

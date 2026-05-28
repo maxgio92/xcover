@@ -40,7 +40,7 @@ CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a" # St
 COMPILE_MODES := dynamic static
 
 .PHONY: $(PROGRAM)
-$(PROGRAM): $(LIBBPFGO)-static $(PROGRAM)/bpf $(PROGRAM)/frontend
+$(PROGRAM): $(LIBBPFGO)-static $(BPFTIME) $(PROGRAM)/bpf $(PROGRAM)/frontend
 
 .PHONY: $(PROGRAM)/frontend
 $(PROGRAM)/frontend:
@@ -143,6 +143,7 @@ xcover-container:
 #
 # Prerequisites: cmake >= 3.16, a C++17 compiler, libelf, zlib.
 
+BPFTIME          := bpftime-libs
 BPFTIME_GIT      := https://github.com/eunomia-bpf/bpftime.git
 # Pinned to 5bf24b21af85 (2026-05-25): includes fix for bpf_link attach_cookie and
 # FEAT_PERF_LINK detection (PR #570). Bump this when pulling in further upstream fixes.
@@ -261,13 +262,13 @@ f = open(hm, 'w'); f.write(s); f.close()"
 	@echo "bpftime libraries copied to $(BPFTIME_LIBS_DST)"
 
 .PHONY: clean
-clean:
+clean: clean-bpftime
 	rm -rf $(OUTPUT)
 	rm -rf $(LIBBPFGO)
-	rm bpf/$(VMLINUXH)
+	rm -f bpf/$(VMLINUXH)
 
 .PHONY: clean-bpftime
 clean-bpftime:
 	rm -rf $(BPFTIME_DIR)
-	rm $(current_dir)/pkg/bpftime/libs/bpftime-syscall-server.so
-	rm $(current_dir)/pkg/bpftime/libs/bpftime-agent.so
+	rm -f $(current_dir)/pkg/bpftime/libs/bpftime-syscall-server.so
+	rm -f $(current_dir)/pkg/bpftime/libs/bpftime-agent.so

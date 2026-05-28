@@ -95,6 +95,7 @@ bench bench-kernel: libbpfgo-static all
 			-benchtime=$(BENCHTIME) \
 			-count=$(COUNT) \
 			.
+	$(MAKE) clean
 
 ## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
 ## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
@@ -113,6 +114,7 @@ bench-userspace: libbpfgo-static all
 			-benchtime=1x \
 			-count=$(COUNT) \
 			.
+	$(MAKE) clean
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:

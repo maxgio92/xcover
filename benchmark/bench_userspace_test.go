@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	reportPathUserspace = "bench-report-userspace.json"
+	reportPathUserspace = "results/bench-report-userspace.json"
 
 	// Userspace attach via bpftime SHM negotiation needs a longer warmup
 	// than kernel uprobes.
@@ -87,6 +87,9 @@ func TestMain(m *testing.M) {
 		MissVsBaseline: relOverhead(report.Miss, report.Baseline),
 		MissVsIdle:     relOverhead(report.Miss, report.Idle),
 		MissVsHit:      relOverhead(report.Miss, report.Hit),
+	}
+	if err := os.MkdirAll("results", 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create results dir: %v\n", err)
 	}
 	if err := writeReport(reportPathUserspace, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)

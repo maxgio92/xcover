@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	reportPath = "bench-report.json"
+	reportPath = "results/bench-report-kernel.json"
 
 	// tracerWarmup is the time given to the tracer to attach uprobes
 	// before the target binary is executed.
@@ -56,6 +56,9 @@ func TestMain(m *testing.M) {
 		MissVsBaseline: relOverhead(report.Miss, report.Baseline),
 		MissVsIdle:     relOverhead(report.Miss, report.Idle),
 		MissVsHit:      relOverhead(report.Miss, report.Hit),
+	}
+	if err := os.MkdirAll("results", 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create results dir: %v\n", err)
 	}
 	if err := writeReport(reportPath, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)

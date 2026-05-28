@@ -223,6 +223,23 @@ s = s.replace( \
 	'int bpftime_shm::open_fake_fd()\n{\n\tint fd = open(\"/dev/null\", O_RDONLY);\n\tint cnt = 5;\n\twhile (fd <= 2 && fd >= 0 && --cnt > 0) {\n\t\tfd = dup(fd);\n\t}\n\tif (fd >= 0 && (std::size_t)fd >= manager->size()) {\n\t\tclose(fd);\n\t\terrno = ENOSPC;\n\t\treturn -1;\n\t}\n\treturn fd;\n}', \
 	1); \
 f = open(shm, 'w'); f.write(s); f.close()"
+	# Fix perf event handler slot leak on BPF link close.
+	# When a BPF_PERF_EVENT link is destroyed (close(link_fd)), libbpf relies on
+	# the kernel to drop the perf event reference. In bpftime userspace that never
+	# happens: clear_id_at() for a bpf_link_handler only freed the link slot,
+	# leaving the perf event handler permanently allocated — one slot leaked per
+	# uprobe per attach/detach cycle, exhausting the pool across benchmark rounds.
+	# Fix: cascade the clear to the attached perf event handler. The link slot is
+	# set to unused_handler first to prevent infinite recursion (the perf event
+	# cleanup scans for linked handlers by attach_target_id).
+	python3 -c "\
+hm = '$(BPFTIME_DIR)/runtime/src/handler/handler_manager.cpp'; \
+f = open(hm, 'r'); s = f.read(); f.close(); \
+s = s.replace( \
+	'\t\t\t\tclear_id_at(i, memory);\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\thandlers[fd] = unused_handler();\n}', \
+	'\t\t\t\tclear_id_at(i, memory);\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t} else if (std::holds_alternative<bpf_link_handler>(handlers[fd])) {\n\t\tauto target_fd =\n\t\t\tstd::get<bpf_link_handler>(handlers[fd]).attach_target_id;\n\t\thandlers[fd] = unused_handler();\n\t\tSPDLOG_DEBUG(\"Destroying link handler {}, cascading to perf event {}\", fd, target_fd);\n\t\tclear_id_at(target_fd, memory);\n\t\treturn;\n\t}\n\thandlers[fd] = unused_handler();\n}', \
+	1); \
+f = open(hm, 'w'); f.write(s); f.close()"
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \

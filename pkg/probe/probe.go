@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -178,7 +179,9 @@ func (p *Probe) CloseEventBuf() {
 // already stopped.
 func (p *Probe) CloseBPFMod() {
 	for _, link := range p.links {
-		link.Destroy()
+		if err := link.Destroy(); err != nil {
+			fmt.Fprintf(os.Stderr, "CloseBPFMod: destroy link: %v\n", err)
+		}
 	}
 	p.links = nil
 	if p.bpfMod != nil {

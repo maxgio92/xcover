@@ -110,6 +110,7 @@ bench-userspace: libbpfgo-static all
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 	GOARCH=$(GOARCH) \
 	BPFTIME_SHM_MEMORY_MB=2048 \
+	BPFTIME_VM_NAME=ubpf \
 		go test -tags userspace -bench=. -run='^$$' -v \
 			-benchtime=1x \
 			-count=$(COUNT) \

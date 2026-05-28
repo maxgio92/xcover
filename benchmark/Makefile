@@ -155,10 +155,12 @@ clean-miss:
 ## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path,
 ## and benchstat: go install golang.org/x/perf/cmd/benchstat@latest
 bench-report:
-	mkdir -p results
-	$(MAKE) bench-kernel N=1000 COUNT=10    | tee results/kernel.txt
-	$(MAKE) bench-userspace N=1000 COUNT=10 | tee results/userspace.txt
-	benchstat -filter '/metric:ns/call' results/kernel.txt results/userspace.txt
+	@mkdir -p results
+	$(MAKE) bench-kernel N=100 COUNT=10    | tee results/kernel.txt
+	$(MAKE) bench-userspace N=100 COUNT=10 | tee results/userspace.txt
+	benchstat -filter '.unit:ns/call' \
+		<(grep "^Benchmark" results/kernel.txt) \
+		<(grep "^Benchmark" results/userspace.txt)
 	@echo ""
 	@echo "JSON reports:"
 	@echo "  kernel:     results/bench-report-kernel.json"

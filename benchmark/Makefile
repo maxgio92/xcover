@@ -162,7 +162,6 @@ bench-report:
 
 ## clean: remove all generated and compiled files.
 clean:
-	rm -rf results
 	rm -f target/hit/hit \
 	      target/idle/idle \
 	      target/miss/miss \

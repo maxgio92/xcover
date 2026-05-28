@@ -250,6 +250,7 @@ f = open(hm, 'w'); f.write(s); f.close()"
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \
 		-DBPFTIME_LLVM_JIT=ON \
+		-DCMAKE_EXE_LINKER_FLAGS=-no-pie \
 		$(if $(LLVM18_PREFIX),-DLLVM_DIR=$(LLVM18_PREFIX)/lib/cmake/llvm) \
 		$(if $(LLVM18_PREFIX),-DCMAKE_C_COMPILER=$(LLVM18_PREFIX)/bin/clang) \
 		$(if $(LLVM18_PREFIX),-DCMAKE_CXX_COMPILER=$(LLVM18_PREFIX)/bin/clang++)

@@ -154,8 +154,8 @@ clean-miss:
 ## bench-report: run kernel and userspace benchmarks and write JSON reports to results/.
 ## Requires bpftime libs (make -C .. bpftime-libs) and sudo for the kernel path.
 bench-report:
-	$(MAKE) bench-kernel
-	$(MAKE) bench-userspace
+	$(MAKE) bench-kernel N=1000 COUNT=10
+	$(MAKE) bench-userspace N=1000 COUNT=10
 	@echo "Reports written to results/"
 	@echo "  kernel:     results/bench-report-kernel.json"
 	@echo "  userspace:  results/bench-report-userspace.json"

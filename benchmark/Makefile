@@ -79,7 +79,7 @@ CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 # Must be built with: make -C $(ROOTDIR) bpftime-libs
 BPFTIME_AGENT := $(ROOTDIR)/pkg/bpftime/libs/bpftime-agent.so
 
-.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss
+.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss bench-report
 
 all: hit idle miss
 
@@ -151,8 +151,18 @@ target/miss/miss: target/miss/miss.c
 clean-miss:
 	rm -f target/miss/miss target/miss/miss.c
 
+## bench-report: run kernel and userspace benchmarks and write JSON reports to results/.
+## Requires bpftime libs (make -C .. bpftime-libs) and sudo for the kernel path.
+bench-report:
+	$(MAKE) bench-kernel
+	$(MAKE) bench-userspace
+	@echo "Reports written to results/"
+	@echo "  kernel:     results/bench-report-kernel.json"
+	@echo "  userspace:  results/bench-report-userspace.json"
+
 ## clean: remove all generated and compiled files.
 clean:
+	rm -rf results
 	rm -f target/hit/hit \
 	      target/idle/idle \
 	      target/miss/miss \

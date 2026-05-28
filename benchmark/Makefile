@@ -79,13 +79,15 @@ CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 # Must be built with: make -C $(ROOTDIR) bpftime-libs
 BPFTIME_AGENT := $(ROOTDIR)/pkg/bpftime/libs/bpftime-agent.so
 
-.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean
+.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss
 
 all: hit idle miss
 
 ## bench-kernel: build libbpfgo-static, C targets, and run kernel uprobe benchmarks.
 ## Requires sudo (CAP_BPF + CAP_PERFMON).
-bench bench-kernel: libbpfgo-static all
+bench bench-kernel: libbpfgo-static
+	$(MAKE) clean-miss
+	$(MAKE) all N=$(N)
 	@sudo \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
@@ -99,18 +101,21 @@ bench bench-kernel: libbpfgo-static all
 
 ## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
 ## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
-bench-userspace: libbpfgo-static all
+bench-userspace: libbpfgo-static
 	@if [ ! -f "$(BPFTIME_AGENT)" ] || [ ! -s "$(BPFTIME_AGENT)" ]; then \
 		echo "ERROR: bpftime agent library not found: $(BPFTIME_AGENT)"; \
 		echo "       Run: make -C $(ROOTDIR) bpftime-libs"; \
 		exit 1; \
 	fi
+	$(MAKE) clean-miss
+	$(MAKE) all N=$(N)
+	rm -f /dev/shm/bpftime_maps_shm
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 	GOARCH=$(GOARCH) \
 	BPFTIME_SHM_MEMORY_MB=2048 \
-	BPFTIME_VM_NAME=ubpf \
+	BPFTIME_MAX_FD_COUNT=25000 \
 		go test -tags userspace -bench=. -run='^$$' -v \
 			-benchtime=1x \
 			-count=$(COUNT) \
@@ -141,6 +146,10 @@ target/miss/miss.c: target/miss/gen/main.go
 
 target/miss/miss: target/miss/miss.c
 	$(CC) $(CFLAGS) -o $@ $<
+
+## clean-miss: remove generated miss source and binary so N is re-applied on next build.
+clean-miss:
+	rm -f target/miss/miss target/miss/miss.c
 
 ## clean: remove all generated and compiled files.
 clean:

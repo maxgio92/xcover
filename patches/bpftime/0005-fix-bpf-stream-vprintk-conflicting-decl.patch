@@ -1,0 +1,13 @@
+--- a/third_party/bpftool/libbpf/src/bpf_helpers.h
++++ b/third_party/bpftool/libbpf/src/bpf_helpers.h
+@@ -x,x +x,x @@
+-extern int bpf_stream_vprintk(...); /* 5-param variant */
+
+Removes the conflicting declaration of bpf_stream_vprintk from the
+bpftool-bundled libbpf. The bundled header declares the helper with 5
+parameters; vmlinux.h generated from kernel 6.15+ declares it with 4.
+The bpftool skeleton sources do not call bpf_stream_printk or
+bpf_stream_vprintk, so dropping the bundled declaration is safe.
+
+Upstream fix: bpftool commit 640fb7ceed18 (2025-11-10).
+Remove once bpftime bumps its bpftool submodule past that date.

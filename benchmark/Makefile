@@ -151,12 +151,16 @@ target/miss/miss: target/miss/miss.c
 clean-miss:
 	rm -f target/miss/miss target/miss/miss.c
 
-## bench-report: run kernel and userspace benchmarks and write JSON reports to results/.
-## Requires bpftime libs (make -C .. bpftime-libs) and sudo for the kernel path.
+## bench-report: run kernel and userspace benchmarks, write JSON reports, and compare with benchstat.
+## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path,
+## and benchstat: go install golang.org/x/perf/cmd/benchstat@latest
 bench-report:
-	$(MAKE) bench-kernel N=1000 COUNT=10
-	$(MAKE) bench-userspace N=1000 COUNT=10
-	@echo "Reports written to results/"
+	mkdir -p results
+	$(MAKE) bench-kernel N=1000 COUNT=10    | tee results/kernel.txt
+	$(MAKE) bench-userspace N=1000 COUNT=10 | tee results/userspace.txt
+	benchstat -filter '/metric:ns/call' results/kernel.txt results/userspace.txt
+	@echo ""
+	@echo "JSON reports:"
 	@echo "  kernel:     results/bench-report-kernel.json"
 	@echo "  userspace:  results/bench-report-userspace.json"
 

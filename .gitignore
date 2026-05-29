@@ -4,3 +4,6 @@
 output/*
 *.o
 vmlinux.h
+bpftime-src
+pkg/bpftime/libs/bpftime-agent.so
+pkg/bpftime/libs/bpftime-syscall-server.so

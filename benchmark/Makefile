@@ -79,7 +79,7 @@ CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 # Must be built with: make -C $(ROOTDIR) bpftime-libs
 BPFTIME_AGENT := $(ROOTDIR)/pkg/bpftime/libs/bpftime-agent.so
 
-.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss bench-report
+.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss bench-report bench-compare
 
 all: hit idle miss
 
@@ -151,20 +151,22 @@ target/miss/miss: target/miss/miss.c
 clean-miss:
 	rm -f target/miss/miss target/miss/miss.c
 
-## bench-report: run kernel and userspace benchmarks, write JSON reports, and compare with benchstat.
-## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path,
-## and benchstat: go install golang.org/x/perf/cmd/benchstat@latest
+## bench-report: run kernel and userspace benchmarks, write JSON reports
+## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path.
 bench-report:
 	@mkdir -p results
-	$(MAKE) bench-kernel N=100 COUNT=10    | tee results/kernel.txt
-	$(MAKE) bench-userspace N=100 COUNT=10 | tee results/userspace.txt
-	benchstat -filter '.unit:ns/call' \
-		<(grep "^Benchmark" results/kernel.txt) \
-		<(grep "^Benchmark" results/userspace.txt)
-	@echo ""
-	@echo "JSON reports:"
-	@echo "  kernel:     results/bench-report-kernel.json"
-	@echo "  userspace:  results/bench-report-userspace.json"
+	$(MAKE) bench-kernel N=100 COUNT=10    \
+		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
+		| tee results/kernel.txt
+	$(MAKE) bench-userspace N=100 COUNT=10 \
+		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
+		| tee results/userspace.txt
+## bench-compare: compare kernel and userpsace benchmarks with benchstat.
+## Requires benchstat: go install golang.org/x/perf/cmd/benchstat@latest.
+bench-compare:
+	@benchstat -filter '.unit:ns/call' \
+		results/kernel.txt \
+		results/userspace.txt
 
 ## clean: remove all generated and compiled files.
 clean:

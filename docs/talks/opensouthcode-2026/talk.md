@@ -151,12 +151,22 @@ That's the gap we're here to talk about.
 
 ---
 
-# Who is this talk for?
+# `$whoami`
 
-- You ship compiled software (Go, C, C++, Rust...)
-- You care about test coverage as a quality signal
-- You've felt the pain of maintaining separate instrumented builds
-- Or you just think eBPF and observability are cool topics
+- Massimiliano Giovagnoli
+- Software engineer @ Chainguard
+- OSS, building and observing all the things
+- Music, racing cars, nature
+- `@maxgio92` on GitHub, X and Telegram, `@maxgio92.bsky.social`, `@maxgio92@hachyderm.io`
+- linkedin.com/in/maxgio
+
+---
+
+# Quality
+
+- How do you ensure that your software works?
+- How do you ensure that your strategy is telling you a reliable story?
+- How do you ensure that positive signals are meaningful?
 
 <!--
 I'm not going to try to convince you that coverage matters. You're here, so you already know.
@@ -199,35 +209,52 @@ The toolchain does the heavy lifting, and you get line-level or branch-level cov
 
 ---
 
-# The problem at scale
+# Testing Linux distro packages
 
-- You maintain **thousands of packages**
-- Multiple languages: Go, C, C++, Rust, Python extensions...
-- Each language has its own tool, its own flags, its own report format
-- None of them work together
-
-<!--
-At Chainguard we maintain a large corpus of packages. The moment you try to apply coverage uniformly across that, the operational cost becomes significant.
-But the tooling fragmentation isn't even the biggest problem.
--->
+```yaml
+  - name: crane-cov
+    description: "Crane compiled for collecting coverage profiles"
+    pipeline:
+      - uses: go/build
+        with:
+          extra-args: -cover
+    test:
+      environment:
+        contents:
+          packages:
+            - busybox
+            - go
+        environment:
+          GOCOVERDIR: /home/build
+      pipeline:
+        - name: Run a command with the instrumented binary
+          runs: |
+            crane manifest chainguard/static
+        - name: Report function coverage
+          runs: |
+            go tool covdata func -i=.
+```
 
 ---
 
-# The doubled build matrix
+# The problem at scale
 
 ```
 package-foo/
   build/
-    package-foo-1.0.0.tar.gz          ← what you ship
-    package-foo-1.0.0-instrumented/   ← what you test
+    package-foo-1.0.0.apk                ← what you ship
+    package-foo-1.0.0-instrumented.apk   ← what you test
 ```
 
 - Every package needs two build targets
+- You maintain **thousands of packages** (Go, C, C++, Rust, Python extensions...)
 - Doubled CI time, doubled storage, doubled maintenance
-- The instrumented build diverges from production over time
-- **You're not testing what you ship**
+- Reproducibility: **You're not testing what you ship**
 
 <!--
+At Chainguard we maintain a large corpus of packages. The moment you try to apply coverage uniformly across that, the operational cost becomes significant.
+But the tooling fragmentation isn't even the biggest problem.
+
 This is the core of the problem. The artifact you test is not the artifact you ship.
 That gap is real — compiler optimizations, link order, environment differences.
 The instrumented build gives you coverage numbers that may not reflect what actually runs in production.
@@ -235,6 +262,7 @@ The instrumented build gives you coverage numbers that may not reflect what actu
 
 ---
 
+<!--
 # Production binaries are stripped
 
 ```sh
@@ -250,12 +278,12 @@ nm: /usr/bin/containerd: no symbols
 - Instrumentation-based tools **require symbols baked in at build time**
 - You can't instrument a binary you've already shipped
 
-<!--
 This is the second blocker. Even if you were willing to maintain a separate instrumented build, you can't apply it retroactively to a stripped production binary.
 The data that coverage tools need just isn't there.
--->
 
 ---
+
+-->
 
 <!-- _class: statement -->
 
@@ -270,11 +298,14 @@ To answer that, we need to talk about what the kernel can see.
 
 # The kernel sees everything
 
-- **uprobes**: Linux kernel mechanism to intercept userspace function calls
-- Available since kernel 3.5
+- **uprobes**: Linux kernel user-level dynamic tracing
+- Available since Linux 3.5 [1]
 - Attach to a function by **binary path + offset**
-- No source changes. No build flags. No recompilation.
-- Works on **any ELF binary** — Go, C, C++, Rust...
+- Works on **any ELF binary**
+- Integrated into eBPF since Linux 3.18 [2] - `BPF_PROG_TYPE_UPROBE`
+
+> 1. https://lwn.net/Articles/499190/
+> 2. https://lwn.net/Articles/637391/
 
 <!--
 uprobes are a kernel feature that lets you intercept the entry point of any function in any userspace process.
@@ -287,19 +318,19 @@ When the CPU hits it, the kernel takes over, runs your handler, then resumes exe
 # What is a uprobe?
 
 ```
-Binary on disk:
+Loaded image:
   offset 0x1a40: PUSH RBP        ← function entry
+  offset 0x1a41: MOV RBP, RSP
 
 With uprobe attached:
   offset 0x1a40: INT3            ← kernel patches this
                  (original bytes saved)
+```
 
 At runtime, on each call:
-  1. CPU hits INT3
-  2. Kernel trap handler fires
-  3. BPF program runs (map update, bookkeeping)
-  4. Original instruction restored, execution continues
-```
+1. Software interrupt causes a trap into kernel mode
+3. BPF program runs
+4. Registers restored, execution continues in userland
 
 <!--
 The key point: the offset of a function in the binary is fixed. Strip all the symbols you want — the function is still at that address.
@@ -311,19 +342,19 @@ If you know the offset, you can attach a uprobe. You don't need the symbol table
 # eBPF makes uprobes programmable
 
 - **eBPF**: run sandboxed programs in the kernel, triggered by events
-- uprobe fires → eBPF program runs → write to a map → userspace reads the map
-- Programs are **verifier-checked**: no crashes, bounded execution, safe
-- No kernel modules. No patching. Just load and go.
+- Loaded programs are **verifier-checked**: no crashes, bounded execution, safe
+- **Attach** programs to specific kernel paths - i.e. uprobe
+- Access to kernel data and communicate with userland with **maps**
 
 ```
 userspace (xcover)          kernel
       │                        │
-      │── load BPF program ──▶ │  (verifier checks it)
-      │── attach uprobe ─────▶ │  function entry at offset 0x1a40
+      │── load BPF program ─▶ │  (verifier checks it)
+      │── attach uprobe ────▶ │  function entry at offset 0x1a40
       │                        │
       │        [test runs]     │
       │                        │
-      │◀── read BPF map ──────  │  which functions fired
+      │◀── read BPF map ────  │  which functions fired
 ```
 
 <!--
@@ -339,7 +370,7 @@ This is why uprobe-based tools can be run in production — the kernel guarantee
 
 - eBPF uprobe-based coverage profiler for compiled binaries
 - Runs as a **daemon** alongside your test suite
-- Attaches to the binary at its path — no process management
+- Attaches to the binary at its path
 - Reports function-level coverage when you stop it
 - Ships as a **single static binary**, zero runtime dependencies
 
@@ -365,35 +396,35 @@ Let me show you what this actually looks like.
 # Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  xcover (daemon)                                        │
+┌────────────────────────────────────────────────────────┐
+│  xcover (daemon)                                       │
 │  ┌─────────────┐    ┌──────────────┐                   │
 │  │ UserTracee  │    │  UserTracer  │                   │
 │  │             │    │              │                   │
-│  │ resolve     │───▶│ load BPF     │                   │
+│  │ resolve     │───▶│ load BPF    │                   │
 │  │ functions   │    │ attach probes│                   │
-│  │ (resurgo)   │    │ read events  │                   │
+│  │             │    │ read events  │                   │
 │  └─────────────┘    └──────┬───────┘                   │
 └─────────────────────────── │ ──────────────────────────┘
                              │ BPF map
 ┌─────────────────────────── │ ──────────────────────────┐
-│  kernel                    │                            │
-│              uprobes ◀─────┘                           │
-└─────────────────────────────────────────────────────────┘
+│  kernel                    │                           │
+│              uprobes ◀────┘                           │
+└────────────────────────────────────────────────────────┘
                     ↕ calls traced functions
-┌─────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────┐
 │  your binary (tracee)   ← runs independently           │
-└─────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────┘
 ```
 
 <!--
 xcover is two logical pieces: UserTracee resolves the function list (using resurgo for stripped binaries), and UserTracer loads the BPF program, attaches uprobes, and drains the event map.
-The tracee — your binary under test — runs completely independently. xcover just observes it.
+The tracee (your binary under test) runs completely independently. xcover just observes it.
 -->
 
 ---
 
-# The tracer API
+# xcover API
 
 ```go
 tracee := trace.NewUserTracee(
@@ -461,7 +492,6 @@ xcover run --path ./myapp \
 
 - `--include` and `--exclude` take Go regexes
 - Applied to function names at probe-attachment time
-- Fewer probes = lower overhead
 
 <!--
 Without filtering you'd be tracing every function in the binary, including the Go runtime and all stdlib functions.
@@ -489,41 +519,13 @@ Filtering to your own packages is the recommended default.
 }
 ```
 
-- `funcs_traced` — all functions with probes attached
-- `funcs_ack` — functions called at least once during the run
-- `cov_by_func` — ratio: 72% of functions were exercised
+- `funcs_traced`: all functions with probes attached
+- `funcs_ack`: functions called at least once during the run
+- `cov_by_func`: ratio: 72% of functions were exercised
 
 <!--
 Language-agnostic JSON. Parse it in CI, diff it across runs, set a coverage gate.
 Same format whether you're testing Go, C, or Rust.
--->
-
----
-
-# Daemon mode: across multiple test runs
-
-```sh
-# Start once
-xcover run --path ./myapp --detach
-xcover wait
-
-# Run your test suite in parallel
-./myapp foo &
-./myapp bar &
-./myapp baz &
-wait
-
-# One combined report for everything
-xcover stop
-```
-
-- xcover accumulates events across all runs until you stop it
-- Useful for splitting a test suite across multiple processes
-- Coverage is union of all functions called in any run
-
-<!--
-This is where the daemon model really shines. You can run your test suite in parallel, across multiple processes, and get one combined coverage report.
-A per-process coverage tool can't do this cleanly.
 -->
 
 ---
@@ -562,19 +564,20 @@ $ ls -lh myapp myapp-stripped
 -rwxr-xr-x 1 user user 14M myapp
 -rwxr-xr-x 1 user user  6M myapp-stripped
 
-$ readelf -S myapp | grep -E '\.symtab|\.debug'
+$ readelf --sections myapp | grep -E '\.symtab|\.debug'
   [32] .symtab           SYMTAB  ...  ← function names + offsets
   [33] .strtab           STRTAB  ...  ← symbol name strings
   [34] .debug_info       PROGBITS ...
   [35] .debug_line       PROGBITS ...
 
-$ readelf -S myapp-stripped | grep -E '\.symtab|\.debug'
-  (nothing)
+$ readelf --sections myapp-stripped | grep -E '\.symtab|\.debug'
+$
+$ readelf --symbols myapp-stripped
+$
 ```
 
 - `strip` removes `.symtab`, `.strtab`, and all `.debug_*` sections
 - **The code is still there.** Only the metadata is gone.
-- Function entry points are at fixed offsets — the compiler put them there
 
 <!--
 Strip doesn't touch the executable code. It just removes the table of contents.
@@ -586,13 +589,13 @@ The functions are still at the same addresses. We just need another way to find 
 # What strip does NOT remove
 
 ```sh
-$ readelf -S myapp-stripped | grep '\.eh_frame'
+$ readelf --sections myapp-stripped | grep '\.eh_frame'
   [17] .eh_frame_hdr     PROGBITS ...
   [18] .eh_frame         PROGBITS ...
 ```
 
-- `.eh_frame` — DWARF Call Frame Information, needed for stack unwinding
-- Survives `strip --strip-all` because the **C++ runtime needs it**
+- `.eh_frame`: DWARF Call Frame Information, needed for stack unwinding
+- Survives `strip --strip-all`: needed for **exception handling** (e.g. C++)
 - Encodes function boundaries and stack layout
 - The compiler always emits it. The linker always keeps it.
 
@@ -605,18 +608,19 @@ And it encodes exactly what we need: where functions start and end.
 
 ---
 
-# Introducing resurgo
+# Introducing resurgo library
 
 Static function recovery for stripped ELF binaries.
 
-Four complementary signals:
+Deterministic:
+1. **DWARF CFI** (`.eh_frame` ELF section): function ranges, survives strip, high confidence
 
-1. **DWARF CFI** (`.eh_frame`) — function ranges, survives strip, high confidence
-2. **Prologue patterns** — `push rbp; mov rbp, rsp` at function entry, architecture-specific
-3. **Call-site analysis** — `call` targets are function entry points by definition
-4. **Alignment boundaries** — compilers align functions to 16/32-byte boundaries
+Heuristic:
+1. **Prologue patterns**: at function entry, architecture-specific
+2. **Call-site analysis**: `call` targets are function entry points by definition
+3. **Alignment boundaries**: compilers align functions to 16/32-byte boundaries
 
-Cross-validated: a candidate confirmed by 3+ signals is a function.
+Heuristic- and determinism-based validation for confidence.
 
 `github.com/maxgio92/resurgo`
 
@@ -628,7 +632,7 @@ Combined, they give you a high-confidence function list.
 
 ---
 
-# resurgo: the recovery pipeline
+# xcover function recovery with resurgo
 
 ```
 ELF binary (stripped)
@@ -660,13 +664,13 @@ From the user's perspective, nothing changes.
 
 ```sh
 # Unstripped binary
-$ xcover run --path ./myapp --detach
-INFO  resolved 1842 functions via .symtab
+$ xcover run --path ./myapp --detach --log-level debug
+DBG  resolved 1842 functions via .symtab
 
 # Stripped binary — same command
-$ xcover run --path ./myapp-stripped --detach
-INFO  .symtab not found, falling back to static recovery
-INFO  resolved 1791 functions via resurgo (eh_frame + prologue analysis)
+$ xcover run --path ./myapp-stripped --detach --log-level debug
+DBG  .symtab not found, falling back to static recovery
+DBG  resolved 1791 functions via resurgo (eh_frame + prologue analysis)
 ```
 
 - xcover detects the binary is stripped and calls resurgo automatically
@@ -682,12 +686,23 @@ For coverage purposes, this is an acceptable tradeoff compared to maintaining a 
 
 <!-- _class: break -->
 
-# Benchmark time 📊
+# Demo 🎬
 
 <!--
-We've claimed this works. Now let's talk about whether it's fast enough.
-This is important: we're not trying to hide the cost. We measured it, and the data is what closes the argument.
+[Live demo or asciinema]
+Show: xcover run --path ./demo/demo --detach
+      xcover wait
+      ./demo/demo (run tests)
+      xcover stop
+      cat xcover-report.json
+Optionally: show --include filtering, then show the difference in funcs_traced count.
 -->
+
+---
+
+<!-- _class: statement -->
+
+# But what's the cost?
 
 ---
 
@@ -699,20 +714,21 @@ Every call to a traced function pays:
 function called
      │
      ▼
-  INT3 trap ──▶ kernel mode  (~X ns)
+  INT3 trap ──▶ kernel mode
                      │
                      ▼
-              BPF program runs        (~X ns)
-              (map update, cookie lookup)
+              BPF program runs
+              (cookie lookup)
+              (potential map and ring buffer update)
                      │
                      ▼
-              return to userspace     (~X ns)
+              return to userspace
                      │
                      ▼
 function body executes
 ```
 
-- **Fixed cost per call** — independent of function body size
+- **Fixed cost per call**, independent of function body size
 - Overhead scales with **call frequency**, not binary size or number of functions
 
 <!--
@@ -723,38 +739,44 @@ What matters is how often your functions are called.
 
 ---
 
-# What we measured
+# The probe
 
-Setup:
-- Binary: `[placeholder — describe test binary]`
-- Functions traced: `[N]`
-- Test suite: `[describe]`
-- Machine: `[CPU, Linux kernel version]`
+```c
+SEC("uprobe/handle_user_function")
+int handle_user_function(struct pt_regs *ctx) {
+	__u64 cookie = bpf_get_attach_cookie(ctx);
+	u8 seen = 1;
 
-Metrics:
-- Per-call overhead (hot path, no filtering)
-- Wall clock time: instrumented run vs. non-instrumented run
-- Memory overhead (BPF maps)
+	/* Check if the function has been already reported */
+	if (bpf_map_lookup_elem(&seen_funcs, &cookie)) {
+		return 0;
+	}
 
-<!--
-Replace these placeholders with your actual benchmark setup.
-Describing the setup is as important as the numbers — the audience needs to know whether this benchmark resembles their workload.
--->
+	/* Track which functions have been reported */
+	bpf_map_update_elem(&seen_funcs, &cookie, &seen, BPF_ANY);
+
+	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
+	if (!event) {
+		return 0;
+	}
+
+	event->cookie = cookie;
+	bpf_ringbuf_submit(event, ringbuffer_flags);
+
+	return 0;
+}
+```
 
 ---
 
-# Per-call overhead
+# Benchmark setup
 
-| Scenario | Overhead per call |
-|---|---|
-| No tracing (baseline) | 0 ns |
-| uprobe attached, not firing | ~X ns |
-| uprobe firing, BPF running | ~X ns |
-| uprobe firing, map full | ~X ns |
-
-- **Overhead floor**: ~X ns per call even when not hit (kernel patch is in place)
-- **Typical case**: ~X ns per call end-to-end
-- Comparable to: `[relatable comparison — e.g. one syscall, one cache miss]`
+| Scenario | Description | How |
+|---|---|---|
+| **Baseline** | No tracing | Tracee runs without uprobes |
+| **Idle** | uprobe attached | Probe attached to functions that never run |
+| **Hit** | uprobe firing, already seen | Tracee runs the same probed function N times |
+| **Miss** | uprobe firing, new function | Tracee runs N probed unique functions only once |
 
 <!--
 The "attached, not firing" row matters: once you attach a uprobe, even functions that aren't called pay a small cost on the way past the INT3.
@@ -763,18 +785,19 @@ For filtered workloads (only your own packages), this is usually negligible.
 
 ---
 
-# Aggregate overhead: full test suite
+# Aggregate overhead
 
-| | Wall time | Delta |
-|---|---|---|
-| Baseline (no tracing) | X.Xs | — |
-| xcover, full binary | X.Xs | +X% |
-| xcover, filtered (own pkgs) | X.Xs | +X% |
+| Scenario | Description | Time per call | Overhead vs Baseline |
+|---|---|---|---|
+| **Baseline** | No tracing | ~2 ns | |
+| **Idle** | uprobe attached | ~2 ns | |
+| **Hit** | uprobe firing, already seen | ~2000 ns | 1000x |
+| **Miss** | uprobe firing, new function | ~4000 ns | 2000x |
 
 > **+X% wall time for full test coverage on the exact production binary.**
 
-- Filtering to your own packages reduces overhead by ~X%
-- Overhead is deterministic — no jitter, no GC interaction
+- Filtering to your own packages reduces overhead
+- Overhead is deterministic; no jitter, no GC interaction
 - Acceptable for CI pipelines; not for latency-sensitive benchmarks
 
 <!--
@@ -815,7 +838,7 @@ Even a large binary with 50k functions would use less than 1 MB of BPF map memor
 | Works on stripped binaries | No | **Yes** |
 | Cross-language | No | **Yes** |
 | Same binary as production | No | **Yes** |
-| Per-call overhead | ~0 | ~X ns |
+| Per-call overhead | ~0 | ~2000 ns |
 | Setup complexity | Per-language | Once |
 
 > You pay a small, predictable cost per function call.<br>In exchange: no instrumented builds, one tool, any binary.
@@ -830,7 +853,7 @@ For coverage — a quality signal, not a latency-critical path — this tradeoff
 
 <!-- _class: statement -->
 
-# What's next:<br>eliminate the kernel trap
+# Eliminate the kernel trap
 
 <!--
 The overhead comes from the kernel mode transition on every uprobe hit.
@@ -860,22 +883,25 @@ This is the direction we're exploring. The idea is to move the BPF execution int
 
 ---
 
-# bpftime
+# eunomia-bpf/bpftime
 
-- Userspace eBPF runtime, based on LLVM JIT + Frida injection
-- Intercepts `perf_event_open` / `bpf_link_create` syscalls via LD_PRELOAD
-- Runs BPF programs in the tracee process — no kernel involvement
-- API-compatible with kernel BPF: same programs, same maps
+- Userspace eBPF runtime: `syscall_server.so` and `agent.so` libraries
+- `syscall_server` intercepts `perf_event_open` / `bpf_link_create` syscalls via `LD_PRELOAD`
+- `syscall_server` creates data structures in a shared memory, read by the `agent`
+- `agent` sets up the trampolines at function entry to the BPF `BPF_PROG_TYPE_UPROBE` program
+- No kernel trap
+- API-compatible with kernel eBPF
 
 ```
 ┌──────────────────────────────────────────────┐
 │  tracee process                              │
-│  ┌──────────────────┐  ┌──────────────────┐ │
-│  │  bpftime agent   │  │  your binary     │ │
-│  │  (LD_PRELOAD)    │  │  (unmodified)    │ │
-│  │                  │  │                  │ │
-│  │  JIT BPF prog ◀──┼──┼── function call  │ │
-│  └──────────────────┘  └──────────────────┘ │
+│  ┌──────────────────┐  ┌──────────────────┐  │
+│  │  bpftime agent   │  │  your binary     │  │
+│  │  (LD_PRELOAD)    │  │  (unmodified)    │  │
+│  │                  │  │                  │  │
+│  │  JIT BPF prog ◀─┼──┼── function call  │  │
+│  │  (shm)           │  │                  │  │
+│  └──────────────────┘  └──────────────────┘  │
 └──────────────────────────────────────────────┘
 ```
 
@@ -897,7 +923,7 @@ LD_PRELOAD=$(xcover agent extract) ./myapp
 ```
 
 - `xcover agent extract` unpacks the embedded bpftime shared library
-- Agent intercepts uprobe hits in-process — no kernel trap
+- bpftime `agent` intercepts uprobe hits in-process
 - Everything else is identical: same report, same workflow
 - Flag: `--userspace-bpf` (experimental)
 
@@ -908,19 +934,31 @@ The overhead numbers for this path are still being validated. That's the open ex
 
 ---
 
-# Current status of the userspace path
+# Let's benchmark again!
 
-What works:
+| Scenario | Description | Overhead reduction Userspace vs Kernel |
+|---|---|---|
+| **Baseline** | No tracing | ~ |
+| **Idle** | uprobe attached | ~ |
+| **Hit** | uprobe firing, already seen | **-53%** |
+| **Miss** | uprobe firing, new function | **-54%** |
+
+---
+
+# Current status of the userspace mode
+
+## What works
 - Single-uprobe attachment (perf-event based) ✅
 - bpf_cookie propagation (function identification) ✅
 - Coverage report generation ✅
 
-Known limitations:
-- Requires LD_PRELOAD injection (not transparent for dynamically-started processes)
+## Known limitations
+- No `uprobe_multi` link support (perf-based)
+- Requires `LD_PRELOAD` injection (not transparent for `execve`-started processes)
 - Statically linked / musl binaries: no agent injection ⚠️
-- Performance numbers: still measuring
+- Frida Gum interceptor: some aggressive compiler optimisations (tail-call elision, LTO) are not yet handled
 
-> If you've worked with userspace eBPF runtimes — find me after the talk.
+> If you've worked with userspace eBPF runtimes, find me after the talk.
 
 <!--
 We're being honest about where this is: it works, but it has rough edges.
@@ -932,20 +970,21 @@ This is worth exploring out loud, which is why it's in the talk.
 
 # Limitations & what's next
 
-**Userspace BPF mode**
-- Requires dynamically linked tracee — no static or musl binaries
-- Function inlining defeats uprobe-based interception (no entry point to hook)
+## Limitations
+- Function inlining defeats uprobe-based interception
+- There is an overhead cost
+- Userspace mode requires dynamically linked tracee (`LD_PRELOAD`ed agent)
 - Frida Gum interceptor: some aggressive compiler optimisations (tail-call elision, LTO) are not yet handled
 
-**Upstream gaps we're tracking**
-- **bpftime**: bundled `bpftool` submodule is stale — GCC 14 and kernel 6.15+ build fixes are in libbpf/bpftool but not yet pulled in; we carry local patches in the meantime
-- **libbpfgo**: no `AttachUprobeWithCookie` API — single-uprobe attach with per-probe `bpf_cookie` requires raw syscalls today; [issue pending](https://github.com/aquasecurity/libbpfgo)
+## Upstream gaps
+- **bpftime**: some patches that are going to be proposed upstream
+- **libbpfgo**: missing `AttachUprobeWithCookie` libbpf API (single-uprobe attach with per-probe `bpf_cookie`)
+  - https://github.com/aquasecurity/libbpfgo/pull/523
 
-**What we're working on**
-- Contribute bpftool submodule bump to bpftime upstream
-- File and land `AttachUprobeWithCookie` in libbpfgo
-- Remove local workaround patches as upstream absorbs the fixes
-- Transparent process injection (drop the explicit `LD_PRELOAD` step)
+## What I'm working on
+- Rolling out xcover on thousands of packages
+- Performance optimizations
+- Stress test the userspace mode
 
 <!--
 Be honest about the rough edges. The LD_PRELOAD requirement is the most visible one — users notice it immediately.
@@ -959,11 +998,10 @@ The goal is to make the userspace path as frictionless as the kernel path.
 
 **The binary you ship is the binary you test.**
 
-- Coverage tooling today assumes you control the build — at scale, that assumption breaks
-- eBPF uprobes let you attach to any binary at runtime, no changes required
-- resurgo recovers function entry points from stripped binaries transparently
-- The overhead is real, measured, and acceptable for test workloads
-- Userspace BPF is the next step: same approach, lower cost
+- Coverage tooling today assumes you control the build. At scale, that assumption breaks
+- Kernel instrumentation allows to observe the runtime
+- The overhead is real, measured. It can be acceptable for test workloads
+- If you want to cut the overhead, userspace BPF runtimes can reduce it up to 4x
 
 <br>
 
@@ -980,5 +1018,8 @@ The tooling to close that gap exists today. Try it.
 
 # Questions?
 
-`github.com/maxgio92/xcover`
-`github.com/maxgio92/resurgo`
+linkedin.com/in/maxgio
+@maxgio92 on Telegram
+
+github.com/maxgio92/xcover
+github.com/maxgio92/resurgo

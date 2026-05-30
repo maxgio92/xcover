@@ -162,6 +162,22 @@ That's the gap we're here to talk about.
 
 ---
 
+# Agenda
+
+- Coverage today with ecosystem instrumentation
+- Profiling with the kernel
+- Demo
+- Challenges with production binaries
+- Demo
+- The cost of profiling with eBPF
+- Benchmark
+- How to eliminat the cost with userpace eBPF
+- Demo
+- What's next
+- Conclusions
+
+---
+
 # Quality
 
 - How do you ensure that your software works?
@@ -942,6 +958,12 @@ The overhead numbers for this path are still being validated. That's the open ex
 | **Idle** | uprobe attached | ~ |
 | **Hit** | uprobe firing, already seen | **-53%** |
 | **Miss** | uprobe firing, new function | **-54%** |
+
+---
+
+<!-- _class: break -->
+
+# Demo 🎬
 
 ---
 

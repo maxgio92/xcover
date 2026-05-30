@@ -106,16 +106,36 @@ style: |
     border-bottom: 1px solid #eee;
   }
 
-  /* Code blocks - github-dark style */
+  /* Code blocks - gruvbox dark */
   pre {
-    background: #0d1117;
+    background: #282828;
     border-radius: 8px;
     padding: 1em 1.2em;
     margin: 0.6em 0;
     overflow: hidden;
+    /* Theme ships light-palette syntax colors; remap them to the
+       gruvbox dark palette so tokens are readable on the dark background. */
+    --color-prettylights-syntax-comment: #928374;
+    --color-prettylights-syntax-constant: #d3869b;
+    --color-prettylights-syntax-entity: #fabd2f;
+    --color-prettylights-syntax-entity-tag: #8ec07c;
+    --color-prettylights-syntax-keyword: #fb4934;
+    --color-prettylights-syntax-string: #b8bb26;
+    --color-prettylights-syntax-string-regexp: #8ec07c;
+    --color-prettylights-syntax-variable: #fe8019;
+    --color-prettylights-syntax-storage-modifier-import: #ebdbb2;
+    --color-prettylights-syntax-constant-other-reference-link: #b8bb26;
+    --color-prettylights-syntax-markup-heading: #83a598;
+    --color-prettylights-syntax-markup-list: #fabd2f;
+    --color-prettylights-syntax-markup-bold: #fbf1c7;
+    --color-prettylights-syntax-markup-italic: #fbf1c7;
+    --color-prettylights-syntax-markup-inserted-text: #b8bb26;
+    --color-prettylights-syntax-markup-inserted-bg: #32361a;
+    --color-prettylights-syntax-markup-deleted-text: #fb4934;
+    --color-prettylights-syntax-markup-deleted-bg: #3c1f1e;
   }
   pre code {
-    color: #e6edf3;
+    color: #ebdbb2;
     font-size: 0.78em;
     line-height: 1.6;
     background: none;

@@ -12,11 +12,6 @@ PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
 export PATH
 
 function main() {
-	if [ "$EUID" -ne 0 ]; then
-	    echo "Please run as root: sudo bash $0"
-	    exit 1
-	fi
-
 	clear
 	runCmd "# === xcover: Userspace BPF mode (powered by bpftime) ==="
 	runCmd "# Same coverage profiling — zero kernel traps!"

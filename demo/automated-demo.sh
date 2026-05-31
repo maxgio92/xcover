@@ -13,6 +13,8 @@ export PATH
 function cleanup() {
     xcover stop 2>/dev/null || true
     pkill -f "xcover run" 2>/dev/null || true
+    rm -f $DEMO_APP
+    rm -f /tmp/xcover.*
 }
 
 trap cleanup EXIT

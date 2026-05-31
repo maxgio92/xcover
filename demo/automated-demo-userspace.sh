@@ -18,6 +18,8 @@ function cleanup() {
     if [ -n "${XCOVER_AGENT:-}" ] && [ -f "${XCOVER_AGENT}" ]; then
         rm -f "${XCOVER_AGENT}"
     fi
+    rm -f $DEMO_APP
+    rm -f /tmp/xcover.*
 }
 
 trap cleanup EXIT
@@ -25,7 +27,7 @@ trap cleanup EXIT
 function main() {
 	clear
 	runCmd "# === xcover: Userspace BPF mode (powered by bpftime) ==="
-	runCmd "# Same coverage profiling — zero kernel traps!"
+	runCmd "# Same coverage profiling. Zero kernel traps!"
 	echo
 	runCmd "# Let's test a demo C application"
 	runCmd "bat demo-app.c"
@@ -39,25 +41,21 @@ function main() {
 	runCmd "ldd demo-app"
 	sleep 1
 	clear
-	runCmd "# Step 1: extract the bpftime agent library"
+	runCmd "# Extract the bpftime agent library"
 	runCmd "export XCOVER_AGENT=\$(xcover agent extract)"
 	runCmd "echo \$XCOVER_AGENT"
 	sleep 1
-	runCmd "# Step 2: clean up any stale bpftime shared memory"
-	runCmd "rm -f /dev/shm/bpftime_*"
-	sleep 1
-	runCmd "# Step 3: start the profiler in userspace BPF mode"
-	runCmd "BPFTIME_SHM_MEMORY_MB=2048 BPFTIME_VM_NAME=ubpf xcover run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
+	runCmd "BPFTIME_SHM_MEMORY_MB=2048 xcover run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "xcover wait"
 	sleep 1
 	clear
-	runCmd "# Step 4: run test scenarios with the agent preloaded"
-	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app add"
-	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app multiply"
-	runCmd "BPFTIME_VM_NAME=ubpf LD_PRELOAD=\$XCOVER_AGENT ./demo-app greet"
+	runCmd "# Run test scenarios with the agent preloaded"
+	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app add"
+	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app multiply"
+	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app greet"
 	clear
-	runCmd "# Step 5: stop and collect results"
+	runCmd "# Stop and collect results"
 	runCmd "xcover stop"
 	runCmd "cat xcover-report.json | jq '.cov_by_func'"
 	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"

@@ -4,7 +4,6 @@ import (
 	"context"
 	"debug/elf"
 
-	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/pkg/errors"
 )
 
@@ -60,8 +59,14 @@ func (t *UserTracee) Init(ctx context.Context) error {
 		}
 	}
 
+	// Key by file offset, which is unique per function location, rather than by
+	// a hash of the name. Distinct functions can share a name (C statics in
+	// different translation units, C++ overloads sharing a DWARF DW_AT_name),
+	// and name-keying would silently drop all but one of them. Functions that
+	// share an offset (weak aliases, identical-code folding) are genuinely the
+	// same code and collapse to a single entry.
 	for _, e := range entries {
-		t.funcs[cookie(utils.Hash(e.Name))] = funcInfo{
+		t.funcs[cookie(e.Offset)] = funcInfo{
 			name:   e.Name,
 			offset: e.Offset,
 		}

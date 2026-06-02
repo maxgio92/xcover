@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
@@ -60,15 +59,54 @@ func TestUserTracee_GetFuncProbes_Alignment(t *testing.T) {
 	require.Len(t, offsets, len(probeTestEntries))
 	require.Len(t, cookies, len(probeTestEntries))
 
-	wantOffsetByCookie := make(map[uint64]uint64, len(probeTestEntries))
-	for _, e := range probeTestEntries {
-		wantOffsetByCookie[utils.Hash(e.Name)] = e.Offset
+	// The cookie reported when a probe fires must identify the function whose
+	// probe is attached at offsets[i]. Cookies are keyed by offset, so the
+	// alignment invariant is offsets[i] == cookies[i]; building the two slices
+	// from independent map ranges would break this.
+	for i := range cookies {
+		require.Equalf(t, offsets[i], cookies[i],
+			"offsets[%d]=%#x not aligned with cookies[%d]=%#x", i, offsets[i], i, cookies[i])
 	}
 
-	for i := range cookies {
-		wantOffset, ok := wantOffsetByCookie[cookies[i]]
-		require.Truef(t, ok, "unexpected cookie %d", cookies[i])
-		require.Equalf(t, wantOffset, offsets[i],
-			"cookie %d paired with offset %#x, want %#x", cookies[i], offsets[i], wantOffset)
+	// Every injected offset must be present exactly once.
+	want := make(map[uint64]int, len(probeTestEntries))
+	for _, e := range probeTestEntries {
+		want[e.Offset]++
+	}
+	got := make(map[uint64]int, len(offsets))
+	for _, o := range offsets {
+		got[o]++
+	}
+	require.Equal(t, want, got)
+}
+
+// TestUserTracee_DuplicateNames_NotDropped verifies that two distinct functions
+// sharing a name (e.g. C statics in different translation units, or C++
+// overloads sharing a DWARF DW_AT_name) are both traced. Keying probes by
+// name-hash collapses them into one map entry, silently dropping a function and
+// undercounting coverage.
+func TestUserTracee_DuplicateNames_NotDropped(t *testing.T) {
+	entries := []trace.FunctionEntry{
+		{Name: "helper", Offset: 0x1160},
+		{Name: "helper", Offset: 0x11a0}, // same name, different function
+		{Name: "unique", Offset: 0x1200},
+	}
+	tracee := trace.NewUserTracee(
+		trace.WithTraceeExePath("dummy-path"),
+		trace.WithTraceeResolver(staticResolver(entries)),
+		trace.WithTraceeLogger(testLogger),
+	)
+	require.NoError(t, tracee.Init(t.Context()))
+
+	offsets, cookies := tracee.GetFuncProbes()
+	require.Len(t, offsets, len(entries), "a duplicate-named function was dropped")
+	require.Len(t, cookies, len(entries))
+
+	gotOffset := make(map[uint64]bool, len(offsets))
+	for _, o := range offsets {
+		gotOffset[o] = true
+	}
+	for _, e := range entries {
+		require.Truef(t, gotOffset[e.Offset], "offset %#x for %q missing", e.Offset, e.Name)
 	}
 }

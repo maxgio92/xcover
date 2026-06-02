@@ -177,8 +177,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 func (t *UserTracer) attachProbe(ctx context.Context) {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
-	offsets := t.tracee.GetFuncOffsets()
-	cookies := t.tracee.GetFuncCookies()
+	offsets, cookies := t.tracee.GetFuncProbes()
 
 	for i := 0; i < len(offsets); i += batchSize {
 		end := i + batchSize

@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
-	"github.com/maxgio92/xcover/pkg/cmd/agent"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/cmd/run"
 	"github.com/maxgio92/xcover/pkg/cmd/status"
@@ -54,7 +53,7 @@ At the end of your tests, the profiler can be stopped and a report being collect
 	cmd.AddCommand(wait.NewCommand(o))
 	cmd.AddCommand(status.NewCommand(o))
 	cmd.AddCommand(stop.NewCommand(o))
-	cmd.AddCommand(agent.NewCommand(o))
+	registerUserspaceCommands(cmd, o)
 
 	return cmd
 }

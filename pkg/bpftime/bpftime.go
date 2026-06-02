@@ -1,3 +1,5 @@
+//go:build linux && userspace
+
 // Package bpftime provides support for running xcover with the bpftime
 // userspace BPF runtime (https://github.com/eunomia-bpf/bpftime).
 //

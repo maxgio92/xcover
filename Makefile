@@ -42,7 +42,7 @@ CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a" # St
 COMPILE_MODES := dynamic static
 
 .PHONY: $(PROGRAM)
-$(PROGRAM): $(LIBBPFGO)-static $(BPFTIME) $(PROGRAM)/bpf $(PROGRAM)/frontend
+$(PROGRAM): $(LIBBPFGO)-static $(PROGRAM)/bpf $(PROGRAM)/frontend
 
 .PHONY: $(PROGRAM)/frontend
 $(PROGRAM)/frontend:
@@ -51,6 +51,15 @@ $(PROGRAM)/frontend:
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
 		go build -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
+
+# xcover-userspace: build with bpftime userspace BPF support.
+.PHONY: $(PROGRAM)-userspace
+$(PROGRAM)-userspace: $(LIBBPFGO)-static $(BPFTIME) $(PROGRAM)/bpf
+	CC=gcc \
+	CGO_CFLAGS=$(CGO_CFLAGS) \
+	CGO_LDFLAGS=$(CGO_LDFLAGS) \
+		GOARCH=$(GOARCH) \
+		go build -tags userspace -ldflags=${LDFLAGS} -v -o ${PROGRAM}-userspace .
 
 .PHONY: test
 test: TEST_PATH ?= ./...

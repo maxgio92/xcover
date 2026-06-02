@@ -87,16 +87,41 @@ func (t *UserTracee) ShouldIncludeSymbol(sym elf.Symbol) bool {
 	return shouldInclude(sym, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 }
 
+// GetFuncProbes returns the uprobe attach offsets and their corresponding
+// cookies, collected in a single pass over the function map so that offsets[i]
+// and cookies[i] always describe the same function.
+//
+// Callers attaching a uprobe_multi link (which consumes the offsets and cookies
+// as parallel arrays) must use this method. Pairing the results of
+// GetFuncOffsets and GetFuncCookies is unsafe: each ranges the map
+// independently and Go randomizes map iteration order, so the two slices may
+// describe the functions in different orders.
+func (t *UserTracee) GetFuncProbes() (offsets, cookies []uint64) {
+	offsets = make([]uint64, 0, len(t.funcs))
+	cookies = make([]uint64, 0, len(t.funcs))
+	for c, fn := range t.funcs {
+		offsets = append(offsets, fn.offset)
+		cookies = append(cookies, uint64(c))
+	}
+	return offsets, cookies
+}
+
+// GetFuncOffsets returns the attach offsets of all collected functions, in
+// unspecified order. To attach probes, use GetFuncProbes instead, which keeps
+// offsets and cookies aligned.
 func (t *UserTracee) GetFuncOffsets() []uint64 {
-	offsets := make([]uint64, len(t.funcs))
-	for i := range t.funcs {
-		offsets = append(offsets, t.funcs[i].offset)
+	offsets := make([]uint64, 0, len(t.funcs))
+	for c := range t.funcs {
+		offsets = append(offsets, t.funcs[c].offset)
 	}
 	return offsets
 }
 
+// GetFuncCookies returns the cookies of all collected functions, in unspecified
+// order. To attach probes, use GetFuncProbes instead, which keeps offsets and
+// cookies aligned.
 func (t *UserTracee) GetFuncCookies() []uint64 {
-	cookies := make([]uint64, len(t.funcs))
+	cookies := make([]uint64, 0, len(t.funcs))
 	for c := range t.funcs {
 		cookies = append(cookies, uint64(c))
 	}
@@ -104,9 +129,9 @@ func (t *UserTracee) GetFuncCookies() []uint64 {
 }
 
 func (t *UserTracee) GetFuncNames() []string {
-	names := make([]string, len(t.funcs))
-	for i := range t.funcs {
-		names = append(names, t.funcs[i].name)
+	names := make([]string, 0, len(t.funcs))
+	for c := range t.funcs {
+		names = append(names, t.funcs[c].name)
 	}
 	return names
 }

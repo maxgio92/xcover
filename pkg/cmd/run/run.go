@@ -33,6 +33,9 @@ type Options struct {
 	symExcludePattern string
 	symIncludePattern string
 
+	debugPath      string
+	noBuildIDCheck bool
+
 	detach  bool
 	verbose bool
 	report  bool
@@ -60,6 +63,9 @@ It supports programs compiled to ELF.
 
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
+
+	cmd.Flags().StringVar(&o.debugPath, "debug-path", "", "Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary")
+	cmd.Flags().BoolVar(&o.noBuildIDCheck, "no-build-id-check", false, "Skip GNU build-id verification between --path and --debug-path")
 
 	cmd.Flags().BoolVarP(&o.detach, "detach", "d", false, fmt.Sprintf("Run %s as daemon", settings.CmdName))
 	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
@@ -92,12 +98,21 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	}
 	o.Logger = o.Logger.Level(logLevel)
 
-	tracee := trace.NewUserTracee(
+	traceeOpts := []trace.UserTraceeOption{
 		trace.WithTraceeExePath(o.comm),
 		trace.WithTraceeSymPatternInclude(o.symIncludePattern),
 		trace.WithTraceeSymPatternExclude(o.symExcludePattern),
 		trace.WithTraceeLogger(o.Logger),
-	)
+	}
+	if o.debugPath != "" {
+		// Resolve names/addresses from the companion debug file while computing
+		// uprobe offsets against the (stripped) executable at --path.
+		traceeOpts = append(traceeOpts, trace.WithTraceeResolver(
+			trace.SeparateDebugResolver(o.comm, o.debugPath, o.Logger,
+				o.symIncludePattern, o.symExcludePattern, nil, nil, o.noBuildIDCheck),
+		))
+	}
+	tracee := trace.NewUserTracee(traceeOpts...)
 
 	tracer := trace.NewUserTracer(
 		trace.WithTracerLogger(o.Logger),
@@ -132,6 +147,12 @@ func (o *Options) daemonize() error {
 	args = append(args, fmt.Sprintf("--report=%s", strconv.FormatBool(o.report)))
 	args = append(args, fmt.Sprintf("--status=%s", strconv.FormatBool(o.status)))
 	args = append(args, fmt.Sprintf("--verbose=%s", strconv.FormatBool(o.verbose)))
+	if o.debugPath != "" {
+		args = append(args, fmt.Sprintf("--debug-path=%s", o.debugPath))
+	}
+	if o.noBuildIDCheck {
+		args = append(args, "--no-build-id-check")
+	}
 
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

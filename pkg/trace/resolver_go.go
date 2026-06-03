@@ -61,6 +61,9 @@ func goModulePath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if info.Path == "command-line-arguments" {
+		return "", errors.New("binary was built as command-line-arguments; build the package or module instead")
+	}
 	if info.Main.Path == "" {
 		return "", errors.New("binary has no main module path")
 	}

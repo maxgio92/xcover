@@ -94,6 +94,16 @@ The Go symbolization fallback:
 - Maintains full compatibility with symbol filtering
 - Requires no additional configuration
 
+#### Other binaries (separate debug file)
+
+For stripped non-Go binaries, point `--debug-path` at a matching debug file (e.g. `objcopy --only-keep-debug` output, or a distro `-dbg`/debuginfod artifact) to recover real function names from its `.symtab` (or DWARF):
+
+```shell
+$ xcover run --path ./app --debug-path ./app.debug
+```
+
+Names come from `--debug-path`; uprobe offsets are computed against `--path`. The two are matched by GNU build-id — pass `--no-build-id-check` for toolchains that omit it.
+
 ## Daemon Mode
 
 Run xcover as a background daemon for flexible test execution. This mode enables you to start the profiler, run multiple test suites, and collect results when complete.

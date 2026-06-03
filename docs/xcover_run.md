@@ -16,15 +16,17 @@ xcover run [flags]
 ### Options
 
 ```
-  -d, --detach           Run xcover as daemon
-      --exclude string   Regex pattern to exclude function symbol names
-  -h, --help             help for run
-      --include string   Regex pattern to include function symbol names
-  -p, --path string      Path to the ELF executable
-      --pid int          Filter the process by PID (default -1)
-      --report           Generate report (as xcover-report.json) (default true)
-      --status           Periodically print a status of the trace (default true)
-      --verbose          Enable verbosity
+      --debug-path string   Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary
+  -d, --detach              Run xcover as daemon
+      --exclude string      Regex pattern to exclude function symbol names
+  -h, --help                help for run
+      --include string      Regex pattern to include function symbol names
+      --no-build-id-check   Skip GNU build-id verification between --path and --debug-path
+  -p, --path string         Path to the ELF executable
+      --pid int             Filter the process by PID (default -1)
+      --report              Generate report (as xcover-report.json) (default true)
+      --status              Periodically print a status of the trace (default true)
+      --verbose             Enable verbosity
 ```
 
 ### Options inherited from parent commands

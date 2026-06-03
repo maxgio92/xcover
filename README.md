@@ -8,7 +8,7 @@
 
 `xcover` (pronounced "cross cover") revolutionizes functional test coverage profiling by leveraging kernel instrumentation to probe userland functions. This cross-language approach measures coverage directly from ELF binaries, eliminating the need for ecosystem-specific tools like [Go cover](https://go.dev/doc/build-cover) or [LLVM cov](https://llvm.org/docs/CommandGuide/llvm-cov.html).
 
-[![asciicast](https://asciinema.org/a/jCznrMDudxznMTid.svg)](https://asciinema.org/a/jCznrMDudxznMTid)
+[![asciicast](https://asciinema.org/a/GyzGzTTEP63GJzAG.svg)](https://asciinema.org/a/GyzGzTTEP63GJzAG)
 
 ## Quickstart
 
@@ -93,6 +93,16 @@ The Go symbolization fallback:
 - Supports Go 1.2+ binaries
 - Maintains full compatibility with symbol filtering
 - Requires no additional configuration
+
+#### Other binaries (separate debug file)
+
+For stripped non-Go binaries, point `--debug-path` at a matching debug file (e.g. `objcopy --only-keep-debug` output, or a distro `-dbg`/debuginfod artifact) to recover real function names from its `.symtab` (or DWARF):
+
+```shell
+$ xcover run --path ./app --debug-path ./app.debug
+```
+
+Names come from `--debug-path`; uprobe offsets are computed against `--path`. The two are matched by GNU build-id — pass `--no-build-id-check` for toolchains that omit it.
 
 ## Daemon Mode
 

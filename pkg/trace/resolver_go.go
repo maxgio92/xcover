@@ -67,15 +67,15 @@ func goModulePath(path string) (string, error) {
 	return info.Main.Path, nil
 }
 
-// filterByModulePath keeps only FunctionEntry values whose name starts with
-// the module path prefix. Go symbol names are fully qualified
-// (e.g. "github.com/user/repo/pkg.Func"), so a prefix match on the module
-// path is sufficient.
+// filterByModulePath keeps FunctionEntry values belonging to the main module.
+// Go emits symbols for subpackages with the module path prefix
+// (e.g. "github.com/user/repo/pkg.Func"), but symbols in the executable's
+// root package are emitted as "main.Func".
 func filterByModulePath(entries []FunctionEntry, modPath string) []FunctionEntry {
 	prefix := modPath + "/"
 	var out []FunctionEntry
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name, prefix) || strings.HasPrefix(e.Name, modPath+".") {
+		if strings.HasPrefix(e.Name, prefix) || strings.HasPrefix(e.Name, modPath+".") || strings.HasPrefix(e.Name, "main.") {
 			out = append(out, e)
 		}
 	}

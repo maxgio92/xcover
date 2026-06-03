@@ -38,10 +38,10 @@ func main() {
 const goProjectFixturePkg = `package pkg
 
 //go:noinline
-func Helper() int { return 7 }
+func Helper() int { return internal() + 7 }
 
 //go:noinline
-func Internal() int { return 3 }
+func internal() int { return 3 }
 `
 
 const goProjectFixtureMod = `module example.com/testmod
@@ -87,7 +87,9 @@ func TestGoProjectResolver_FiltersToModule(t *testing.T) {
 
 	for _, e := range entries {
 		assert.Truef(t,
-			strings.HasPrefix(e.Name, "example.com/testmod/") || strings.HasPrefix(e.Name, "example.com/testmod."),
+			strings.HasPrefix(e.Name, "main.") ||
+				strings.HasPrefix(e.Name, "example.com/testmod/") ||
+				strings.HasPrefix(e.Name, "example.com/testmod."),
 			"function %q should belong to the project module", e.Name)
 		// Must not include stdlib.
 		assert.Falsef(t, strings.HasPrefix(e.Name, "runtime."), "stdlib function %q leaked", e.Name)
@@ -99,13 +101,10 @@ func TestGoProjectResolver_FiltersToModule(t *testing.T) {
 	for _, e := range entries {
 		names[e.Name] = true
 	}
-	assert.True(t, names["example.com/testmod.appLogic"], "should include main package function")
-	// main.main shows up as example.com/testmod.main in gopclntab-resolved names,
-	// but in symtab it's main.main. Check for either.
-	assert.True(t, names["main.main"] || names["example.com/testmod.main"],
-		"should include main function")
+	assert.True(t, names["main.appLogic"], "should include main package function")
+	assert.True(t, names["main.main"], "should include main function")
 	assert.True(t, names["example.com/testmod/pkg.Helper"], "should include sub-package function")
-	assert.True(t, names["example.com/testmod/pkg.Internal"], "should include unexported sub-package function")
+	assert.True(t, names["example.com/testmod/pkg.internal"], "should include unexported sub-package function")
 }
 
 // TestGoProjectResolver_VsBinaryScope verifies that project scope returns a
@@ -204,7 +203,9 @@ func TestGoProjectResolver_StrippedGoBinary(t *testing.T) {
 
 	for _, e := range entries {
 		assert.Truef(t,
-			strings.HasPrefix(e.Name, "example.com/testmod/") || strings.HasPrefix(e.Name, "example.com/testmod."),
+			strings.HasPrefix(e.Name, "main.") ||
+				strings.HasPrefix(e.Name, "example.com/testmod/") ||
+				strings.HasPrefix(e.Name, "example.com/testmod."),
 			"stripped binary: function %q should belong to the project module", e.Name)
 	}
 }
@@ -244,7 +245,9 @@ func TestScopeIntegration_TraceeInit(t *testing.T) {
 	// Project names should all belong to the module.
 	for _, name := range projectNames {
 		assert.Truef(t,
-			strings.HasPrefix(name, "example.com/testmod/") || strings.HasPrefix(name, "example.com/testmod.") || name == "main.main",
+			strings.HasPrefix(name, "main.") ||
+				strings.HasPrefix(name, "example.com/testmod/") ||
+				strings.HasPrefix(name, "example.com/testmod."),
 			"project scope tracee: function %q should belong to the project module", name)
 	}
 }

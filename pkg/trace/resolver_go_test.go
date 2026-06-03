@@ -6,6 +6,8 @@ import (
 
 func TestFilterByModulePath(t *testing.T) {
 	entries := []FunctionEntry{
+		{Name: "main.main", Offset: 0x0800},
+		{Name: "main.local", Offset: 0x0900},
 		{Name: "github.com/user/repo/pkg.Foo", Offset: 0x1000},
 		{Name: "github.com/user/repo.Main", Offset: 0x2000},
 		{Name: "github.com/user/repo/internal/bar.Baz", Offset: 0x3000},
@@ -18,6 +20,8 @@ func TestFilterByModulePath(t *testing.T) {
 	got := filterByModulePath(entries, "github.com/user/repo")
 
 	want := map[string]bool{
+		"main.main":                             true,
+		"main.local":                            true,
 		"github.com/user/repo/pkg.Foo":          true,
 		"github.com/user/repo.Main":             true,
 		"github.com/user/repo/internal/bar.Baz": true,

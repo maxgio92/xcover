@@ -4,9 +4,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
-XCOVER="xcover"
-PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
-export $PATH
+XCOVER="${SCRIPT_DIR}/../xcover"
 
 function main() {
 	# Check if running as root
@@ -23,16 +21,17 @@ function main() {
 	runCmd "bat demo-app.go"
 	sleep 2
 	clear
-	runCmd "go build demo-app.go"
+	runCmd "rm -f demo-app xcover-report.json"
+	runCmd "go build -o demo-app ."
 	runCmd "ls demo-app"
 	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Let's strip the binary, because this must be a production binary"
 	runCmd "strip --strip-all demo-app"
 	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Start the profiler before running the functional tests"
-	runCmd "xcover run --detach --path demo-app --include '^main\.'"
+	runCmd "${XCOVER} run --detach --path demo-app --scope project"
 	runCmd "# Wait for the profiler to be ready"
-	runCmd "xcover wait"
+	runCmd "${XCOVER} wait"
 	runCmd "# Run test scenarios - xcover is tracing all function calls"
 	clear
 	runCmd "./demo-app add"
@@ -40,7 +39,7 @@ function main() {
 	runCmd "./demo-app greet"
 	runCmd "# Now let's stop the profiler"
 	clear
-	runCmd "xcover stop"
+	runCmd "${XCOVER} stop"
 	runCmd "# Collect the coverage results:"
 	runCmd "cat xcover-report.json | jq '.cov_by_func'"
 	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"
@@ -53,7 +52,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	sleep 2
+	#sleep 2
 }
 
 main $@

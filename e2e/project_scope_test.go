@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -165,14 +166,24 @@ func buildGoProjectFixture(t *testing.T, workDir string) string {
 	t.Helper()
 
 	srcDir := filepath.Join(workDir, "fixture")
-	scenarioDir := filepath.Join("testdata", projectScopeGoScenario)
+	scenarioDir := fixtureScenarioDir(t, projectScopeGoScenario)
 	if err := os.CopyFS(srcDir, os.DirFS(scenarioDir)); err != nil {
-		t.Fatalf("failed to copy fixture scenario %s: %v", scenarioDir, err)
+		t.Fatalf("failed to copy fixture scenario %s: %v", projectScopeGoScenario, err)
 	}
 
 	bin := filepath.Join(workDir, "testmod")
 	runCommand(t, srcDir, 30*time.Second, "go", "build", "-buildvcs=false", "-o", bin, ".")
 	return bin
+}
+
+func fixtureScenarioDir(t *testing.T, scenario string) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to locate e2e source file")
+	}
+	return filepath.Join(filepath.Dir(file), "testdata", scenario)
 }
 
 func runCommand(t *testing.T, dir string, timeout time.Duration, name string, args ...string) {

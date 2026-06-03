@@ -181,6 +181,32 @@ int main(void) { printf("hello\n"); return 0; }
 	assert.Contains(t, err.Error(), "Go module path")
 }
 
+// TestGoProjectResolver_CommandLineArgumentsBinary verifies that project scope
+// rejects Go binaries built from explicit .go files, which do not carry module
+// metadata identifying the project.
+func TestGoProjectResolver_CommandLineArgumentsBinary(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	require.NoError(t, os.WriteFile(src, []byte(`
+package main
+
+func main() {}
+`), 0o644))
+
+	bin := filepath.Join(dir, "bin")
+	cmd := exec.Command("go", "build", "-o", bin, src)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go build failed: %v\n%s", err, out)
+	}
+
+	logger := zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
+	resolver := trace.GoProjectResolver(bin, logger, "", "", nil, nil)
+	_, err = resolver(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "command-line-arguments")
+}
+
 // TestGoProjectResolver_StrippedGoBinary verifies project scope works on a
 // stripped Go binary (falls back to .gopclntab for function resolution,
 // debug/buildinfo for module detection).

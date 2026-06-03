@@ -68,6 +68,12 @@ test-integration: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 		GOARCH=$(GOARCH) \
 		go test -tags integration -ldflags=${LDFLAGS} -v $(TEST_PATH)
 
+.PHONY: test-e2e
+test-e2e: TEST_PATH ?= ./e2e
+test-e2e:
+	XCOVER_E2E_BIN=$(current_dir)/$(PROGRAM) \
+		go test -count=1 -tags e2e -v $(TEST_PATH)
+
 .PHONY: docs
 docs:
 	CC=gcc \

@@ -38,7 +38,7 @@ func TestWithTraceeResolver_CustomResolver(t *testing.T) {
 	assert.Contains(t, names, "custom.Alpha")
 	assert.Contains(t, names, "custom.Beta")
 
-	offsets := tracee.GetFuncOffsets()
+	offsets, _ := tracee.GetFuncProbes()
 	assert.Contains(t, offsets, uint64(0x1000))
 	assert.Contains(t, offsets, uint64(0x2000))
 }

@@ -375,8 +375,9 @@ func TestUserTracee_Init(t *testing.T) {
 	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, tracee.GetFuncNames())
-	require.NotEmpty(t, tracee.GetFuncOffsets())
-	require.NotEmpty(t, tracee.GetFuncCookies())
+	offsets, cookies := tracee.GetFuncProbes()
+	require.NotEmpty(t, offsets)
+	require.NotEmpty(t, cookies)
 
 	tracee = NewUserTracee(
 		WithTraceeExePath("nonexistent-binary-file"),

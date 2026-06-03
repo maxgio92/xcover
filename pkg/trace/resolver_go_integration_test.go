@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,53 +17,28 @@ import (
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
-// goProjectFixtureSrc is a multi-file Go module with functions from the
-// project, stdlib usage, and a vendored dependency simulation. The module
-// path is "example.com/testmod".
-const goProjectFixtureMain = `package main
-
-import (
-	"fmt"
-	"example.com/testmod/pkg"
-)
-
-//go:noinline
-func appLogic() int { return 42 }
-
-func main() {
-	fmt.Println(appLogic())
-	fmt.Println(pkg.Helper())
+// goProjectFixtureDir returns the canonical project-scope Go module fixture,
+// shared with the e2e suite under e2e/testdata.
+func goProjectFixtureDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to locate integration test source file")
+	}
+	// pkg/trace -> repo root -> e2e/testdata/project-scope-go-module
+	return filepath.Join(filepath.Dir(file), "..", "..",
+		"e2e", "testdata", "project-scope-go-module")
 }
-`
 
-const goProjectFixturePkg = `package pkg
-
-//go:noinline
-func Helper() int { return internal() + 7 }
-
-//go:noinline
-func internal() int { return 3 }
-`
-
-const goProjectFixtureMod = `module example.com/testmod
-
-go 1.26
-`
-
-// buildGoProjectFixture creates a Go module in dir, builds a binary, and
-// returns the binary path.
+// buildGoProjectFixture copies the shared Go module fixture into dir, builds a
+// binary, and returns the binary path.
 func buildGoProjectFixture(t *testing.T, dir string) string {
 	t.Helper()
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goProjectFixtureMod), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(goProjectFixtureMain), 0o644))
-
-	pkgDir := filepath.Join(dir, "pkg")
-	require.NoError(t, os.MkdirAll(pkgDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "pkg.go"), []byte(goProjectFixturePkg), 0o644))
+	require.NoError(t, os.CopyFS(dir, os.DirFS(goProjectFixtureDir(t))))
 
 	bin := filepath.Join(dir, "testmod")
-	cmd := exec.Command("go", "build", "-o", bin, ".")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

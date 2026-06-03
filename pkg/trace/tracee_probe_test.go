@@ -41,8 +41,9 @@ func TestUserTracee_GetterLengths(t *testing.T) {
 	tracee := newProbeTestTracee(t)
 	n := len(probeTestEntries)
 
-	require.Len(t, tracee.GetFuncOffsets(), n, "offsets slice has phantom entries")
-	require.Len(t, tracee.GetFuncCookies(), n, "cookies slice has phantom entries")
+	offsets, cookies := tracee.GetFuncProbes()
+	require.Len(t, offsets, n, "offsets slice has phantom entries")
+	require.Len(t, cookies, n, "cookies slice has phantom entries")
 	require.Len(t, tracee.GetFuncNames(), n, "names slice has phantom entries")
 }
 

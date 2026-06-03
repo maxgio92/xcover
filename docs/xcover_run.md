@@ -25,6 +25,7 @@ xcover run [flags]
   -p, --path string         Path to the ELF executable
       --pid int             Filter the process by PID (default -1)
       --report              Generate report (as xcover-report.json) (default true)
+      --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
       --status              Periodically print a status of the trace (default true)
       --verbose             Enable verbosity
 ```

@@ -72,6 +72,24 @@ Exclude functions you don't want to trace:
 xcover run --path EXE_PATH --exclude "^runtime.|^internal"
 ```
 
+### Function Scope
+
+By default, xcover traces every supported function discovered in the target binary:
+
+```shell
+xcover run --path EXE_PATH --scope binary
+```
+
+For Go binaries, use project scope to trace only functions that belong to the Go module that produced the binary:
+
+```shell
+xcover run --path EXE_PATH --scope project
+```
+
+Project scope uses Go build metadata to identify the module path, then keeps root `main.*` functions and symbols prefixed by that module path. This excludes functions from the Go standard library and third-party dependencies before `--include` and `--exclude` filters are applied.
+
+Build Go targets as packages or modules, for example `go build -o app .` or `go build -o app ./cmd/app`. Project scope is not available for single-file Go builds such as `go build main.go`, because Go records those binaries as `command-line-arguments` instead of a module-backed package.
+
 ## Symbolization
 
 xcover relies on symbolization to discover function names and addresses within target binaries. Understanding how symbolization works helps you maximize coverage profiling effectiveness.
@@ -92,6 +110,7 @@ The Go symbolization fallback:
 - Activates automatically when `.symtab` is unavailable
 - Supports Go 1.2+ binaries
 - Maintains full compatibility with symbol filtering
+- Supports project scope for module-backed Go binaries
 - Requires no additional configuration
 
 #### Other binaries (separate debug file)
@@ -221,4 +240,3 @@ Execute the test suite:
 ```shell
 make test
 ```
-

@@ -87,7 +87,7 @@ int main() {
 	entries, err := resolver(t.Context())
 	require.NoError(t, err)
 	// The C source defines greet, farewell, and main; _start is the ELF entry point.
-	assert.Len(t, entries, 5)
+	assert.Len(t, entries, 4)
 
 	for _, e := range entries {
 		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)

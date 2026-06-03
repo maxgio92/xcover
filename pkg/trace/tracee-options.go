@@ -12,8 +12,12 @@ type UserTraceeOptions struct {
 	symBindInclude    []elf.SymBind
 	symBindExclude    []elf.SymBind
 
+	// scope controls which functions are resolved from the binary.
+	// Defaults to ScopeBinary (all functions).
+	scope Scope
+
 	// resolver is the strategy used to resolve functions from the binary.
-	// If nil, SymbolTableResolver is used as the default.
+	// If nil, the default resolver is chosen based on scope.
 	resolver FunctionResolver
 
 	logger log.Logger
@@ -54,6 +58,12 @@ func WithTraceeSymBindExclude(symBind ...elf.SymBind) UserTraceeOption {
 func WithTraceeResolver(r FunctionResolver) UserTraceeOption {
 	return func(o *UserTracee) {
 		o.resolver = r
+	}
+}
+
+func WithTraceeScope(scope Scope) UserTraceeOption {
+	return func(o *UserTracee) {
+		o.scope = scope
 	}
 }
 

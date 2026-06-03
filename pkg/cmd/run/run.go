@@ -32,6 +32,7 @@ type Options struct {
 
 	symExcludePattern string
 	symIncludePattern string
+	scope             string
 
 	debugPath      string
 	noBuildIDCheck bool
@@ -71,6 +72,7 @@ It supports programs compiled to ELF.
 	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
 	cmd.Flags().BoolVar(&o.report, "report", true, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
 	cmd.Flags().BoolVar(&o.status, "status", true, "Periodically print a status of the trace")
+	cmd.Flags().StringVar(&o.scope, "scope", string(trace.ScopeBinary), `Function scope: "binary" (all functions) or "project" (project module only, Go binaries)`)
 
 	cmd.MarkFlagRequired("path")
 
@@ -98,10 +100,16 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	}
 	o.Logger = o.Logger.Level(logLevel)
 
+	scope, err := trace.ParseScope(o.scope)
+	if err != nil {
+		return err
+	}
+
 	traceeOpts := []trace.UserTraceeOption{
 		trace.WithTraceeExePath(o.comm),
 		trace.WithTraceeSymPatternInclude(o.symIncludePattern),
 		trace.WithTraceeSymPatternExclude(o.symExcludePattern),
+		trace.WithTraceeScope(scope),
 		trace.WithTraceeLogger(o.Logger),
 	}
 	if o.debugPath != "" {
@@ -147,6 +155,7 @@ func (o *Options) daemonize() error {
 	args = append(args, fmt.Sprintf("--report=%s", strconv.FormatBool(o.report)))
 	args = append(args, fmt.Sprintf("--status=%s", strconv.FormatBool(o.status)))
 	args = append(args, fmt.Sprintf("--verbose=%s", strconv.FormatBool(o.verbose)))
+	args = append(args, fmt.Sprintf("--scope=%s", o.scope))
 	if o.debugPath != "" {
 		args = append(args, fmt.Sprintf("--debug-path=%s", o.debugPath))
 	}

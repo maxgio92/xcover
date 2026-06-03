@@ -44,7 +44,7 @@ func (t *UserTracee) Init(ctx context.Context) error {
 
 	resolver := t.resolver
 	if resolver == nil {
-		resolver = SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+		resolver = t.defaultResolver()
 	}
 
 	entries, err := resolver(ctx)
@@ -77,6 +77,17 @@ func (t *UserTracee) Init(ctx context.Context) error {
 		Msg("functions collected")
 
 	return nil
+}
+
+// defaultResolver returns the appropriate FunctionResolver for the tracee's
+// configured scope. If scope is empty, it defaults to ScopeBinary.
+func (t *UserTracee) defaultResolver() FunctionResolver {
+	switch t.scope {
+	case ScopeProject:
+		return GoProjectResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+	default:
+		return SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+	}
 }
 
 func (t *UserTracee) validate() error {

@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"unsafe"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
@@ -294,11 +296,23 @@ func dropElevatedCapabilities() error {
 	if err := unix.Capget(&hdr, &data[0]); err != nil {
 		return err
 	}
-	// CAP_SYS_ADMIN (21) lives in the first 32-bit capability word.
+
 	data[0].Effective &^= uint32(1) << unix.CAP_SYS_ADMIN
 	data[0].Permitted &^= uint32(1) << unix.CAP_SYS_ADMIN
-	// CAP_BPF (39) lives in the second 32-bit capability word.
 	data[1].Effective &^= uint32(1) << (unix.CAP_BPF - 32)
 	data[1].Permitted &^= uint32(1) << (unix.CAP_BPF - 32)
-	return unix.Capset(&hdr, &data[0])
+
+	// Apply to ALL OS threads in the process, not just the calling thread.
+	// This is necessary because Go's scheduler can move goroutines between
+	// threads, and capset() alone only affects the current thread.
+	_, _, errno := syscall.AllThreadsSyscall6(
+		unix.SYS_CAPSET,
+		uintptr(unsafe.Pointer(&hdr)),
+		uintptr(unsafe.Pointer(&data[0])),
+		0, 0, 0, 0,
+	)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

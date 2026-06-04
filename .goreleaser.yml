@@ -7,8 +7,12 @@ before:
     # Initialize submodules
     - git submodule init
     - git submodule update --recursive
-    # Build libbpfgo statically
+    # Build libbpf statically for amd64 (host) and install UAPI headers
     - make -C libbpfgo libbpfgo-static
+    # Cross-compile libbpf statically for arm64 into a separate output dir
+    - make -C libbpfgo libbpf-static CC=aarch64-linux-gnu-gcc OUTPUT=./output-arm64
+    # UAPI headers are arch-independent; reuse from the amd64 build
+    - cp -r libbpfgo/output/linux libbpfgo/output-arm64/linux
     # Generate vmlinux.h if not present
     - bash -c 'if [ ! -f bpf/vmlinux.h ]; then bpftool btf dump file /sys/kernel/btf/vmlinux format c > bpf/vmlinux.h; fi'
 
@@ -46,8 +50,8 @@ builds:
         goarch: arm64
         env:
           - CC=aarch64-linux-gnu-gcc
-          - CGO_CFLAGS=-I {{ .Env.PWD }}/libbpfgo/output
-          - CGO_LDFLAGS=-lelf -lz {{ .Env.PWD }}/libbpfgo/output/libbpf/libbpf.a
+          - CGO_CFLAGS=-I {{ .Env.PWD }}/libbpfgo/output-arm64
+          - CGO_LDFLAGS=-lelf -lz {{ .Env.PWD }}/libbpfgo/output-arm64/libbpf/libbpf.a
 
 archives:
   - id: xcover

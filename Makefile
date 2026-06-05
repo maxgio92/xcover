@@ -134,18 +134,27 @@ $(OUTPUT):
 
 # container build
 
-BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:2e8f0e05c419006d3fb3eff2972c4b85004a45b7e9984ee8f89f8ce7799223ea
+BUILD_IMAGE          := ghcr.io/maxgio92/xcover-build@sha256:fd798eb6ab7304cb85bc06d5418bc479abf9294c370682b5518456d81a7451f3
+BUILD_IMAGE_USERSPACE := ghcr.io/maxgio92/xcover-build@sha256:10926b4ed4e416b03522c5340785f911c8f3449a6f4845911ddaacb4a262259f
 
-.PHONY: xcover-container
-xcover-container:
+define build-in-container
 	docker run --rm \
 		--user $(shell id -u):$(shell id -g) \
 		-e GOCACHE=/work/.cache/go-build \
 		-v /sys/kernel/btf:/sys/kernel/btf:ro \
 		-v $(current_dir):/work:z \
 		-w /work \
-		$(BUILD_IMAGE) \
-		make xcover
+		$(1) \
+		make $(2)
+endef
+
+.PHONY: xcover-container
+xcover-container:
+	$(call build-in-container,$(BUILD_IMAGE),xcover)
+
+.PHONY: xcover-container-userspace
+xcover-container-userspace:
+	$(call build-in-container,$(BUILD_IMAGE_USERSPACE),xcover-userspace)
 
 # bpftime userspace BPF runtime
 #

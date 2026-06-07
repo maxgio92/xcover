@@ -282,6 +282,7 @@ f = open(hm, 'w'); f.write(s); f.close()"
 	# libLLVM.so at skel.h generation time.
 	LD_LIBRARY_PATH="$(LLVM18_PREFIX)/lib:$$(llvm-config --libdir 2>/dev/null):$$LD_LIBRARY_PATH" \
 		cmake --build $(BPFTIME_BUILD) --parallel
+	mkdir -p $(BPFTIME_LIBS_DST)
 	cp $(BPFTIME_BUILD)/runtime/syscall-server/libbpftime-syscall-server.so \
 		$(BPFTIME_LIBS_DST)/bpftime-syscall-server.so
 	cp $(BPFTIME_BUILD)/runtime/agent/libbpftime-agent.so \

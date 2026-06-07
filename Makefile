@@ -176,8 +176,8 @@ bpftime-libs:
 	@if [ ! -d $(BPFTIME_DIR) ]; then \
 		$(git) clone --recurse-submodules $(BPFTIME_GIT) $(BPFTIME_DIR); \
 		$(git) -C $(BPFTIME_DIR) checkout $(BPFTIME_COMMIT); \
+		$(git) -C $(BPFTIME_DIR) submodule update --init --recursive; \
 	fi
-	$(git) -C $(BPFTIME_DIR) submodule update --init --recursive
 	# Fix const-qualifier discards in bpftool-bundled libbpf, hard errors under GCC 14+.
 	# Upstream fix: libbpf commit f5dcbae (2026-03-12). Remove once bpftime bumps its
 	# bpftool submodule past that date.

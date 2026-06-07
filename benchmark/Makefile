@@ -85,7 +85,7 @@ all: hit idle miss
 
 ## bench-kernel: build libbpfgo-static, C targets, and run kernel uprobe benchmarks.
 ## Requires sudo (CAP_BPF + CAP_PERFMON).
-bench bench-kernel: libbpfgo-static
+bench-kernel: libbpfgo-static
 	$(MAKE) clean-miss
 	$(MAKE) all N=$(N)
 	@sudo \
@@ -153,7 +153,7 @@ clean-miss:
 
 ## bench-report: run kernel and userspace benchmarks, write JSON reports
 ## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path.
-bench-report:
+bench:
 	@mkdir -p results
 	$(MAKE) bench-kernel N=100 COUNT=10    \
 		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
@@ -161,6 +161,7 @@ bench-report:
 	$(MAKE) bench-userspace N=100 COUNT=10 \
 		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
 		| tee results/userspace.txt
+
 ## bench-compare: compare kernel and userpsace benchmarks with benchstat.
 ## Requires benchstat: go install golang.org/x/perf/cmd/benchstat@latest.
 bench-compare:

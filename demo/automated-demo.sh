@@ -52,7 +52,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	#sleep 2
+	sleep 2
 }
 
 main $@

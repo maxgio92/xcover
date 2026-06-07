@@ -127,7 +127,7 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 // attached. This is the reference point for computing uprobe overhead.
 func BenchmarkBaseline(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ns, err := runTarget(hitBinary)
+		ns, err := runTarget(idleBinary)
 		if err != nil {
 			b.Fatal(err)
 		}

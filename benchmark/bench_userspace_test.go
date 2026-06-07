@@ -223,7 +223,7 @@ func startTracerUserspace(tb testing.TB, binary, include string) context.CancelF
 // attached. Reference point for computing userspace BPF overhead.
 func BenchmarkBaseline(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ns, err := runTargetBaseline(hitBinary)
+		ns, err := runTargetBaseline(idleBinary)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -7,13 +7,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
-XCOVER="xcover"
-PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
-export PATH
+XCOVER="${SCRIPT_DIR}/../xcover-userspace"
 
 function cleanup() {
-    xcover stop 2>/dev/null || true
-    pkill -f "xcover run" 2>/dev/null || true
+    ${XCOVER} stop 2>/dev/null || true
+    pkill -f "${XCOVER} run" 2>/dev/null || true
     rm -f /dev/shm/bpftime_*
     if [ -n "${XCOVER_AGENT:-}" ] && [ -f "${XCOVER_AGENT}" ]; then
         rm -f "${XCOVER_AGENT}"
@@ -35,19 +33,19 @@ function main() {
 	clear
 	runCmd "gcc -O0 -o demo-app demo-app.c"
 	runCmd "ls demo-app"
-	runCmd "# Let's strip the binary — this is a production binary"
 	runCmd "strip --strip-all demo-app"
 	runCmd "# In userspace BPF mode the tracee must be dynamically linked"
 	runCmd "ldd demo-app"
 	sleep 1
 	clear
 	runCmd "# Extract the bpftime agent library"
-	runCmd "export XCOVER_AGENT=\$(xcover agent extract)"
+	runCmd "export XCOVER_AGENT=\$(${XCOVER} agent extract)"
 	runCmd "echo \$XCOVER_AGENT"
 	sleep 1
-	runCmd "BPFTIME_SHM_MEMORY_MB=2048 xcover run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
+	export BPFTIME_SHM_MEMORY_MB=2048
+	runCmd "${XCOVER} run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
 	runCmd "# Wait for the profiler to be ready"
-	runCmd "xcover wait"
+	runCmd "${XCOVER} wait"
 	sleep 1
 	clear
 	runCmd "# Run test scenarios with the agent preloaded"
@@ -56,7 +54,7 @@ function main() {
 	runCmd "LD_PRELOAD=\$XCOVER_AGENT ./demo-app greet"
 	clear
 	runCmd "# Stop and collect results"
-	runCmd "xcover stop"
+	runCmd "${XCOVER} stop"
 	runCmd "cat xcover-report.json | jq '.cov_by_func'"
 	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"
 	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"

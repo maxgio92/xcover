@@ -100,13 +100,8 @@ $(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
 $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
-	if [ -d $(LIBBPFGO) ]; then \
-		make -C $(LIBBPFGO) $@; \
-        else \
-		$(git) submodule init; \
-		$(git) submodule update --recursive; \
-		make -C $(LIBBPFGO) $@; \
-	fi
+	$(git) submodule update --init --recursive
+	make -C $(LIBBPFGO) $@
 
 .PHONY: $(BPFTOOL)
 $(BPFTOOL):
@@ -181,8 +176,8 @@ bpftime-libs:
 	@if [ ! -d $(BPFTIME_DIR) ]; then \
 		$(git) clone --recurse-submodules $(BPFTIME_GIT) $(BPFTIME_DIR); \
 		$(git) -C $(BPFTIME_DIR) checkout $(BPFTIME_COMMIT); \
-		$(git) -C $(BPFTIME_DIR) submodule update --init --recursive; \
 	fi
+	$(git) -C $(BPFTIME_DIR) submodule update --init --recursive
 	# Fix const-qualifier discards in bpftool-bundled libbpf, hard errors under GCC 14+.
 	# Upstream fix: libbpf commit f5dcbae (2026-03-12). Remove once bpftime bumps its
 	# bpftool submodule past that date.

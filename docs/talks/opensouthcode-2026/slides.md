@@ -184,17 +184,18 @@ That's the gap we're here to talk about.
 
 # Agenda
 
-- Coverage today with ecosystem instrumentation
+- The standard coverage story
 - Profiling with the kernel
+- xcover in practice
 - Demo
 - Challenges with production binaries
-- Demo
+- Demo: xcover on a stripped binary
 - The cost of profiling with eBPF
-- Benchmark
-- How to eliminat the cost with userpace eBPF
-- Demo
-- What's next
-- Conclusions
+- Benchmarking the overhead
+- Eliminate the kernel trap
+- Demo: userspace eBPF mode
+- Limitations & what's next
+- Wrapping up
 
 ---
 
@@ -329,6 +330,12 @@ The data that coverage tools need just isn't there.
 What if the tool could attach to the binary you already built, tested, packaged, and shipped?
 To answer that, we need to talk about what the kernel can see.
 -->
+
+---
+
+<!-- _class: statement -->
+
+# Profiling with the kernel
 
 ---
 
@@ -568,7 +575,7 @@ Same format whether you're testing Go, C, or Rust.
 
 <!-- _class: break -->
 
-# Demo 🎬
+# Demo
 
 <!--
 [Live demo or asciinema]
@@ -584,7 +591,7 @@ Optionally: show --include filtering, then show the difference in funcs_traced c
 
 <!-- _class: statement -->
 
-# One catch:<br>stripped binaries
+# Challenges with<br>production binaries
 
 <!--
 We said uprobes work on any ELF binary. That's true.
@@ -722,7 +729,7 @@ For coverage purposes, this is an acceptable tradeoff compared to maintaining a 
 
 <!-- _class: break -->
 
-# Demo 🎬
+# Demo: xcover on a stripped binary
 
 <!--
 [Live demo or asciinema]
@@ -738,7 +745,13 @@ Optionally: show --include filtering, then show the difference in funcs_traced c
 
 <!-- _class: statement -->
 
-# But what's the cost?
+# The cost of profiling with eBPF
+
+---
+
+<!-- _class: statement -->
+
+# Benchmarking the overhead
 
 ---
 
@@ -976,14 +989,14 @@ The overhead numbers for this path are still being validated. That's the open ex
 |---|---|---|
 | **Baseline** | No tracing | ~ |
 | **Idle** | uprobe attached | ~ |
-| **Hit** | uprobe firing, already seen | **-53%** |
-| **Miss** | uprobe firing, new function | **-54%** |
+| **Hit** | uprobe firing, already seen | **-69%** |
+| **Miss** | uprobe firing, new function | **-72%** |
 
 ---
 
 <!-- _class: break -->
 
-# Demo 🎬
+# Demo: userspace eBPF mode
 
 ---
 
@@ -993,6 +1006,7 @@ The overhead numbers for this path are still being validated. That's the open ex
 - Single-uprobe attachment (perf-event based) ✅
 - bpf_cookie propagation (function identification) ✅
 - Coverage report generation ✅
+- Unprivileged run (no `CAP_BPF`)
 
 ## Known limitations
 - No `uprobe_multi` link support (perf-based)
@@ -1016,7 +1030,6 @@ This is worth exploring out loud, which is why it's in the talk.
 - Function inlining defeats uprobe-based interception
 - There is an overhead cost
 - Userspace mode requires dynamically linked tracee (`LD_PRELOAD`ed agent)
-- Frida Gum interceptor: some aggressive compiler optimisations (tail-call elision, LTO) are not yet handled
 
 ## Upstream gaps
 - **bpftime**: some patches that are going to be proposed upstream
@@ -1042,6 +1055,7 @@ The goal is to make the userspace path as frictionless as the kernel path.
 
 - Coverage tooling today assumes you control the build. At scale, that assumption breaks
 - Kernel instrumentation allows to observe the runtime
+- Recent work improves Go project scoping and uses debug files when available
 - The overhead is real, measured. It can be acceptable for test workloads
 - If you want to cut the overhead, userspace BPF runtimes can reduce it up to 4x
 

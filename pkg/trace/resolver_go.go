@@ -17,8 +17,9 @@ import (
 // It reads the embedded Go build info to discover the module path, then
 // delegates to SymbolTableResolver and filters the results.
 //
-// Returns an error if the binary is not a Go binary or the module path
-// cannot be determined.
+// Returns ErrProjectScopeUnsupported (via errors.Is) if the binary does not
+// carry the metadata needed for project-scoped resolution (missing build info,
+// built as command-line-arguments, etc.).
 func GoProjectResolver(path string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
 	return func(ctx context.Context) ([]FunctionEntry, error) {
 		if err := ctx.Err(); err != nil {
@@ -27,7 +28,7 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 
 		modPath, err := goModulePath(path)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to detect Go module path (is this a Go binary?)")
+			return nil, errors.Wrapf(ErrProjectScopeUnsupported, "failed to detect Go module path: %v", err)
 		}
 
 		logger.Info().
@@ -68,6 +69,25 @@ func goModulePath(path string) (string, error) {
 		return "", errors.New("binary has no main module path")
 	}
 	return info.Main.Path, nil
+}
+
+// withProjectFallback wraps primary so that if it returns ErrProjectScopeUnsupported
+// the error is logged as a warning and fallback is used instead. Any other error
+// from primary is returned as-is.
+func withProjectFallback(primary, fallback FunctionResolver, logger log.Logger) FunctionResolver {
+	return func(ctx context.Context) ([]FunctionEntry, error) {
+		entries, err := primary(ctx)
+		if err == nil {
+			return entries, nil
+		}
+		if !errors.Is(err, ErrProjectScopeUnsupported) {
+			return nil, err
+		}
+		logger.Warn().
+			Err(err).
+			Msg("project scope unavailable, falling back to binary scope")
+		return fallback(ctx)
+	}
 }
 
 // filterByModulePath keeps FunctionEntry values belonging to the main module.

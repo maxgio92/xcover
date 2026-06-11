@@ -1,7 +1,11 @@
 package trace
 
 import (
+	"context"
 	"testing"
+
+	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
 )
 
 func TestFilterByModulePath(t *testing.T) {
@@ -47,5 +51,51 @@ func TestFilterByModulePath_NoMatch(t *testing.T) {
 	got := filterByModulePath(entries, "github.com/user/repo")
 	if len(got) != 0 {
 		t.Errorf("expected empty result, got %d entries", len(got))
+	}
+}
+
+func staticResolver(entries []FunctionEntry, err error) FunctionResolver {
+	return func(_ context.Context) ([]FunctionEntry, error) {
+		return entries, err
+	}
+}
+
+func TestWithProjectFallback_UsesPrimaryOnSuccess(t *testing.T) {
+	primary := staticResolver([]FunctionEntry{{Name: "main.Foo", Offset: 0x1000}}, nil)
+	fallback := staticResolver([]FunctionEntry{{Name: "other.Bar", Offset: 0x2000}}, nil)
+
+	resolver := withProjectFallback(primary, fallback, log.Nop())
+	got, err := resolver(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "main.Foo" {
+		t.Errorf("expected primary result, got %v", got)
+	}
+}
+
+func TestWithProjectFallback_FallsBackOnUnsupported(t *testing.T) {
+	primary := staticResolver(nil, errors.Wrap(ErrProjectScopeUnsupported, "no buildinfo"))
+	fallback := staticResolver([]FunctionEntry{{Name: "other.Bar", Offset: 0x2000}}, nil)
+
+	resolver := withProjectFallback(primary, fallback, log.Nop())
+	got, err := resolver(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "other.Bar" {
+		t.Errorf("expected fallback result, got %v", got)
+	}
+}
+
+func TestWithProjectFallback_PropagatesOtherErrors(t *testing.T) {
+	sentinel := errors.New("some other failure")
+	primary := staticResolver(nil, sentinel)
+	fallback := staticResolver([]FunctionEntry{{Name: "other.Bar", Offset: 0x2000}}, nil)
+
+	resolver := withProjectFallback(primary, fallback, log.Nop())
+	_, err := resolver(context.Background())
+	if !errors.Is(err, sentinel) {
+		t.Errorf("expected sentinel error, got %v", err)
 	}
 }

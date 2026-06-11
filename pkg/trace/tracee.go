@@ -81,12 +81,19 @@ func (t *UserTracee) Init(ctx context.Context) error {
 
 // defaultResolver returns the appropriate FunctionResolver for the tracee's
 // configured scope. If scope is empty, it defaults to ScopeBinary.
+//
+// When ScopeProject is requested, the resolver automatically falls back to
+// binary scope if the binary does not carry the metadata required for project
+// scoping (e.g. missing Go build info, built as command-line-arguments). A
+// warning is logged in that case.
 func (t *UserTracee) defaultResolver() FunctionResolver {
+	binary := SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 	switch t.scope {
 	case ScopeProject:
-		return GoProjectResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+		project := GoProjectResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+		return withProjectFallback(project, binary, t.logger)
 	default:
-		return SymbolTableResolver(t.exePath, t.logger, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
+		return binary
 	}
 }
 

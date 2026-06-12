@@ -88,7 +88,7 @@ xcover run --path EXE_PATH --scope project
 
 Project scope uses Go build metadata to identify the module path, then keeps root `main.*` functions and symbols prefixed by that module path. This excludes functions from the Go standard library and third-party dependencies before `--include` and `--exclude` filters are applied.
 
-Build Go targets as packages or modules, for example `go build -o app .` or `go build -o app ./cmd/app`. Project scope is not available for single-file Go builds such as `go build main.go`, because Go records those binaries as `command-line-arguments` instead of a module-backed package.
+Build Go targets as packages or modules, for example `go build -o app .` or `go build -o app ./cmd/app`. Single-file builds such as `go build main.go` do not carry module metadata, so xcover logs a warning and falls back to binary scope for those binaries.
 
 ## Symbolization
 

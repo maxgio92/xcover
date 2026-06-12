@@ -83,7 +83,7 @@ func (t *UserTracee) Init(ctx context.Context) error {
 // configured scope. If scope is empty, it defaults to ScopeBinary.
 //
 // When ScopeProject is requested, the resolver falls back to binary scope if
-// the binary does not carry usable Go build info (no .go_buildinfo section,
+// the binary does not carry usable Go build info (no .go.buildinfo section,
 // built as command-line-arguments, or empty main module path). A warning is
 // logged in that case. Other failures, including a binary with valid build info
 // but no symbols matching the module path, are returned as errors.

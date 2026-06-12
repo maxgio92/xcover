@@ -2,6 +2,7 @@ package trace
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -51,6 +52,24 @@ func TestFilterByModulePath_NoMatch(t *testing.T) {
 	got := filterByModulePath(entries, "github.com/user/repo")
 	if len(got) != 0 {
 		t.Errorf("expected empty result, got %d entries", len(got))
+	}
+}
+
+// TestGoProjectResolver_NonexistentBinary verifies that a missing file yields
+// an error that is NOT ErrProjectScopeUnsupported and still carries *os.PathError
+// in its chain. Reverting the *os.PathError guard in goModulePath would break this.
+func TestGoProjectResolver_NonexistentBinary(t *testing.T) {
+	resolver := GoProjectResolver("/nonexistent-binary-path", log.Nop(), "", "", nil, nil)
+	_, err := resolver(context.Background())
+	if err == nil {
+		t.Fatal("expected error for nonexistent binary, got nil")
+	}
+	if errors.Is(err, ErrProjectScopeUnsupported) {
+		t.Errorf("nonexistent path should not be ErrProjectScopeUnsupported, got: %v", err)
+	}
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) {
+		t.Errorf("expected *os.PathError in error chain, got: %v", err)
 	}
 }
 

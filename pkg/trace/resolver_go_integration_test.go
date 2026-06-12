@@ -212,6 +212,39 @@ func TestGoProjectResolver_StrippedGoBinary(t *testing.T) {
 	}
 }
 
+// TestScopeIntegration_ProjectFallback_NonGoBinary verifies that UserTracee.Init
+// with ScopeProject falls back to binary scope on a non-Go binary, rather than
+// failing. This pins the full defaultResolver -> withProjectFallback -> Init path:
+// rewording the ErrProjectScopeUnsupported wrap in resolver_go.go would break
+// the fallback while leaving the unit tests green.
+func TestScopeIntegration_ProjectFallback_NonGoBinary(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "hello.c")
+	require.NoError(t, os.WriteFile(src, []byte(`
+#include <stdio.h>
+void greet(void) { printf("hello\n"); }
+int main(void) { greet(); return 0; }
+`), 0o644))
+
+	bin := filepath.Join(dir, "hello")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Skipf("gcc unavailable: %v: %s", err, out)
+	}
+
+	logger := zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
+	tracee := trace.NewUserTracee(
+		trace.WithTraceeExePath(bin),
+		trace.WithTraceeScope(trace.ScopeProject),
+		trace.WithTraceeLogger(logger),
+	)
+
+	require.NoError(t, tracee.Init(t.Context()),
+		"ScopeProject on a C binary should fall back to binary scope, not fail")
+	require.NotEmpty(t, tracee.GetFuncNames(),
+		"fallback should resolve binary-scope functions")
+}
+
 // TestScopeIntegration_TraceeInit verifies the full tracee init path with
 // scope=project, which is how users actually use it via --scope=project.
 func TestScopeIntegration_TraceeInit(t *testing.T) {

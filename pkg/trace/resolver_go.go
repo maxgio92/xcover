@@ -4,6 +4,7 @@ import (
 	"context"
 	"debug/buildinfo"
 	"debug/elf"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -28,7 +29,13 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 
 		modPath, err := goModulePath(path)
 		if err != nil {
-			return nil, errors.Wrapf(ErrProjectScopeUnsupported, "failed to detect Go module path: %v", err)
+			var pathErr *os.PathError
+			if errors.As(err, &pathErr) {
+				// File missing or unreadable - not a scope issue, propagate as-is.
+				return nil, errors.Wrap(err, "failed to detect Go module path")
+			}
+			// Binary exists but lacks usable Go build info.
+			return nil, errors.Wrapf(ErrProjectScopeUnsupported, "failed to detect Go module path: %s", err)
 		}
 
 		logger.Info().

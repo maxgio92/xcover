@@ -59,8 +59,9 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 
 // goModulePath extracts the Go module path from the binary's embedded build info.
 //
-// Returns ErrProjectScopeUnsupported (via errors.Is) for exactly three cases:
-//   - binary has no .go.buildinfo section (non-Go binary)
+// Returns ErrProjectScopeUnsupported (via errors.Is) in three situations:
+//   - buildinfo.ReadFile failed for a non-filesystem reason (no build info,
+//     corrupt ELF, non-Go binary)
 //   - binary was built as command-line-arguments
 //   - binary has an empty main module path
 //

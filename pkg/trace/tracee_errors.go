@@ -12,4 +12,10 @@ var (
 	ErrElfFileNil           = errors.New("elf file is nil")
 	ErrNoBuildID            = errors.New("executable or debug file has no GNU build-id")
 	ErrDebugBuildIDMismatch = errors.New("debug file build-id does not match executable")
+
+	// ErrProjectScopeUnsupported is returned by GoProjectResolver when the
+	// binary does not carry the metadata required for project-scoped function
+	// resolution (e.g. missing or incomplete Go build info). Callers may treat
+	// this as a signal to fall back to binary-scope resolution.
+	ErrProjectScopeUnsupported = errors.New("project scope not supported for this binary")
 )

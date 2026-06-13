@@ -439,56 +439,34 @@ Let me show you what this actually looks like.
 # Architecture
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  xcover (daemon)                                       │
-│  ┌─────────────┐    ┌──────────────┐                   │
-│  │ UserTracee  │    │  UserTracer  │                   │
-│  │             │    │              │                   │
-│  │ resolve     │───▶│ load BPF    │                   │
-│  │ functions   │    │ attach probes│                   │
-│  │             │    │ read events  │                   │
-│  └─────────────┘    └──────┬───────┘                   │
-└─────────────────────────── │ ──────────────────────────┘
-                             │ BPF map
-┌─────────────────────────── │ ──────────────────────────┐
-│  kernel                    │                           │
-│              uprobes ◀────┘                           │
-└────────────────────────────────────────────────────────┘
-                    ↕ calls traced functions
-┌────────────────────────────────────────────────────────┐
-│  your binary (tracee)   ← runs independently           │
-└────────────────────────────────────────────────────────┘
+ ┌──────────────────────────────── userspace ──────────────────────────────────┐ 
+ │                                                                             │ 
+ │  ┌───────────────────────────────┐      ┌──────────────────────────────┐    │ 
+ │  │   xcover (daemon)             │      │   your binary (tracee)       │    │ 
+ │  │                               │      │                              │    │ 
+ │  │  1. resolve function offsets  │      │  foo() ← uprobe attached     │    │ 
+ │  │  2. load BPF program          │      │  bar() ← uprobe attached     │    │ 
+ │  │  3. attach uprobes            │      │          ▲                   │    │ 
+ │  │  4. read ring buffer          │      │          │  │                │    │ 
+ │  └────────────┬──────────────────┘      └──────────┼──┼────────────────┘    │ 
+ │            ▲  │bpf() syscalls                      │  │                     │ 
+ └────────────┼──┼────────────────────────────────────┼──┼─────────────────────┘ 
+              │  │                               patch│  │kernel trap            
+ ┌────────────┼──┼──────────────── kernel ────────────┼──┼─────────────────────┐ 
+ │  evt submit│  ▼                                    │  │                     │ 
+ │   ┌────────┴────────────────────┐                  │  │                     │ 
+ │   │  xcover (BPF uprobe)        │  ──────────►        ▼                     │ 
+ │   │                             │  ◄─────────  uprobes                      │ 
+ │   │ 1. get function cookie      │                                           │ 
+ │   │ 2. write to ring buffer     │                                           │ 
+ │   └─────────────────────────────┘                                           │ 
+ │                                                                             │ 
+ └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 <!--
 xcover is two logical pieces: UserTracee resolves the function list (using resurgo for stripped binaries), and UserTracer loads the BPF program, attaches uprobes, and drains the event map.
 The tracee (your binary under test) runs completely independently. xcover just observes it.
--->
-
----
-
-# xcover API
-
-```go
-tracee := trace.NewUserTracee(
-    trace.WithTraceeExePath("./myapp"),
-    trace.WithTraceeSymPatternInclude(`^github\.com/myorg`),
-    trace.WithTraceeSymPatternExclude(`_test$`),
-)
-
-tracer := trace.NewUserTracer(
-    trace.WithTracerLogger(logger),
-    trace.WithTracerReport(true),
-    trace.WithTracerTracee(tracee),
-)
-
-if err := tracer.Init(ctx); err != nil { ... }
-if err := tracer.Run(ctx); err != nil { ... }
-```
-
-<!--
-This is the Go API, if you want to embed xcover in your own tooling.
-But most people will just use the CLI.
 -->
 
 ---
@@ -531,14 +509,21 @@ xcover run --path ./myapp \
   --include '^github\.com/myorg' \
   --exclude '\.pb\.go' \
   --detach
+
+# Auto-detect the project scope from the binary
+xcover run --path ./myapp \
+  --scope project \
+  --detach
 ```
 
 - `--include` and `--exclude` take Go regexes
 - Applied to function names at probe-attachment time
+- `--scope project` auto-detects the project scope from the binary and filters to it (Go modules supported today)
 
 <!--
 Without filtering you'd be tracing every function in the binary, including the Go runtime and all stdlib functions.
 Filtering to your own packages is the recommended default.
+--scope project is the language-agnostic shortcut: xcover detects the project scope from the binary and builds the filter. Currently implemented for Go modules.
 -->
 
 ---

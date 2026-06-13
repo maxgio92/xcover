@@ -2,9 +2,20 @@
 # Automated xcover demo for asciinema
 # Run as: sudo bash automated-demo.sh
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../xcover"
+
+function cleanup() {
+    ${XCOVER} stop 2>/dev/null || true
+    pkill -f "${XCOVER} run" 2>/dev/null || true
+    rm -f $DEMO_APP
+    rm -f /tmp/xcover.*
+}
+
+trap cleanup EXIT
 
 function main() {
 	# Check if running as root
@@ -24,10 +35,6 @@ function main() {
 	runCmd "rm -f demo-app xcover-report.json"
 	runCmd "go build -o demo-app ."
 	runCmd "ls demo-app"
-	runCmd "readelf --symbols demo-app | wc -l"
-	runCmd "# Let's strip the binary, because this must be a production binary"
-	runCmd "strip --strip-all demo-app"
-	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Start the profiler before running the functional tests"
 	runCmd "${XCOVER} run --detach --path demo-app --scope project"
 	runCmd "# Wait for the profiler to be ready"
@@ -45,14 +52,14 @@ function main() {
 	runCmd "cat xcover-report.json | jq '.funcs_traced | length'"
 	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"
 	runCmd "cat xcover-report.json | jq"
-	runCmd "# Coverage profiled without source code changes or recompilation on production binaries!"
+	runCmd "# Coverage profiled without source code changes or recompilation!"
 }
 
 function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	#sleep 2
+	sleep 2
 }
 
 main $@

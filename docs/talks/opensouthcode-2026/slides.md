@@ -466,32 +466,6 @@ The tracee (your binary under test) runs completely independently. xcover just o
 
 ---
 
-# xcover API
-
-```go
-tracee := trace.NewUserTracee(
-    trace.WithTraceeExePath("./myapp"),
-    trace.WithTraceeSymPatternInclude(`^github\.com/myorg`),
-    trace.WithTraceeSymPatternExclude(`_test$`),
-)
-
-tracer := trace.NewUserTracer(
-    trace.WithTracerLogger(logger),
-    trace.WithTracerReport(true),
-    trace.WithTracerTracee(tracee),
-)
-
-if err := tracer.Init(ctx); err != nil { ... }
-if err := tracer.Run(ctx); err != nil { ... }
-```
-
-<!--
-This is the Go API, if you want to embed xcover in your own tooling.
-But most people will just use the CLI.
--->
-
----
-
 # The CLI workflow
 
 ```sh

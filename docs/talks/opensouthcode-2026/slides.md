@@ -504,14 +504,21 @@ xcover run --path ./myapp \
   --include '^github\.com/myorg' \
   --exclude '\.pb\.go' \
   --detach
+
+# For Go binaries: auto-detect the module and filter to it
+xcover run --path ./myapp \
+  --scope project \
+  --detach
 ```
 
 - `--include` and `--exclude` take Go regexes
 - Applied to function names at probe-attachment time
+- `--scope project` resolves the Go module from the binary and filters automatically
 
 <!--
 Without filtering you'd be tracing every function in the binary, including the Go runtime and all stdlib functions.
 Filtering to your own packages is the recommended default.
+--scope project is the ergonomic shortcut for Go binaries: xcover reads the module path embedded in the binary and builds the filter for you.
 -->
 
 ---

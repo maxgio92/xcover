@@ -136,6 +136,9 @@ define build-in-container
 	docker run --rm \
 		--user $(shell id -u):$(shell id -g) \
 		-e GOCACHE=/work/.cache/go-build \
+		-e GIT_CONFIG_COUNT=1 \
+		-e GIT_CONFIG_KEY_0=safe.directory \
+		-e GIT_CONFIG_VALUE_0=/work \
 		-v /sys/kernel/btf:/sys/kernel/btf:ro \
 		-v $(current_dir):/work:z \
 		-w /work \

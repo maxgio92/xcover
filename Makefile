@@ -100,7 +100,7 @@ $(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
 $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
-	$(git) submodule update --init --recursive
+	[ -d $(LIBBPFGO)/.git ] || $(git) submodule update --init --recursive
 	make -C $(LIBBPFGO) $@
 
 .PHONY: $(BPFTOOL)
@@ -133,12 +133,10 @@ BUILD_IMAGE          := ghcr.io/maxgio92/xcover-build@sha256:fd798eb6ab7304cb85b
 BUILD_IMAGE_USERSPACE := ghcr.io/maxgio92/xcover-build@sha256:10926b4ed4e416b03522c5340785f911c8f3449a6f4845911ddaacb4a262259f
 
 define build-in-container
+	$(git) submodule update --init --recursive
 	docker run --rm \
 		--user $(shell id -u):$(shell id -g) \
 		-e GOCACHE=/work/.cache/go-build \
-		-e GIT_CONFIG_COUNT=1 \
-		-e GIT_CONFIG_KEY_0=safe.directory \
-		-e GIT_CONFIG_VALUE_0=/work \
 		-v /sys/kernel/btf:/sys/kernel/btf:ro \
 		-v $(current_dir):/work:z \
 		-w /work \

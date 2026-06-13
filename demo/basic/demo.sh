@@ -29,11 +29,11 @@ function main() {
 	runCmd "# Profile coverage without instrumenting your binaries!"
 	echo
 	runCmd "# Let's test a demo Go application"
-	runCmd "bat demo-app.go"
+	runCmd "bat ../src/demo-app.go"
 	sleep 2
 	clear
 	runCmd "rm -f demo-app xcover-report.json"
-	runCmd "go build -o demo-app ."
+	runCmd "go build -o demo-app ../src/"
 	runCmd "ls demo-app"
 	runCmd "# Start the profiler before running the functional tests"
 	runCmd "${XCOVER} run --detach --path demo-app --scope project"

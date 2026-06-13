@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 DEBUG_FILE="./demo-app.debug"
-XCOVER="${SCRIPT_DIR}/../xcover"
+XCOVER="${SCRIPT_DIR}/../../xcover"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true

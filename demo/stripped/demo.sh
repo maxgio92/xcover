@@ -39,7 +39,7 @@ function main() {
 	runCmd "strip --strip-all demo-app"
 	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Start the profiler before running the functional tests"
-	runCmd "${XCOVER} run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$'"
+	runCmd "${XCOVER} run --detach --path demo-app"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "${XCOVER} wait"
 	runCmd "# Run test scenarios - xcover is tracing all function calls"

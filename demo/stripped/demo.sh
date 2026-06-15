@@ -30,10 +30,10 @@ function main() {
 	runCmd "# No source instrumentation. No debug info. Just the binary."
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat ../src/demo-app.c"
+	runCmd "bat ../src/c/demo-app.c"
 	sleep 2
 	clear
-	runCmd "gcc -O0 -o demo-app ../src/demo-app.c"
+	runCmd "gcc -O0 -o demo-app ../src/c/demo-app.c"
 	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# Strip all symbols — this is what a production binary looks like"
 	runCmd "strip --strip-all demo-app"

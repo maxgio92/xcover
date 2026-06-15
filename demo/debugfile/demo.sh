@@ -32,10 +32,10 @@ function main() {
 	runCmd "# Strip the binary for production. Keep the debug file for profiling."
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat ../src/demo-app.c"
+	runCmd "bat ../src/c/demo-app.c"
 	sleep 2
 	clear
-	runCmd "gcc -O0 -g -o demo-app ../src/demo-app.c"
+	runCmd "gcc -O0 -g -o demo-app ../src/c/demo-app.c"
 	runCmd "# Extract debug info into a separate file"
 	runCmd "objcopy --only-keep-debug demo-app demo-app.debug"
 	runCmd "# Strip the production binary"

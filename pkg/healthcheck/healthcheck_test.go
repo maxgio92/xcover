@@ -3,6 +3,7 @@ package healthcheck
 import (
 	"context"
 	"net"
+	"sync"
 	"os"
 	"testing"
 	"time"
@@ -114,12 +115,23 @@ func TestHealthCheckServer_ShutdownListener(t *testing.T) {
 		assert.Nil(t, err)
 		hcs.ln = ln
 
-		// Start listener in a goroutine.
-		go hcs.acceptConnections(context.Background())
+		// Start listener in a goroutine, using t.Context() so the context is
+		// cancelled when the test ends. A WaitGroup ensures the goroutine has
+		// fully exited (and finished any logging) before the test tears down.
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hcs.acceptConnections(t.Context())
+		}()
 
 		// Stop listener.
 		err = hcs.ShutdownListener()
 		assert.Nil(t, err)
+
+		// Wait for the acceptConnections goroutine to finish before the test
+		// returns, preventing "log in goroutine after test has completed" panics.
+		wg.Wait()
 
 		// Verify the listener is closed properly.
 		fi, err := os.Stat(hcs.socketPath)

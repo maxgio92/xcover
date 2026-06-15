@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
-XCOVER="${SCRIPT_DIR}/../xcover"
+XCOVER="${SCRIPT_DIR}/../../xcover"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -29,11 +29,10 @@ function main() {
 	runCmd "# Profile coverage without instrumenting your binaries!"
 	echo
 	runCmd "# Let's test a demo Go application"
-	runCmd "bat demo-app.go"
+	runCmd "bat ../src/go/demo-app.go"
 	sleep 2
 	clear
-	runCmd "rm -f demo-app xcover-report.json"
-	runCmd "go build -o demo-app ."
+	runCmd "go build -o demo-app ../src/go/"
 	runCmd "ls demo-app"
 	runCmd "# Start the profiler before running the functional tests"
 	runCmd "${XCOVER} run --detach --path demo-app --scope project"

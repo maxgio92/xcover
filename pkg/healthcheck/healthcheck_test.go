@@ -3,8 +3,8 @@ package healthcheck
 import (
 	"context"
 	"net"
-	"sync"
 	"os"
+	"sync"
 	"testing"
 	"time"
 

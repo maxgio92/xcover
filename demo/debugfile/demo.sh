@@ -46,7 +46,7 @@ function main() {
 	sleep 1
 	clear
 	runCmd "# Start the profiler — point it at both the binary and the debug file"
-	runCmd "${XCOVER} run --detach --path demo-app --debug-path demo-app.debug --include '^(add|multiply|subtract|divide|greet)$'"
+	runCmd "${XCOVER} run --detach --path demo-app --debug-path demo-app.debug --include '^(main|add|multiply|subtract|divide|greet)$'"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "${XCOVER} wait"
 	runCmd "# Run test scenarios - xcover is tracing all function calls"

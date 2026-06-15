@@ -32,7 +32,6 @@ function main() {
 	runCmd "bat ../src/go/demo-app.go"
 	sleep 2
 	clear
-	runCmd "rm -f demo-app xcover-report.json"
 	runCmd "go build -o demo-app ../src/go/"
 	runCmd "ls demo-app"
 	runCmd "# Start the profiler before running the functional tests"

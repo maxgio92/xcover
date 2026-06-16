@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - '*.*.*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release.yml'
+      - '.goreleaser.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,6 +35,16 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^URIs: /Architectures: amd64\nURIs: /' /etc/apt/sources.list.d/ubuntu.sources
+          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: noble noble-updates noble-backports noble-security
+          Components: main restricted universe multiverse
+          Architectures: arm64
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
           sudo apt-get update
           sudo apt-get install -y \
             clang \
@@ -39,7 +56,9 @@ jobs:
             make \
             pkg-config \
             libelf-dev \
-            zlib1g-dev
+            libelf-dev:arm64 \
+            zlib1g-dev \
+            zlib1g-dev:arm64
 
       - name: Install bpftool and libbpf
         run: |
@@ -82,7 +101,19 @@ jobs:
           git config diff.ignoreSubmodules dirty
           git submodule foreach --recursive 'git config diff.ignoreSubmodules dirty'
 
+      - name: Run GoReleaser snapshot
+        if: github.event_name != 'push'
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PWD: ${{ github.workspace }}
+
       - name: Run GoReleaser
+        if: github.event_name == 'push'
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           distribution: goreleaser

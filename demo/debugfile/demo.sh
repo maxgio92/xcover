@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 DEBUG_FILE="./demo-app.debug"
 XCOVER="${SCRIPT_DIR}/../../xcover"
+SLEEP="${SLEEP:-2}"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -33,7 +34,7 @@ function main() {
 	echo
 	runCmd "# Let's test a demo C application"
 	runCmd "bat ../src/c/demo-app.c"
-	sleep 2
+	sleep "${SLEEP}"
 	clear
 	runCmd "gcc -O0 -g -o demo-app ../src/c/demo-app.c"
 	runCmd "# Extract debug info into a separate file"
@@ -43,7 +44,7 @@ function main() {
 	runCmd "readelf --symbols demo-app | wc -l"
 	runCmd "# The debug file retains the symbols"
 	runCmd "readelf --symbols demo-app.debug | wc -l"
-	sleep 1
+	sleep "${SLEEP}"
 	clear
 	runCmd "# Start the profiler — point it at both the binary and the debug file"
 	runCmd "${XCOVER} run --detach --path demo-app --debug-path demo-app.debug --include '^(main|add|multiply|subtract|divide|greet)$'"
@@ -69,7 +70,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	sleep 2
+	sleep "${SLEEP}"
 }
 
 main $@

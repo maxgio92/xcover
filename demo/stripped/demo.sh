@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
+SLEEP="${SLEEP:-2}"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -31,7 +32,7 @@ function main() {
 	echo
 	runCmd "# Let's test a demo C application"
 	runCmd "bat ../src/c/demo-app.c"
-	sleep 2
+	sleep "${SLEEP}"
 	clear
 	runCmd "gcc -O0 -o demo-app ../src/c/demo-app.c"
 	runCmd "readelf --symbols demo-app | wc -l"
@@ -62,7 +63,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	sleep 2
+	sleep "${SLEEP}"
 }
 
 main $@

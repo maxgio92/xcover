@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
+SLEEP="${SLEEP:-2}"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -30,7 +31,7 @@ function main() {
 	echo
 	runCmd "# Let's test a demo Go application"
 	runCmd "bat ../src/go/demo-app.go"
-	sleep 2
+	sleep "${SLEEP}"
 	clear
 	runCmd "go build -o demo-app ../src/go/"
 	runCmd "ls demo-app"
@@ -58,7 +59,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	sleep 2
+	sleep "${SLEEP}"
 }
 
 main $@

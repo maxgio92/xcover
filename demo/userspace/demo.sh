@@ -7,7 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
-XCOVER="${SCRIPT_DIR}/../xcover-userspace"
+XCOVER="${SCRIPT_DIR}/../../xcover-userspace"
+SLEEP="${SLEEP:-2}"
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -28,12 +29,11 @@ function main() {
 	runCmd "# Same coverage profiling. Zero kernel traps!"
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat demo-app.c"
-	sleep 2
+	runCmd "bat ../src/c/demo-app.c"
+	sleep "${SLEEP}"
 	clear
-	runCmd "gcc -O0 -o demo-app demo-app.c"
+	runCmd "gcc -O0 -o demo-app ../src/c/demo-app.c"
 	runCmd "ls demo-app"
-	runCmd "strip --strip-all demo-app"
 	runCmd "# In userspace BPF mode the tracee must be dynamically linked"
 	runCmd "ldd demo-app"
 	sleep 1
@@ -43,7 +43,7 @@ function main() {
 	runCmd "echo \$XCOVER_AGENT"
 	sleep 1
 	export BPFTIME_SHM_MEMORY_MB=2048
-	runCmd "${XCOVER} run --detach --path demo-app --include '^(add|multiply|subtract|divide|greet)$' --userspace-bpf"
+	runCmd "${XCOVER} run --detach --path demo-app --include '^(main|add|multiply|subtract|divide|greet)$' --userspace-bpf"
 	runCmd "# Wait for the profiler to be ready"
 	runCmd "${XCOVER} wait"
 	sleep 1
@@ -66,7 +66,7 @@ function runCmd() {
 	cmd=$1
 	echo "$ ${cmd}"
 	eval "${cmd}"
-	sleep 2
+	sleep "${SLEEP}"
 }
 
 main $@

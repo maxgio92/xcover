@@ -10,7 +10,11 @@ DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
 
+# shellcheck source=../lib/log-pane.sh
+source "${SCRIPT_DIR}/../lib/log-pane.sh"
+
 function cleanup() {
+    teardown_log_pane
     ${XCOVER} stop 2>/dev/null || true
     pkill -f "${XCOVER} run" 2>/dev/null || true
     rm -f $DEMO_APP
@@ -26,6 +30,7 @@ function main() {
 	    exit 1
 	fi
 
+	setup_log_pane kernel
 	clear
 	runCmd "# === xcover: Coverage on stripped binaries ==="
 	runCmd "# No source instrumentation. No debug info. Just the binary."

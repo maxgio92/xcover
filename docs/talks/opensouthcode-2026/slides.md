@@ -177,6 +177,7 @@ That's the gap we're here to talk about.
 - Software engineer @ Chainguard
 - OSS, building and observing all the things
 - Music, racing cars, nature
+- Newbie dad and experienced cat employee
 - `@maxgio92` on GitHub, X and Telegram, `@maxgio92.bsky.social`, `@maxgio92@hachyderm.io`
 - linkedin.com/in/maxgio
 
@@ -1012,9 +1013,8 @@ This is worth exploring out loud, which is why it's in the talk.
 # Limitations & what's next
 
 ## Limitations
-- Function inlining defeats uprobe-based interception
+- Aggressive compiling optimizations may defeat uprobe-based interception
 - There is an overhead cost
-- Userspace mode requires dynamically linked tracee (`LD_PRELOAD`ed agent)
 
 ## Upstream gaps
 - **bpftime**: some patches that are going to be proposed upstream

@@ -8,8 +8,11 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"unsafe"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/internal/utils"
@@ -116,6 +119,11 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	// Attach one uprobe per function to trace.
 	t.logger.Debug().Msg("attaching trace to selected functions")
 	t.attachProbe(ctx)
+
+	// Drop elevated capabilities after BPF programs are loaded and attached.
+	if err := dropElevatedCapabilities(); err != nil {
+		t.logger.Warn().Err(err).Msg("failed to drop elevated capabilities after BPF attach")
+	}
 
 	feedCh := make(chan []byte, feedChBufSize)
 
@@ -279,4 +287,31 @@ func (t *UserTracer) writeReport(reportPath string) error {
 	t.logger.Info().Str("path", reportPath).Msgf("report generated")
 
 	return report.WriteReport(file)
+}
+
+func dropElevatedCapabilities() error {
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var data [2]unix.CapUserData
+	if err := unix.Capget(&hdr, &data[0]); err != nil {
+		return err
+	}
+
+	data[0].Effective &^= uint32(1) << unix.CAP_SYS_ADMIN
+	data[0].Permitted &^= uint32(1) << unix.CAP_SYS_ADMIN
+	data[1].Effective &^= uint32(1) << (unix.CAP_BPF - 32)
+	data[1].Permitted &^= uint32(1) << (unix.CAP_BPF - 32)
+
+	// Apply to ALL OS threads in the process, not just the calling thread.
+	// This is necessary because Go's scheduler can move goroutines between
+	// threads, and capset() alone only affects the current thread.
+	_, _, errno := syscall.AllThreadsSyscall6(
+		unix.SYS_CAPSET,
+		uintptr(unsafe.Pointer(&hdr)),
+		uintptr(unsafe.Pointer(&data[0])),
+		0, 0, 0, 0,
+	)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

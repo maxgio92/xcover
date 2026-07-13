@@ -130,7 +130,7 @@ $(OUTPUT):
 # container build
 
 BUILD_IMAGE          := ghcr.io/maxgio92/xcover-build@sha256:fd798eb6ab7304cb85bc06d5418bc479abf9294c370682b5518456d81a7451f3
-BUILD_IMAGE_USERSPACE := ghcr.io/maxgio92/xcover-build@sha256:60e1515af7a897824ede70ba2948f42357b6fec11e616537b3c622855371fbb5
+BUILD_IMAGE_USERSPACE := ghcr.io/maxgio92/xcover-build@sha256:3466e96f6be3318ed0a651f297c2631192d53dd2140784e62efdbe67bb4e1ee7
 
 define build-in-container
 	$(git) submodule update --init --recursive

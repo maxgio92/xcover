@@ -123,7 +123,7 @@ $(OUTPUT):
 
 # container build
 
-BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:42882cd750501ad8dcbce8fdc765caf73f4150fbc96c592304651f9bac4fc0b7
+BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:4b124acd3185c004c066b0f708f0327a60ebe3933d8e2f509528d451a7cfaf49
 
 .PHONY: xcover-container
 xcover-container:

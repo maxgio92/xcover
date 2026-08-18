@@ -51,3 +51,13 @@ func (r *CoverageReport) WriteReport(w io.Writer) error {
 	encoder := json.NewEncoder(w)
 	return encoder.Encode(r)
 }
+
+// ReadReport decodes a CoverageReport from r, as written by WriteReport.
+func ReadReport(r io.Reader) (*CoverageReport, error) {
+	report := new(CoverageReport)
+	if err := json.NewDecoder(r).Decode(report); err != nil {
+		return nil, err
+	}
+
+	return report, nil
+}

@@ -75,12 +75,19 @@ LIBBPFGO     := $(ROOTDIR)/libbpfgo
 CGO_CFLAGS   = "-I $(LIBBPFGO)/output"
 CGO_LDFLAGS  = "-lelf -lz $(LIBBPFGO)/output/libbpf/libbpf.a"
 
-.PHONY: all hit idle miss bench libbpfgo-static clean
+# bpftime shared libraries (embedded into the xcover binary at build time).
+# Must be built with: make -C $(ROOTDIR) bpftime-libs
+BPFTIME_AGENT := $(ROOTDIR)/pkg/bpftime/libs/bpftime-agent.so
+
+.PHONY: all hit idle miss bench bench-kernel bench-userspace libbpfgo-static clean clean-miss bench-report bench-compare
 
 all: hit idle miss
 
-## bench: build libbpfgo-static, C targets, and run Go benchmarks.
-bench: libbpfgo-static all
+## bench-kernel: build libbpfgo-static, C targets, and run kernel uprobe benchmarks.
+## Requires sudo (CAP_BPF + CAP_PERFMON).
+bench-kernel: libbpfgo-static
+	$(MAKE) clean-miss
+	$(MAKE) all N=$(N)
 	@sudo \
 	CC=gcc \
 	CGO_CFLAGS=$(CGO_CFLAGS) \
@@ -90,6 +97,30 @@ bench: libbpfgo-static all
 			-benchtime=$(BENCHTIME) \
 			-count=$(COUNT) \
 			.
+	$(MAKE) clean
+
+## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
+## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
+bench-userspace: libbpfgo-static
+	@if [ ! -f "$(BPFTIME_AGENT)" ] || [ ! -s "$(BPFTIME_AGENT)" ]; then \
+		echo "ERROR: bpftime agent library not found: $(BPFTIME_AGENT)"; \
+		echo "       Run: make -C $(ROOTDIR) bpftime-libs"; \
+		exit 1; \
+	fi
+	$(MAKE) clean-miss
+	$(MAKE) all N=$(N)
+	rm -f /dev/shm/bpftime_maps_shm
+	CC=gcc \
+	CGO_CFLAGS=$(CGO_CFLAGS) \
+	CGO_LDFLAGS=$(CGO_LDFLAGS) \
+	GOARCH=$(GOARCH) \
+	BPFTIME_SHM_MEMORY_MB=2048 \
+	BPFTIME_MAX_FD_COUNT=25000 \
+		go test -tags userspace -bench=. -run='^$$' -v \
+			-benchtime=1x \
+			-count=$(COUNT) \
+			.
+	$(MAKE) clean
 
 ## libbpfgo-static: build libbpfgo and libbpf as a static library.
 libbpfgo-static:
@@ -115,6 +146,28 @@ target/miss/miss.c: target/miss/gen/main.go
 
 target/miss/miss: target/miss/miss.c
 	$(CC) $(CFLAGS) -o $@ $<
+
+## clean-miss: remove generated miss source and binary so N is re-applied on next build.
+clean-miss:
+	rm -f target/miss/miss target/miss/miss.c
+
+## bench-report: run kernel and userspace benchmarks, write JSON reports
+## Requires bpftime libs (make -C .. bpftime-libs), sudo for the kernel path.
+bench:
+	@mkdir -p results
+	$(MAKE) bench-kernel N=100 COUNT=10    \
+		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
+		| tee results/kernel.txt
+	$(MAKE) bench-userspace N=100 COUNT=10 \
+		| grep --line-buffered -E '^(goos:|goarch:|pkg:|cpu:|Benchmark|PASS|FAIL|ok)' \
+		| tee results/userspace.txt
+
+## bench-compare: compare kernel and userpsace benchmarks with benchstat.
+## Requires benchstat: go install golang.org/x/perf/cmd/benchstat@latest.
+bench-compare:
+	@benchstat -filter '.unit:ns/call' \
+		results/kernel.txt \
+		results/userspace.txt
 
 ## clean: remove all generated and compiled files.
 clean:

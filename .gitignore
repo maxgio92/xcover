@@ -4,3 +4,5 @@
 output/*
 *.o
 vmlinux.h
+bpftime-src
+pkg/bpftime/libs

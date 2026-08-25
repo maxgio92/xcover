@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !userspace
 
 package benchmark
 
@@ -18,11 +18,7 @@ import (
 )
 
 const (
-	hitBinary  = "./target/hit/hit"
-	idleBinary = "./target/idle/idle"
-	missBinary = "./target/miss/miss"
-
-	reportPath = "bench-report.json"
+	reportPath = "results/bench-report-kernel.json"
 
 	// tracerWarmup is the time given to the tracer to attach uprobes
 	// before the target binary is executed.
@@ -62,19 +58,14 @@ func TestMain(m *testing.M) {
 		MissVsIdle:     relOverhead(report.Miss, report.Idle),
 		MissVsHit:      relOverhead(report.Miss, report.Hit),
 	}
+	if err := os.MkdirAll("results", 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create results dir: %v\n", err)
+	}
 	if err := writeReport(reportPath, report); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write report: %v\n", err)
 	}
 
 	os.Exit(code)
-}
-
-// buildTargets runs make in the benchmark directory to compile all C targets.
-func buildTargets() error {
-	cmd := exec.Command("make", "all")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 // runTarget executes the binary and returns the ns/call value it prints.
@@ -136,7 +127,7 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 // attached. This is the reference point for computing uprobe overhead.
 func BenchmarkBaseline(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ns, err := runTarget(hitBinary)
+		ns, err := runTarget(idleBinary)
 		if err != nil {
 			b.Fatal(err)
 		}

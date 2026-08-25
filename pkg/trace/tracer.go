@@ -117,6 +117,14 @@ func (t *UserTracer) Init(ctx context.Context) error {
 }
 
 func (t *UserTracer) Run(ctx context.Context) error {
+	// Stop the listener and remove the socket on every exit path, including
+	// early error returns: otherwise the socket file outlives the process.
+	defer func() {
+		if err := t.hcServer.ShutdownListener(); err != nil {
+			t.logger.Warn().Err(err).Msg("failed to stop listener")
+		}
+	}()
+
 	// Attach one uprobe per function to trace.
 	t.logger.Debug().Msg("attaching trace to selected functions")
 	t.attachProbe(ctx)
@@ -171,12 +179,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
-	// Stop listener.
-	if err := t.hcServer.ShutdownListener(); err != nil {
-		return errors.Wrap(err, "failed to stop listener")
-	}
-
-	// Write report.
+	// Write report. The listener is stopped by the deferred
+	// ShutdownListener call.
 	return t.writeReport(ReportFileName)
 }
 

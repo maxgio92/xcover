@@ -53,6 +53,7 @@ At the end of your tests, the profiler can be stopped and a report being collect
 	cmd.AddCommand(wait.NewCommand(o))
 	cmd.AddCommand(status.NewCommand(o))
 	cmd.AddCommand(stop.NewCommand(o))
+	registerUserspaceCommands(cmd, o)
 
 	return cmd
 }

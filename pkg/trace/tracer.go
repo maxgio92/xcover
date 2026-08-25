@@ -116,6 +116,11 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	// Attach one uprobe per function to trace.
 	t.logger.Debug().Msg("attaching trace to selected functions")
 	t.attachProbe(ctx)
+	// Defers run LIFO: CloseBPFMod must be registered before CloseEventBuf so
+	// it runs second, after CloseEventBuf stops the ring buffer poll goroutine.
+	// Registering it right after attach also detaches the uprobes when
+	// InitEventBuf fails.
+	defer t.probe.CloseBPFMod()
 
 	feedCh := make(chan []byte, feedChBufSize)
 
@@ -123,9 +128,6 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "error initializing probe events buffer")
 	}
-	// Defers run LIFO: CloseBPFMod must be added first so it runs second,
-	// after CloseEventBuf stops the ring buffer poll goroutine.
-	defer t.probe.CloseBPFMod()
 	defer t.probe.CloseEventBuf()
 	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
 	// hence outside of InitEventBuf(), because of CGO callback from C which can make
@@ -230,7 +232,7 @@ func (t *UserTracer) handleEvent(data []byte) {
 	}
 	fun, ok := t.tracee.funcs[event.Cookie]
 	if !ok {
-		t.logger.Err(ErrFuncNotFoundForCookie).Msg("failed getting function from cookie")
+		t.logger.Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(event.Cookie)).Msg("failed getting function from cookie")
 	}
 
 	if _, ok := t.ack.Load(event.Cookie); !ok {

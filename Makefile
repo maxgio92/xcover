@@ -89,13 +89,8 @@ $(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
 $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
-	if [ -d $(LIBBPFGO) ]; then \
-		make -C $(LIBBPFGO) $@; \
-        else \
-		$(git) submodule init; \
-		$(git) submodule update --recursive; \
-		make -C $(LIBBPFGO) $@; \
-	fi
+	[ -d $(LIBBPFGO)/.git ] || $(git) submodule update --init --recursive
+	make -C $(LIBBPFGO) $@
 
 .PHONY: $(BPFTOOL)
 $(BPFTOOL):
@@ -125,19 +120,24 @@ $(OUTPUT):
 
 BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:4b124acd3185c004c066b0f708f0327a60ebe3933d8e2f509528d451a7cfaf49
 
-.PHONY: xcover-container
-xcover-container:
+define build-in-container
+	$(git) submodule update --init --recursive
 	docker run --rm \
 		--user $(shell id -u):$(shell id -g) \
 		-e GOCACHE=/work/.cache/go-build \
 		-v /sys/kernel/btf:/sys/kernel/btf:ro \
-		-v $(current_dir):/work \
+		-v $(current_dir):/work:z \
 		-w /work \
-		$(BUILD_IMAGE) \
-		make xcover
+		$(1) \
+		make $(2)
+endef
+
+.PHONY: xcover-container
+xcover-container:
+	$(call build-in-container,$(BUILD_IMAGE),xcover)
 
 .PHONY: clean
 clean:
 	rm -rf $(OUTPUT)
 	rm -rf $(LIBBPFGO)
-	rm bpf/$(VMLINUXH)
+	rm -f bpf/$(VMLINUXH)

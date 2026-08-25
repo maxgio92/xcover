@@ -101,6 +101,10 @@ bench-kernel: libbpfgo-static
 
 ## bench-userspace: build prereqs and run userspace BPF benchmarks (no sudo).
 ## Requires bpftime libs: make -C $(ROOTDIR) bpftime-libs
+## BPFTIME_MAX_FD_COUNT sizes bpftime's fake-fd pool. Each uprobe consumes
+## about 3 slots (perf event, link, spare), so the miss scenario with
+## N=10000 needs more than 30000; 65536 leaves headroom. Undersizing fails
+## attaches and the ring buffer epoll with ENOSPC.
 bench-userspace: libbpfgo-static
 	@if [ ! -f "$(BPFTIME_AGENT)" ] || [ ! -s "$(BPFTIME_AGENT)" ]; then \
 		echo "ERROR: bpftime agent library not found: $(BPFTIME_AGENT)"; \
@@ -115,7 +119,7 @@ bench-userspace: libbpfgo-static
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 	GOARCH=$(GOARCH) \
 	BPFTIME_SHM_MEMORY_MB=2048 \
-	BPFTIME_MAX_FD_COUNT=25000 \
+	BPFTIME_MAX_FD_COUNT=65536 \
 		go test -tags userspace -bench=. -run='^$$' -v \
 			-benchtime=1x \
 			-count=$(COUNT) \

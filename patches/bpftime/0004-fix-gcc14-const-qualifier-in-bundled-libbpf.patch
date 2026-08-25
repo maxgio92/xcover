@@ -1,0 +1,22 @@
+--- a/third_party/bpftool/libbpf/src/libbpf.c
++++ b/third_party/bpftool/libbpf/src/libbpf.c
+@@ -x,x +x,x @@
+-	char *res;
++	const char *res;
+
+@@ -x,x +x,x @@
+-		char sym_trim[256], *psym_trim = sym_trim, *sym_sfx;
++		char sym_trim[256], *psym_trim = sym_trim;
++		const char *sym_sfx;
+
+@@ -x,x +x,x @@
+-			char *next_path;
++			const char *next_path;
+
+Fixes const-qualifier discards in the bpftool-bundled libbpf that are
+hard errors under GCC 14+. Three string pointer variables are assigned
+from string literals or const-returning functions but were declared as
+non-const char *.
+
+Upstream fix: libbpf commit f5dcbae (2026-03-12).
+Remove once bpftime bumps its bpftool submodule past that date.

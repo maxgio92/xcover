@@ -89,7 +89,7 @@ $(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))
 $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode)):
-	[ -d $(LIBBPFGO)/.git ] || $(git) submodule update --init --recursive
+	[ -e $(LIBBPFGO)/.git ] || $(git) submodule update --init --recursive
 	make -C $(LIBBPFGO) $@
 
 .PHONY: $(BPFTOOL)

@@ -152,7 +152,9 @@ func (p *Probe) CloseEventBuf() {
 // already stopped.
 func (p *Probe) CloseBPFMod() {
 	for _, link := range p.links {
-		link.Destroy()
+		if err := link.Destroy(); err != nil {
+			p.logger.Warn().Err(err).Msg("failed to destroy BPF link")
+		}
 	}
 	p.links = nil
 	if p.bpfMod != nil {

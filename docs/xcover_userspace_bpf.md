@@ -4,8 +4,9 @@ xcover can optionally run BPF programs entirely in userspace via the
 [bpftime](https://github.com/eunomia-bpf/bpftime) runtime, eliminating the
 kernel trap cost on every traced function call.
 
-> **Status:** this is an experimental PoC. Real-world performance numbers have
-> not been collected yet.
+> **Status:** experimental. Benchmarks (see `benchmark/`) measure a ~65% lower
+> per-call overhead on the hit path and ~63% on the miss path compared to
+> kernel uprobes.
 
 ## How it works
 
@@ -96,6 +97,12 @@ uses a dynamic linker.
   `LD_PRELOAD` is silently ignored and the agent is never loaded.
 - Pure Go binaries (`CGO_ENABLED=0`): same reason - Go's internal linker
   produces a static binary with no `ld.so` dependency.
+- musl-linked binaries (e.g. Alpine). The shipped agent is built against
+  glibc and musl's loader fails to relocate it (`__libc_single_threaded`,
+  `getcontext` and other glibc-only symbols are missing). An agent built
+  against musl would lift this.
+- setuid/setgid binaries. The dynamic linker ignores `LD_PRELOAD` for
+  privileged executables (secure-execution mode).
 
 For unsupported binary types, fall back to kernel uprobe mode (default). This
 is not a regression: kernel uprobes work on any ELF binary regardless of

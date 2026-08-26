@@ -2,6 +2,7 @@
 marp: true
 theme: default
 paginate: true
+html: true
 style: |
   section {
     background: #ffffff;
@@ -824,10 +825,10 @@ For filtered workloads (only your own packages), this is usually negligible.
 
 | Scenario | Description | Time per call | Overhead vs Baseline |
 |---|---|---|---|
-| **Baseline** | No tracing | ~2 ns | |
+| **Baseline** | No tracing | ~1.2 ns | |
 | **Idle** | uprobe attached | ~2 ns | |
-| **Hit** | uprobe firing, already seen | ~2000 ns | 1000x |
-| **Miss** | uprobe firing, new function | ~4000 ns | 2000x |
+| **Hit** | uprobe firing, already seen | ~1200 ns | ~1000x |
+| **Miss** | uprobe firing, new function | ~2900 ns | ~2500x |
 
 > **+X% wall time for full test coverage on the exact production binary.**
 
@@ -836,7 +837,8 @@ For filtered workloads (only your own packages), this is usually negligible.
 - Acceptable for CI pipelines; not for latency-sensitive benchmarks
 
 <!--
-[Replace with real numbers]
+Measured with benchmark/ (benchstat over 10 runs, N=100 uprobes, AMD Ryzen 7 7840U):
+baseline 1.17 ns, idle 1.99 ns, hit 1230 ns, miss 2911 ns per call.
 The key message: for a test suite that runs in minutes, a small percentage overhead is a reasonable tradeoff.
 You're not paying this in production — only during test runs.
 -->
@@ -873,7 +875,7 @@ Even a large binary with 50k functions would use less than 1 MB of BPF map memor
 | Works on stripped binaries | No | **Yes** |
 | Cross-language | No | **Yes** |
 | Same binary as production | No | **Yes** |
-| Per-call overhead | ~0 | ~2000 ns |
+| Per-call overhead | ~0 | ~1200 ns |
 | Setup complexity | Per-language | Once |
 
 > You pay a small, predictable cost per function call.<br>In exchange: no instrumented builds, one tool, any binary.
@@ -950,21 +952,24 @@ It's compatible enough with kernel BPF that existing programs often run unmodifi
 # xcover + bpftime: the experimental path
 
 ```sh
+# Build xcover with userspace BPF support
+make xcover-userspace
+
 # Start the bpftime syscall server (intercepts BPF syscalls from xcover)
-xcover run --path ./myapp --userspace-bpf --detach
+xcover-userspace run --path ./myapp --userspace-bpf --detach
 
 # Inject the bpftime agent into the tracee
-LD_PRELOAD=$(xcover agent extract) ./myapp
+LD_PRELOAD=$(xcover-userspace agent extract) ./myapp
 ```
 
-- `xcover agent extract` unpacks the embedded bpftime shared library
+- `agent extract` unpacks the embedded bpftime shared library
 - bpftime `agent` intercepts uprobe hits in-process
 - Everything else is identical: same report, same workflow
-- Flag: `--userspace-bpf` (experimental)
+- **Merged**: opt-in build (`-tags userspace`), flag `--userspace-bpf` (experimental)
 
 <!--
-The LD_PRELOAD step is currently explicit — we're working on making it transparent via process injection.
-The overhead numbers for this path are still being validated. That's the open experiment.
+The LD_PRELOAD step is currently explicit; we're working on making it transparent via process injection.
+The mode is merged in main as an opt-in build; the overhead numbers are on the next slide.
 -->
 
 ---
@@ -974,9 +979,15 @@ The overhead numbers for this path are still being validated. That's the open ex
 | Scenario | Description | Overhead reduction Userspace vs Kernel |
 |---|---|---|
 | **Baseline** | No tracing | ~ |
-| **Idle** | uprobe attached | ~ |
-| **Hit** | uprobe firing, already seen | **-69%** |
-| **Miss** | uprobe firing, new function | **-72%** |
+| **Idle** | uprobe attached | **-43%** |
+| **Hit** | uprobe firing, already seen | **-65%** |
+| **Miss** | uprobe firing, new function | **-63%** |
+
+<!--
+Measured with benchmark/ (benchstat over 10 runs each, N=100 uprobes, AMD Ryzen 7 7840U):
+kernel hit 1230 ns vs userspace 426 ns; kernel miss 2911 ns vs userspace 1084 ns;
+kernel idle 1.99 ns vs userspace 1.13 ns; baseline unchanged (p=0.72).
+-->
 
 ---
 
@@ -996,7 +1007,7 @@ The overhead numbers for this path are still being validated. That's the open ex
 
 ## Known limitations
 - No `uprobe_multi` link support (perf-based)
-- Requires `LD_PRELOAD` injection (not transparent for `execve`-started processes)
+- Requires `LD_PRELOAD` injection of the agent (manual step; children inherit it through the environment, `execve` included)
 - Statically linked / musl binaries: no agent injection ⚠️
 - Frida Gum interceptor: some aggressive compiler optimisations (tail-call elision, LTO) are not yet handled
 
@@ -1004,7 +1015,7 @@ The overhead numbers for this path are still being validated. That's the open ex
 
 <!--
 We're being honest about where this is: it works, but it has rough edges.
-The hypothesis is sound. The implementation is in progress.
+The hypothesis held up. The implementation is merged in main as an opt-in build.
 This is worth exploring out loud, which is why it's in the talk.
 -->
 
@@ -1018,8 +1029,10 @@ This is worth exploring out loud, which is why it's in the talk.
 
 ## Upstream gaps
 - **bpftime**: some patches that are going to be proposed upstream
-- **libbpfgo**: missing `AttachUprobeWithCookie` libbpf API (single-uprobe attach with per-probe `bpf_cookie`)
-  - https://github.com/aquasecurity/libbpfgo/pull/523
+
+## Landed upstream
+- **libbpfgo**: `AttachUprobeWithOpts` (single-uprobe attach with per-probe `bpf_cookie`)
+  - https://github.com/aquasecurity/libbpfgo/pull/530
 
 ## What I'm working on
 - Rolling out xcover on thousands of packages
@@ -1059,8 +1072,16 @@ The tooling to close that gap exists today. Try it.
 
 # Questions?
 
-linkedin.com/in/maxgio
 @maxgio92 on Telegram
-
-github.com/maxgio92/xcover
 github.com/maxgio92/resurgo
+
+<div style="display:flex; gap:64px; justify-content:center; align-items:flex-start; margin-top:16px;">
+  <figure style="margin:0; text-align:center;">
+    <img src="github-qr.png" width="160" />
+    <figcaption style="color:#8b949e; font-size:1rem; margin-top:8px;">github.com/maxgio92/xcover</figcaption>
+  </figure>
+  <figure style="margin:0; text-align:center;">
+    <img src="linkedin-qr.png" width="160" />
+    <figcaption style="color:#8b949e; font-size:1rem; margin-top:8px;">linkedin.com/in/maxgio</figcaption>
+  </figure>
+</div>

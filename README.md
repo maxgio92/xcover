@@ -196,6 +196,28 @@ $ xcover stop
 
 The coverage report will be available as `xcover-report.json` after stopping the profiler.
 
+## Userspace BPF Mode (Experimental)
+
+xcover can run its BPF programs entirely in userspace through the
+[bpftime](https://github.com/eunomia-bpf/bpftime) runtime, removing the kernel
+trap on every traced function call. In benchmarks this cuts per-call overhead
+by roughly 65% on the hot path, and it runs unprivileged (no `CAP_BPF`).
+
+Build the dedicated binary and enable the mode with the `--userspace-bpf`
+flag; the tracee needs the bpftime agent preloaded:
+
+```shell
+$ make xcover-userspace
+$ ./xcover-userspace run --detach --path /path/to/bin --userspace-bpf
+$ ./xcover-userspace wait
+$ LD_PRELOAD=$(./xcover-userspace agent extract) /path/to/bin test_1
+$ ./xcover-userspace stop
+```
+
+The tracee must be dynamically linked against glibc; setuid binaries are not
+supported. See [the userspace BPF guide](docs/xcover_userspace_bpf.md) for how
+it works, requirements, and the full list of limitations.
+
 ## CLI Reference
 
 ## xcover

@@ -3,8 +3,8 @@
 Upstream: <https://github.com/eunomia-bpf/bpftime>
 Pinned commit: `5bf24b21af85`
 
-Each patch file corresponds to one bug fix. They are applied inline during
-`make bpftime-libs` via Python string replacements in the root `Makefile`.
+Each patch file corresponds to one bug fix. `make bpftime-libs` applies them
+with `patch -p1` right after cloning the pinned bpftime tree.
 Once the fixes are validated, each should be opened as a separate PR upstream.
 
 ## 0001 — null `injected_pids` crash on tracee exit

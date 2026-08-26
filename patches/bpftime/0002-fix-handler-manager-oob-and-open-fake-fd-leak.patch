@@ -1,6 +1,24 @@
+diff --git a/runtime/src/bpftime_shm_internal.cpp b/runtime/src/bpftime_shm_internal.cpp
+index d42bc13..6b0bd37 100644
+--- a/runtime/src/bpftime_shm_internal.cpp
++++ b/runtime/src/bpftime_shm_internal.cpp
+@@ -550,6 +550,11 @@ int bpftime_shm::open_fake_fd()
+ 	while (fd <= 2 && fd >= 0 && --cnt > 0) {
+ 		fd = dup(fd);
+ 	}
++	if (fd >= 0 && (std::size_t)fd >= manager->size()) {
++		close(fd);
++		errno = ENOSPC;
++		return -1;
++	}
+ 	return fd;
+ }
+ 
+diff --git a/runtime/src/handler/handler_manager.cpp b/runtime/src/handler/handler_manager.cpp
+index a834022..7a44534 100644
 --- a/runtime/src/handler/handler_manager.cpp
 +++ b/runtime/src/handler/handler_manager.cpp
-@@ -34,11 +34,15 @@
+@@ -34,11 +34,15 @@ handler_manager::~handler_manager()
  
  const handler_variant &handler_manager::get_handler(int fd) const
  {
@@ -16,7 +34,7 @@
  	return handlers[idx];
  }
  std::size_t handler_manager::size() const
-@@ -59,6 +63,10 @@
+@@ -59,6 +63,10 @@ int handler_manager::set_handler_at_empty_slot(handler_variant &&handler,
  int handler_manager::set_handler(int fd, handler_variant &&handler,
  				 managed_shared_memory &memory)
  {
@@ -27,17 +45,3 @@
  	if (is_allocated(fd)) {
  		SPDLOG_ERROR("set_handler failed for fd {} aleady exists", fd);
  		return -EEXIST;
---- a/runtime/src/bpftime_shm_internal.cpp
-+++ b/runtime/src/bpftime_shm_internal.cpp
-@@ -549,6 +549,11 @@
- 	while (fd <= 2 && fd >= 0 && --cnt > 0) {
- 		fd = dup(fd);
- 	}
-+	if (fd >= 0 && (std::size_t)fd >= manager->size()) {
-+		close(fd);
-+		errno = ENOSPC;
-+		return -1;
-+	}
- 	return fd;
- }
- 

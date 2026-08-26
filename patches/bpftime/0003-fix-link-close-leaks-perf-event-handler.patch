@@ -1,20 +1,12 @@
+diff --git a/runtime/src/handler/handler_manager.cpp b/runtime/src/handler/handler_manager.cpp
+index 7a44534..83015f2 100644
 --- a/runtime/src/handler/handler_manager.cpp
 +++ b/runtime/src/handler/handler_manager.cpp
-@@ -112,6 +112,19 @@ void handler_manager::clear_id_at(int fd, managed_shared_memory &memory)
- 				clear_id_at(i, memory);
+@@ -136,6 +136,13 @@ void handler_manager::clear_id_at(int fd, managed_shared_memory &memory)
+ 				}
  			}
  		}
 +	} else if (std::holds_alternative<bpf_link_handler>(handlers[fd])) {
-+		// When a BPF_PERF_EVENT link is destroyed, libbpf relies on the
-+		// kernel to drop the perf event reference via the link fd. In
-+		// userspace (bpftime) that doesn't happen: closing the link fd
-+		// only frees the link handler slot, leaving the perf event
-+		// handler permanently allocated and leaking one slot per uprobe
-+		// per attach/detach cycle.
-+		//
-+		// Fix: cascade the close to the attached perf event handler.
-+		// Clear the link slot first to prevent infinite recursion (the
-+		// perf event cleanup scans for linked handlers by attach_target_id).
 +		auto target_fd =
 +			std::get<bpf_link_handler>(handlers[fd]).attach_target_id;
 +		handlers[fd] = unused_handler();

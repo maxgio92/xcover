@@ -182,18 +182,24 @@ bpftime-libs:
 			patch -p1 -d $(BPFTIME_DIR) < $$p || exit 1; \
 		done; \
 	fi
+	# Build with the system compiler. -include cstdint works around LLVM 18
+	# headers missing it under newer libstdc++; -include sys/syscall.h works
+	# around bpftime relying on transitive __NR_bpf exposure dropped by newer
+	# glibc. Both are no-ops on older toolchains.
 	cmake -B $(BPFTIME_BUILD) -S $(BPFTIME_DIR) \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBPFTIME_UBPF_JIT=ON \
 		-DBPFTIME_LLVM_JIT=ON \
 		-DCMAKE_EXE_LINKER_FLAGS=-no-pie \
-		$(if $(LLVM18_PREFIX),-DLLVM_DIR=$(LLVM18_PREFIX)/lib/cmake/llvm) \
-		$(if $(LLVM18_PREFIX),-DCMAKE_C_COMPILER=$(LLVM18_PREFIX)/bin/clang) \
-		$(if $(LLVM18_PREFIX),-DCMAKE_CXX_COMPILER=$(LLVM18_PREFIX)/bin/clang++)
+		-DCMAKE_CXX_FLAGS="-include cstdint -include sys/syscall.h" \
+		$(if $(LLVM18_PREFIX),-DLLVM_DIR=$(LLVM18_PREFIX)/lib/cmake/llvm)
+	# Build only the two runtime libraries xcover embeds. This skips the
+	# bpftime-vm CLI, whose vendored libbpf does not compile under GCC 14+.
 	# Prepend llvm@18 (and fallback llvm-config) libdir so bpftool can resolve
 	# libLLVM.so at skel.h generation time.
 	LD_LIBRARY_PATH="$(LLVM18_PREFIX)/lib:$$(llvm-config --libdir 2>/dev/null):$$LD_LIBRARY_PATH" \
-		cmake --build $(BPFTIME_BUILD) --parallel
+		cmake --build $(BPFTIME_BUILD) --parallel \
+			--target bpftime-syscall-server bpftime-agent
 	mkdir -p $(BPFTIME_LIBS_DST)
 	cp $(BPFTIME_BUILD)/runtime/syscall-server/libbpftime-syscall-server.so \
 		$(BPFTIME_LIBS_DST)/bpftime-syscall-server.so

@@ -47,3 +47,35 @@ func TestHandleEvent_Verbose(t *testing.T) {
 	_, ok := tracer.ack.Load(cookie(1))
 	require.True(t, ok)
 }
+
+// TestHandleEvent_UnknownCookie verifies that an event carrying a cookie not
+// present in tracee.funcs is still acked, matching the pre-refactor behavior
+// of counting unresolved cookies toward the reported coverage.
+func TestHandleEvent_UnknownCookie(t *testing.T) {
+	var buf bytes.Buffer
+
+	tracee := NewUserTracee(
+		WithTraceeExePath("testdata/gotest"),
+		WithTraceeSymPatternExclude(testExcludedSyms),
+	)
+	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction"}}
+	err := tracee.Init(t.Context())
+	require.NoError(t, err)
+
+	tracer := NewUserTracer(
+		WithTracerVerbose(true),
+		WithTracerWriter(&buf),
+		WithTracerTracee(tracee),
+	)
+
+	// Encode an Event with a cookie that has no matching entry in tracee.funcs.
+	event := Event{Cookie: 2}
+	data := new(bytes.Buffer)
+	err = binary.Write(data, binary.LittleEndian, event)
+	require.NoError(t, err)
+
+	tracer.handleEvent(data.Bytes())
+
+	_, ok := tracer.ack.Load(cookie(2))
+	require.True(t, ok)
+}

@@ -134,13 +134,30 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	// InitEventBuf fails.
 	defer t.probe.CloseBPFMod()
 
-	feedCh := make(chan []byte, feedChBufSize)
-
 	eventsCh, err := t.probe.InitEventBuf(ctx)
 	if err != nil {
 		return errors.Wrap(err, "error initializing probe events buffer")
 	}
 	defer t.probe.CloseEventBuf()
+
+	feedCh, wg := t.startPipeline(ctx, eventsCh)
+
+	// Signal via the UDS that the tracer is ready,
+	// that is, it's consuming function events.
+	t.logger.Info().Msg("tracing functions")
+	t.hcServer.NotifyReadiness()
+
+	// Print status bar.
+	go t.printStatusBar(ctx, eventsCh, feedCh)
+
+	return t.waitAndReport(ctx, wg)
+}
+
+// startPipeline starts polling the ring buffer and spawns the ingest and
+// process goroutines that carry events from it to the handler, tracked by
+// the returned WaitGroup so the caller can wait for them to drain on
+// shutdown.
+func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) (chan []byte, *sync.WaitGroup) {
 	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
 	// hence outside of InitEventBuf(), because of CGO callback from C which can make
 	// the go runtime to lock goroutine to the thread.
@@ -148,6 +165,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 
 	// Read events from the ring buffer to internal feed.
 	t.logger.Debug().Msg("consuming events from ring buffer")
+
+	feedCh := make(chan []byte, feedChBufSize)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -163,14 +182,13 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		t.processEvents(ctx, feedCh)
 	}()
 
-	// Signal via the UDS that the tracer is ready,
-	// that is, it's consuming function events.
-	t.logger.Info().Msg("tracing functions")
-	t.hcServer.NotifyReadiness()
+	return feedCh, &wg
+}
 
-	// Print status bar.
-	go t.printStatusBar(ctx, eventsCh, feedCh)
-
+// waitAndReport blocks until ctx is cancelled, waits for the pipeline
+// goroutines tracked by wg to drain, then writes the coverage report. The
+// health check listener is stopped by Run's deferred ShutdownListener call.
+func (t *UserTracer) waitAndReport(ctx context.Context, wg *sync.WaitGroup) error {
 	// Waiting for signals.
 	<-ctx.Done()
 	t.logger.Debug().Msg("received signal")
@@ -179,8 +197,6 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
-	// Write report. The listener is stopped by the deferred
-	// ShutdownListener call.
 	return t.writeReport(ReportFileName)
 }
 
@@ -228,26 +244,50 @@ func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
 func (t *UserTracer) handleEvent(data []byte) {
 	atomic.AddUint64(&t.consumed, 1)
 
-	var event Event
-
-	buf := bytes.NewBuffer(data)
-	if err := binary.Read(buf, binary.LittleEndian, &event); err != nil {
+	event, err := t.decodeEvent(data)
+	if err != nil {
 		t.logger.Err(err).Msg("failed to read event")
 	}
 
 	if t.tracee == nil {
 		return
 	}
-	fun, ok := t.tracee.funcs[event.Cookie]
+
+	fun, _ := t.lookupFunc(event.Cookie)
+	t.ackFunc(event.Cookie, fun)
+}
+
+// decodeEvent deserializes the raw ring buffer bytes into an Event.
+func (t *UserTracer) decodeEvent(data []byte) (Event, error) {
+	var event Event
+
+	buf := bytes.NewBuffer(data)
+	err := binary.Read(buf, binary.LittleEndian, &event)
+
+	return event, err
+}
+
+// lookupFunc resolves the function traced by cookie, logging a miss instead
+// of failing so a single unmatched cookie doesn't stop the consumer. The
+// caller acks the cookie regardless of the lookup result.
+func (t *UserTracer) lookupFunc(ck cookie) (funcInfo, bool) {
+	fun, ok := t.tracee.funcs[ck]
 	if !ok {
-		t.logger.Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(event.Cookie)).Msg("failed getting function from cookie")
+		t.logger.Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(ck)).Msg("failed getting function from cookie")
 	}
 
-	if _, ok := t.ack.Load(event.Cookie); !ok {
+	return fun, ok
+}
+
+// ackFunc records the first observation of fun and prints its name when
+// verbose output is enabled. Subsequent events for the same cookie are
+// no-ops.
+func (t *UserTracer) ackFunc(ck cookie, fun funcInfo) {
+	if _, ok := t.ack.Load(ck); !ok {
 		if t.verbose && t.writer != nil {
 			fmt.Fprintln(t.writer, fun.name)
 		}
-		t.ack.Store(event.Cookie, struct{}{})
+		t.ack.Store(ck, struct{}{})
 	}
 }
 

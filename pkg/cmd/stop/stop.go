@@ -1,13 +1,13 @@
 package stop
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	ErrNotRunningOrNotFound = fmt.Errorf("%s not running or PID file not found", settings.CmdName)
+	ErrNotRunningOrNotFound = errors.Errorf("%s not running or PID file not found", settings.CmdName)
 	ErrInvalidPIDFile       = errors.New("invalid PID file")
 	ErrProcessNotFound      = errors.New("process not found")
-	ErrFailedToStop         = fmt.Errorf("failed to stop %s", settings.CmdName)
+	ErrFailedToStop         = errors.Errorf("failed to stop %s", settings.CmdName)
 )
 
 type Options struct {

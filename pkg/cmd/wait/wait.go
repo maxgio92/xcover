@@ -22,7 +22,7 @@ import (
 const CmdName = "wait"
 
 var (
-	ErrNotRunning = errors.New(fmt.Sprintf("%s is not running", settings.CmdName))
+	ErrNotRunning = errors.Errorf("%s is not running", settings.CmdName)
 )
 
 type Options struct {

@@ -18,14 +18,7 @@ import (
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
-const (
-	funNameLen = 64
-	CmdName    = "run"
-)
-
-type FuncName struct {
-	Name [funNameLen]byte
-}
+const CmdName = "run"
 
 type Options struct {
 	comm string

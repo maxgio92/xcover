@@ -2,7 +2,6 @@ package trace
 
 import (
 	"context"
-	"debug/elf"
 
 	"github.com/pkg/errors"
 )
@@ -103,12 +102,6 @@ func (t *UserTracee) validate() error {
 		return ErrExePathEmpty
 	}
 	return nil
-}
-
-// ShouldIncludeSymbol reports whether sym passes the tracee's include/exclude filters.
-// Kept for backward compatibility; prefer the package-level shouldInclude for new code.
-func (t *UserTracee) ShouldIncludeSymbol(sym elf.Symbol) bool {
-	return shouldInclude(sym, t.symPatternInclude, t.symPatternExclude, t.symBindInclude, t.symBindExclude)
 }
 
 // GetFuncProbes returns the uprobe attach offsets and their corresponding

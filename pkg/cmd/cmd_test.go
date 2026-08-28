@@ -133,7 +133,7 @@ func TestCommandLogLevelFlag(t *testing.T) {
 		{"error level", "error", false},
 		{"fatal level", "fatal", false},
 		{"panic level", "panic", false},
-		{"invalid level", "invalid", false},
+		{"invalid level", "invalid", true},
 	}
 
 	for _, tt := range tests {
@@ -147,7 +147,44 @@ func TestCommandLogLevelFlag(t *testing.T) {
 			cmd.SetErr(&output)
 			cmd.SetArgs([]string{"--log-level", tt.logLevel, "status"})
 
-			require.NoError(t, cmd.Execute())
+			err := cmd.Execute()
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCommandLogLevelPropagatesToSubcommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		logLevel string
+		want     log.Level
+	}{
+		{"trace level", "trace", log.TraceLevel},
+		{"debug level", "debug", log.DebugLevel},
+		{"warn level", "warn", log.WarnLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.New(log.ConsoleWriter{Out: os.Stderr})
+			ctx := context.Background()
+			opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
+			cmd := NewCommand(opts)
+
+			var output bytes.Buffer
+			cmd.SetOut(&output)
+			cmd.SetErr(&output)
+			// "wait" observably touches opts.Logger (via With().Str(...).Logger())
+			// before returning ErrNotRunning, without requiring a running daemon.
+			cmd.SetArgs([]string{"--log-level", tt.logLevel, "wait", "--timeout", "1ms"})
+
+			_ = cmd.Execute()
+
+			require.Equal(t, tt.want, opts.Logger.GetLevel())
 		})
 	}
 }
@@ -244,38 +281,4 @@ func TestCommandStructure(t *testing.T) {
 	require.Contains(t, subcommands, "status")
 	require.Contains(t, subcommands, "stop")
 	require.Contains(t, subcommands, "wait")
-}
-
-// Helper function to capture output
-func captureOutput(t *testing.T, fn func() error) (string, string, error) {
-	var stdout, stderr bytes.Buffer
-
-	// Save original
-	origStdout := os.Stdout
-	origStderr := os.Stderr
-
-	// Create pipes
-	r1, w1, _ := os.Pipe()
-	r2, w2, _ := os.Pipe()
-
-	// Set new outputs
-	os.Stdout = w1
-	os.Stderr = w2
-
-	// Execute function
-	err := fn()
-
-	// Close writers
-	w1.Close()
-	w2.Close()
-
-	// Read output
-	stdout.ReadFrom(r1)
-	stderr.ReadFrom(r2)
-
-	// Restore original
-	os.Stdout = origStdout
-	os.Stderr = origStderr
-
-	return stdout.String(), stderr.String(), err
 }

@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/pkg/errors"
-	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
@@ -90,18 +89,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	// Store PID file.
 	os.WriteFile(settings.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
 	defer os.Remove(settings.PidFile)
-
-	var err error
-	o.LogLevel, err = cmd.Flags().GetString("log-level")
-	if err != nil {
-		return errors.Wrap(err, "failed to get log level")
-	}
-
-	logLevel, err := log.ParseLevel(o.LogLevel)
-	if err != nil {
-		o.Logger.Fatal().Err(err).Msg("invalid log level")
-	}
-	o.Logger = o.Logger.Level(logLevel)
 
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {

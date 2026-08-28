@@ -88,8 +88,8 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Store PID file.
-	os.WriteFile(settings.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
-	defer os.Remove(settings.PidFile)
+	common.WritePID(os.Getpid())
+	defer common.RemovePID()
 
 	var err error
 	o.LogLevel, err = cmd.Flags().GetString("log-level")
@@ -197,7 +197,7 @@ func (o *Options) daemonize() error {
 	}
 
 	// Store PID file.
-	err = os.WriteFile(settings.PidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0644)
+	err = common.WritePID(cmd.Process.Pid)
 	if err != nil {
 		o.Logger.Error().Err(err).Msg("failed to write PID file")
 		return err

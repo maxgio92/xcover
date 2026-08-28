@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -41,14 +40,13 @@ func NewCommand(opts *options.Options) *cobra.Command {
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
-	pidData, err := os.ReadFile(settings.PidFile)
+	pid, err := common.ReadPID()
 	if err != nil {
-		return ErrNotRunningOrNotFound
-	}
+		if errors.Is(err, common.ErrInvalidPID) {
+			return ErrInvalidPIDFile
+		}
 
-	pid, err := strconv.Atoi(string(pidData))
-	if err != nil {
-		return ErrInvalidPIDFile
+		return ErrNotRunningOrNotFound
 	}
 
 	process, err := os.FindProcess(pid)
@@ -65,7 +63,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	for i := 0; i < 50; i++ {
 		if !common.IsDaemonRunning() {
 			fmt.Printf("%s stopped (PID %d)\n", settings.CmdName, pid)
-			os.Remove(settings.PidFile)
+			common.RemovePID()
 
 			return nil
 		}
@@ -74,7 +72,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	// Force kill if still running.
 	process.Kill()
-	os.Remove(settings.PidFile)
+	common.RemovePID()
 	fmt.Printf("%s force killed (PID %d)\n", settings.CmdName, pid)
 
 	return nil

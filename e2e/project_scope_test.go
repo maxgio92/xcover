@@ -14,25 +14,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/coverage"
+	"github.com/maxgio92/xcover/pkg/trace"
 )
 
 const (
 	xcoverBinEnv           = "XCOVER_E2E_BIN"
-	pidFile                = "/tmp/xcover.pid"
-	socketFile             = "/tmp/xcover.sock"
-	logFile                = "/tmp/xcover.log"
 	reportFile             = "xcover-report.json"
 	projectScopeGoScenario = "project-scope-go-module"
 	projectScope           = "project"
 	binaryScope            = "binary"
 )
 
-type coverageReport struct {
-	FuncsTraced []string `json:"funcs_traced"`
-	FuncsAck    []string `json:"funcs_ack"`
-	CovByFunc   float64  `json:"cov_by_func"`
-	ExePath     string   `json:"exe_path"`
-}
+var (
+	pidFile    = settings.PidFile
+	socketFile = trace.HealthCheckSockPath
+	logFile    = settings.LogFile
+)
 
 func TestProjectScopeFiltersToGoModule(t *testing.T) {
 	report := runXcoverWithFixture(t, projectScope)
@@ -79,7 +79,7 @@ func TestBinaryScopeRetainsNonProjectSymbols(t *testing.T) {
 	}
 }
 
-func runXcoverWithFixture(t *testing.T, scope string) coverageReport {
+func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	t.Helper()
 
 	xcover := os.Getenv(xcoverBinEnv)
@@ -245,14 +245,14 @@ func shouldSkipForRuntimeEnvironment(output string) bool {
 		strings.Contains(output, "error initializing bpf probe")
 }
 
-func readReport(t *testing.T, path string) coverageReport {
+func readReport(t *testing.T, path string) coverage.CoverageReport {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read report %s: %v", path, err)
 	}
 
-	var report coverageReport
+	var report coverage.CoverageReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatalf("failed to parse report %s: %v", path, err)
 	}

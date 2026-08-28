@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"syscall"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/bpftime"
@@ -69,14 +69,16 @@ It supports programs compiled to ELF.
 	cmd.Flags().StringVar(&o.scope, "scope", string(trace.ScopeBinary), `Function scope: "binary" (all functions) or "project" (project module only, Go binaries)`)
 	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental)")
 
-	cmd.MarkFlagRequired("path")
+	if err := cmd.MarkFlagRequired("path"); err != nil {
+		panic(err)
+	}
 
 	return cmd
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	if o.detach {
-		return o.daemonize()
+		return o.daemonize(cmd)
 	}
 
 	scope, err := o.setup()
@@ -151,34 +153,42 @@ func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 	)
 }
 
-func (o *Options) daemonize() error {
+// daemonizeSkipFlags lists flags that must never be forwarded to the
+// re-exec'd daemon process, because they control the re-exec itself
+// (forwarding "detach" would make the daemon try to daemonize again).
+var daemonizeSkipFlags = map[string]bool{
+	"detach": true,
+}
+
+// forwardedFlagArgs walks the flags known to fs and returns the "--name=value"
+// arguments needed to reproduce every flag the user explicitly set, skipping
+// any flag named in skip. This lets a re-exec'd subprocess inherit whatever
+// flags the current invocation was given without the caller having to
+// hand-list every flag of the command.
+func forwardedFlagArgs(fs *pflag.FlagSet, skip map[string]bool) []string {
+	var args []string
+	fs.VisitAll(func(f *pflag.Flag) {
+		if !f.Changed || skip[f.Name] {
+			return
+		}
+		args = append(args, fmt.Sprintf("--%s=%s", f.Name, f.Value.String()))
+	})
+
+	return args
+}
+
+func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Check if already running.
 	if common.IsDaemonRunning() {
 		fmt.Println("Daemon already running")
 		return nil
 	}
 
-	// Start the daemon process.
-	args := []string{"run"}
-	args = append(args, fmt.Sprintf("--path=%s", o.comm))
-	args = append(args, fmt.Sprintf("--exclude=%s", o.symExcludePattern))
-	args = append(args, fmt.Sprintf("--include=%s", o.symIncludePattern))
-	args = append(args, fmt.Sprintf("--report=%s", strconv.FormatBool(o.report)))
-	args = append(args, fmt.Sprintf("--status=%s", strconv.FormatBool(o.status)))
-	args = append(args, fmt.Sprintf("--verbose=%s", strconv.FormatBool(o.verbose)))
-	args = append(args, fmt.Sprintf("--scope=%s", o.scope))
-	if o.debugPath != "" {
-		args = append(args, fmt.Sprintf("--debug-path=%s", o.debugPath))
-	}
-	if o.noBuildIDCheck {
-		args = append(args, "--no-build-id-check")
-	}
-	if o.userspaceBPF {
-		args = append(args, "--userspace-bpf")
-	}
+	// Start the daemon process, forwarding every flag the user set.
+	args := append([]string{"run"}, forwardedFlagArgs(cmd.Flags(), daemonizeSkipFlags)...)
 
-	cmd := exec.Command(os.Args[0], args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	daemonCmd := exec.Command(os.Args[0], args...)
+	daemonCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Redirect output to log file.
 	if settings.LogFile != "" {
@@ -187,18 +197,18 @@ func (o *Options) daemonize() error {
 			o.Logger.Error().Err(err).Msg("failed to open log file")
 			return err
 		}
-		cmd.Stdout = f
-		cmd.Stderr = f
+		daemonCmd.Stdout = f
+		daemonCmd.Stderr = f
 	}
 
-	err := cmd.Start()
+	err := daemonCmd.Start()
 	if err != nil {
 		o.Logger.Error().Err(err).Msgf("failed to start %s", settings.CmdName)
 		return err
 	}
 
 	// Store PID file.
-	err = common.WritePID(cmd.Process.Pid)
+	err = common.WritePID(daemonCmd.Process.Pid)
 	if err != nil {
 		o.Logger.Error().Err(err).Msg("failed to write PID file")
 		return err

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/maxgio92/xcover/internal/settings"
@@ -22,17 +23,22 @@ func NewCommand(opts *options.Options) *cobra.Command {
 		Short:             fmt.Sprintf("Check the the %s profiler status", settings.CmdName),
 		DisableAutoGenTag: true,
 		SilenceUsage:      true,
-		Run:               o.Run,
+		RunE:              o.Run,
 	}
 
 	return cmd
 }
 
-func (o *Options) Run(cmd *cobra.Command, _ []string) {
+func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	if common.IsDaemonRunning() {
-		pidData, _ := os.ReadFile(settings.PidFile)
+		pidData, err := os.ReadFile(settings.PidFile)
+		if err != nil {
+			return errors.Wrap(err, "failed to read PID file")
+		}
 		fmt.Printf("%s is running (PID %s)\n", settings.CmdName, pidData)
 	} else {
 		fmt.Printf("%s is not running\n", settings.CmdName)
 	}
+
+	return nil
 }

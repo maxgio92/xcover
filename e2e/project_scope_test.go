@@ -17,7 +17,6 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/coverage"
-	"github.com/maxgio92/xcover/pkg/trace"
 )
 
 const (
@@ -30,7 +29,7 @@ const (
 
 var (
 	pidFile    = settings.PidFile
-	socketFile = trace.HealthCheckSockPath
+	socketFile = settings.HealthCheckSockPath
 	logFile    = settings.LogFile
 )
 

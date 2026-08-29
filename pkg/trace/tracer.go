@@ -22,12 +22,16 @@ const (
 	funNameLen                     = 64
 	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
 	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
-	HealthCheckSockPath            = "/tmp/xcover.sock"
 )
 
 var (
 	feedChBufSize  = 4096
 	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
+	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath
+	// for existing callers; internal/settings is the source of truth so
+	// cgo-free consumers (e.g. e2e tests) can reference it without pulling
+	// in this package's libbpf dependency.
+	HealthCheckSockPath = settings.HealthCheckSockPath
 )
 
 type FuncName struct {

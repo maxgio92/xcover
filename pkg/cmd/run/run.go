@@ -79,11 +79,8 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		return o.daemonize()
 	}
 
-	// Store PID file.
-	common.WritePID(os.Getpid())
+	scope, err := o.setup()
 	defer common.RemovePID()
-
-	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
 		return err
 	}
@@ -94,6 +91,39 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	tracer := o.buildTracer(scope)
+
+	if err := tracer.Init(o.Ctx); err != nil {
+		return errors.Wrapf(err, "failed to init tracer")
+	}
+	if err := tracer.Run(o.Ctx); err != nil {
+		return errors.Wrapf(err, "failed to run tracer")
+	}
+
+	return nil
+}
+
+// setup performs the PID file bookkeeping and function scope parsing needed
+// before a tracer can be built. The PID file is written unconditionally so
+// that the caller's deferred removal, armed right after this call, always
+// cleans it up regardless of the returned error. Log-level configuration is
+// handled centrally by the parent command's PersistentPreRunE before RunE
+// runs, so o.Logger is already at the requested level here.
+func (o *Options) setup() (trace.Scope, error) {
+	// Store PID file.
+	common.WritePID(os.Getpid())
+
+	scope, err := trace.ParseScope(o.scope)
+	if err != nil {
+		return "", err
+	}
+
+	return scope, nil
+}
+
+// buildTracer constructs the tracee to trace and the tracer that drives it,
+// applying the resolved scope and all tracer-related options.
+func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 	traceeOpts := []trace.UserTraceeOption{
 		trace.WithTraceeExePath(o.comm),
 		trace.WithTraceeSymPatternInclude(o.symIncludePattern),
@@ -111,7 +141,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	}
 	tracee := trace.NewUserTracee(traceeOpts...)
 
-	tracer := trace.NewUserTracer(
+	return trace.NewUserTracer(
 		trace.WithTracerLogger(o.Logger),
 		trace.WithTracerVerbose(o.verbose),
 		trace.WithTracerReport(o.report),
@@ -119,15 +149,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		trace.WithTracerUserspaceBPF(o.userspaceBPF),
 		trace.WithTracerTracee(tracee),
 	)
-
-	if err := tracer.Init(o.Ctx); err != nil {
-		return errors.Wrapf(err, "failed to init tracer")
-	}
-	if err := tracer.Run(o.Ctx); err != nil {
-		return errors.Wrapf(err, "failed to run tracer")
-	}
-
-	return nil
 }
 
 func (o *Options) daemonize() error {

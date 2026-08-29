@@ -88,19 +88,40 @@ jobs:
       - name: Verify go.mod and submodule reference the same libbpfgo commit
         run: |
           gomod_version=$(grep '^\s*github.com/aquasecurity/libbpfgo ' go.mod | awk '{print $2}')
-          gomod_hash="${gomod_version##*-}"
+          submodule_head=$(git -C libbpfgo rev-parse HEAD)
 
-          if ! echo "$gomod_hash" | grep -qE '^[0-9a-f]{6,40}$'; then
-            echo "go.mod version '$gomod_version' has no trailing commit hash (e.g. a plain release tag); skipping submodule-sync check."
+          # Prefer resolving the go.mod version directly as a git ref (tag) in
+          # the submodule: libbpfgo tags embed libbpf's own commit hash in
+          # their name (e.g. v0.11.0-libbpf-1.8-dev-2bbc483), which is NOT
+          # libbpfgo's commit hash, so a tagged version can't be checked by
+          # comparing hash substrings.
+          git -C libbpfgo fetch --tags --quiet origin
+          resolved=$(git -C libbpfgo rev-parse --verify --quiet "${gomod_version}^{commit}" 2>/dev/null) || true
+
+          if [ -n "$resolved" ]; then
+            if [ "$resolved" != "$submodule_head" ]; then
+              echo "libbpfgo submodule and go.mod are out of sync:"
+              echo "  go.mod version '$gomod_version' resolves to commit: $resolved"
+              echo "  submodule is checked out at:                       $submodule_head"
+              echo "Update go.mod or the submodule pointer so both reference the same commit."
+              exit 1
+            fi
+            echo "libbpfgo submodule and go.mod agree: $gomod_version -> $resolved"
             exit 0
           fi
 
-          hash_len=${#gomod_hash}
-          submodule_hash=$(git -C libbpfgo rev-parse HEAD | cut -c1-"$hash_len")
+          # Fall back to Go's pseudo-version convention (trailing 12-hex
+          # commit hash) for versions with no matching tag in the submodule.
+          gomod_hash=$(echo "$gomod_version" | grep -oE '[0-9a-f]{12}$') || true
+          if [ -z "$gomod_hash" ]; then
+            echo "go.mod version '$gomod_version' does not resolve to a submodule ref and has no trailing 12-char pseudo-version hash; skipping submodule-sync check."
+            exit 0
+          fi
 
+          submodule_hash=$(echo "$submodule_head" | cut -c1-12)
           if [ "$gomod_hash" != "$submodule_hash" ]; then
             echo "libbpfgo submodule and go.mod are out of sync:"
-            echo "  go.mod pins commit:     $gomod_hash (from $gomod_version)"
+            echo "  go.mod pins commit:          $gomod_hash (from $gomod_version)"
             echo "  submodule is checked out at: $submodule_hash"
             echo "Update go.mod (go get github.com/aquasecurity/libbpfgo@<submodule commit>) or the submodule pointer so both reference the same commit."
             exit 1

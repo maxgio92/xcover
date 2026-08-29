@@ -75,6 +75,39 @@ jobs:
           path: xcover
           retention-days: 7
 
+  submodule-sync:
+    name: Verify libbpfgo submodule sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Verify go.mod and submodule reference the same libbpfgo commit
+        run: |
+          gomod_version=$(grep '^\s*github.com/aquasecurity/libbpfgo ' go.mod | awk '{print $2}')
+          gomod_hash="${gomod_version##*-}"
+
+          if ! echo "$gomod_hash" | grep -qE '^[0-9a-f]{6,40}$'; then
+            echo "go.mod version '$gomod_version' has no trailing commit hash (e.g. a plain release tag); skipping submodule-sync check."
+            exit 0
+          fi
+
+          hash_len=${#gomod_hash}
+          submodule_hash=$(git -C libbpfgo rev-parse HEAD | cut -c1-"$hash_len")
+
+          if [ "$gomod_hash" != "$submodule_hash" ]; then
+            echo "libbpfgo submodule and go.mod are out of sync:"
+            echo "  go.mod pins commit:     $gomod_hash (from $gomod_version)"
+            echo "  submodule is checked out at: $submodule_hash"
+            echo "Update go.mod (go get github.com/aquasecurity/libbpfgo@<submodule commit>) or the submodule pointer so both reference the same commit."
+            exit 1
+          fi
+
+          echo "libbpfgo submodule and go.mod agree on commit $gomod_hash"
+
   test:
     name: Test
     runs-on: ubuntu-latest

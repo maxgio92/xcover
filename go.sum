@@ -1,5 +1,5 @@
-github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1.0.20260630133552-7d3a1fe9451f h1:B05uap5M/8eedCLZJUifwVQo7RcC8HYNWhxsRQcenAY=
-github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1.0.20260630133552-7d3a1fe9451f/go.mod h1:veHe4u3xEpl0TBV+wX0AFJWOsnteNPOhNklRbYf3d+k=
+github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483 h1:cIVgy3qUrc/zIJQijxC+VXou00JBtegmRghdMuCrQKc=
+github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483/go.mod h1:bRzdRnYH24hENJCufBHJvSbtFIhtWSAGg4OSWhvyLso=
 github.com/cpuguy83/go-md2man/v2 v2.0.6 h1:XJtiaUW6dEEqVuZiMTn1ldk455QWwEIsMIJlo5vtkx0=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
@@ -117,13 +118,51 @@ func (p *Probe) Init(_ context.Context) error {
 	return nil
 }
 
+// noisyAttachFailureSubstrings lists libbpf warning-level log fragments that
+// are emitted for uprobe/uprobe_multi attach failures we already surface as
+// wrapped Go errors (see Attach and attachSingleUprobes). The multi-uprobe
+// path logs one "failed to attach multi-uprobe" warning per bpf_link_create()
+// call for the whole batch, not per offset. The legacy uprobe path is taken
+// whenever the kernel lacks the modern perf uprobe PMU, and can also fire on
+// tracefs permission or mount issues unrelated to any specific offset. In
+// both cases the warning carries no information beyond what the caller-level
+// error already conveys, so it is downgraded to Debug. Any other warning
+// (e.g. malformed BPF object, missing kernel features) is left at Warn since
+// it is not otherwise surfaced and may be actionable.
+//
+// These substrings are coupled to libbpf's English log wording and may drift
+// across libbpf version bumps; re-check them against libbpf.c when updating
+// the vendored libbpf/libbpfgo version.
+var noisyAttachFailureSubstrings = []string{
+	"failed to attach multi-uprobe",              // bpf_link_create() for BPF_TRACE_UPROBE_MULTI
+	"failed to add legacy uprobe event",          // legacy uprobe: uprobe_events write
+	"failed to determine legacy uprobe event id", // legacy uprobe: id lookup after registration
+	"legacy uprobe perf_event_open() failed",     // legacy uprobe: perf_event_open()
+}
+
+// isNoisyAttachFailure reports whether msg matches a known, already-reported
+// uprobe attach failure that should be downgraded to Debug rather than
+// surfaced at Warn.
+func isNoisyAttachFailure(msg string) bool {
+	for _, substr := range noisyAttachFailureSubstrings {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Probe) configureBPFLogger() {
 	bpf.SetLoggerCbs(bpf.Callbacks{
 		Log: func(level int, msg string) {
-			if level == bpf.LibbpfWarnLevel {
-				// TODO: filter for specific attach failures.
-				p.logger.Debug().Msgf("libbpf warning: %s", msg)
+			if level != bpf.LibbpfWarnLevel {
+				return
 			}
+			if isNoisyAttachFailure(msg) {
+				p.logger.Debug().Msgf("libbpf warning: %s", msg)
+				return
+			}
+			p.logger.Warn().Msgf("libbpf warning: %s", msg)
 		},
 	})
 }

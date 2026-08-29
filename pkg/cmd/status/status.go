@@ -2,7 +2,6 @@ package status
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -31,11 +30,11 @@ func NewCommand(opts *options.Options) *cobra.Command {
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	if common.IsDaemonRunning() {
-		pidData, err := os.ReadFile(settings.PidFile)
+		pid, err := common.ReadPID()
 		if err != nil {
 			return errors.Wrap(err, "failed to read PID file")
 		}
-		fmt.Printf("%s is running (PID %s)\n", settings.CmdName, pidData)
+		fmt.Printf("%s is running (PID %d)\n", settings.CmdName, pid)
 	} else {
 		fmt.Printf("%s is not running\n", settings.CmdName)
 	}

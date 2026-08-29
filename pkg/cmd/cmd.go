@@ -41,7 +41,7 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 			logLevel, err := log.ParseLevel(o.LogLevel)
 			if err != nil {
-				o.Logger.Err(err).Msg("invalid log level")
+				return fmt.Errorf("invalid log level %q: %w", o.LogLevel, err)
 			}
 			o.Logger = o.Logger.Level(logLevel)
 			return nil

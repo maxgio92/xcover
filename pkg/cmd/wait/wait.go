@@ -10,7 +10,6 @@ import (
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/healthcheck"
-	log "github.com/rs/zerolog"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -49,17 +48,7 @@ func NewCommand(opts *options.Options) *cobra.Command {
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
-	var err error
-	o.LogLevel, err = cmd.Flags().GetString("log-level")
-	if err != nil {
-		return errors.Wrap(err, "failed to get log level")
-	}
-
-	logLevel, err := log.ParseLevel(o.LogLevel)
-	if err != nil {
-		o.Logger.Fatal().Err(err).Msg("invalid log level")
-	}
-	o.Logger = o.Logger.Level(logLevel).With().Str("component", "wait").Logger()
+	o.Logger = o.Logger.With().Str("component", "wait").Logger()
 
 	if !common.IsDaemonRunning() {
 		return ErrNotRunning

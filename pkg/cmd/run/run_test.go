@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	log "github.com/rs/zerolog"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 
 	"github.com/maxgio92/xcover/internal/settings"
@@ -88,4 +89,80 @@ func TestOptionsBuildTracer(t *testing.T) {
 	tracer := o.buildTracer(trace.ScopeBinary)
 
 	require.NotNil(t, tracer)
+}
+
+func TestForwardedFlagArgs(t *testing.T) {
+	newFlagSet := func() *pflag.FlagSet {
+		fs := pflag.NewFlagSet("run", pflag.ContinueOnError)
+		fs.String("path", "", "")
+		fs.Int("pid", -1, "")
+		fs.String("exclude", "", "")
+		fs.String("include", "", "")
+		fs.String("debug-path", "", "")
+		fs.Bool("no-build-id-check", false, "")
+		fs.Bool("detach", false, "")
+		fs.Bool("verbose", false, "")
+		fs.Bool("report", true, "")
+		fs.Bool("status", true, "")
+		fs.String("scope", "binary", "")
+		fs.Bool("userspace-bpf", false, "")
+		fs.String("log-level", "info", "")
+
+		return fs
+	}
+
+	tests := []struct {
+		name string
+		set  func(fs *pflag.FlagSet)
+		want []string
+	}{
+		{
+			name: "only explicitly set flags are forwarded",
+			set: func(fs *pflag.FlagSet) {
+				require.NoError(t, fs.Set("path", "/bin/true"))
+			},
+			want: []string{"--path=/bin/true"},
+		},
+		{
+			name: "detach is never forwarded even when set",
+			set: func(fs *pflag.FlagSet) {
+				require.NoError(t, fs.Set("path", "/bin/true"))
+				require.NoError(t, fs.Set("detach", "true"))
+			},
+			want: []string{"--path=/bin/true"},
+		},
+		{
+			name: "boolean flags are forwarded as true/false",
+			set: func(fs *pflag.FlagSet) {
+				require.NoError(t, fs.Set("path", "/bin/true"))
+				require.NoError(t, fs.Set("report", "false"))
+				require.NoError(t, fs.Set("no-build-id-check", "true"))
+			},
+			want: []string{"--no-build-id-check=true", "--path=/bin/true", "--report=false"},
+		},
+		{
+			name: "pid and log-level are forwarded like any other flag",
+			set: func(fs *pflag.FlagSet) {
+				require.NoError(t, fs.Set("path", "/bin/true"))
+				require.NoError(t, fs.Set("pid", "1234"))
+				require.NoError(t, fs.Set("log-level", "debug"))
+			},
+			want: []string{"--log-level=debug", "--path=/bin/true", "--pid=1234"},
+		},
+		{
+			name: "unset flags are not forwarded",
+			set:  func(fs *pflag.FlagSet) {},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFlagSet()
+			tt.set(fs)
+
+			got := forwardedFlagArgs(fs, daemonizeSkipFlags)
+			require.ElementsMatch(t, tt.want, got)
+		})
+	}
 }

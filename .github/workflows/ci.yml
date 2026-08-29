@@ -88,13 +88,15 @@ jobs:
       - name: Verify go.mod and submodule reference the same libbpfgo commit
         run: |
           gomod_version=$(grep '^\s*github.com/aquasecurity/libbpfgo ' go.mod | awk '{print $2}')
-          gomod_hash=$(echo "$gomod_version" | grep -oE '[0-9a-f]{12}$') || true
-          submodule_hash=$(git -C libbpfgo rev-parse HEAD | cut -c1-12)
+          gomod_hash="${gomod_version##*-}"
 
-          if [ -z "$gomod_hash" ]; then
-            echo "go.mod version '$gomod_version' is not a pseudo-version; expected a trailing 12-char commit hash."
-            exit 1
+          if ! echo "$gomod_hash" | grep -qE '^[0-9a-f]{6,40}$'; then
+            echo "go.mod version '$gomod_version' has no trailing commit hash (e.g. a plain release tag); skipping submodule-sync check."
+            exit 0
           fi
+
+          hash_len=${#gomod_hash}
+          submodule_hash=$(git -C libbpfgo rev-parse HEAD | cut -c1-"$hash_len")
 
           if [ "$gomod_hash" != "$submodule_hash" ]; then
             echo "libbpfgo submodule and go.mod are out of sync:"

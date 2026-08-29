@@ -81,11 +81,11 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 				time.Sleep(retryInterval)
 				continue
 			}
-			return fmt.Errorf("error checking socket: %w", err)
+			return errors.Wrap(err, "error checking socket")
 		}
 
 		if info.Mode()&os.ModeSocket == 0 {
-			return fmt.Errorf("path exists but is not a Unix socket: %s", o.socketPath)
+			return errors.Errorf("path exists but is not a Unix socket: %s", o.socketPath)
 		}
 
 		// Try to connect.

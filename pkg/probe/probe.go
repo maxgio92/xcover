@@ -129,6 +129,10 @@ func (p *Probe) Init(_ context.Context) error {
 // error already conveys, so it is downgraded to Debug. Any other warning
 // (e.g. malformed BPF object, missing kernel features) is left at Warn since
 // it is not otherwise surfaced and may be actionable.
+//
+// These substrings are coupled to libbpf's English log wording and may drift
+// across libbpf version bumps; re-check them against libbpf.c when updating
+// the vendored libbpf/libbpfgo version.
 var noisyAttachFailureSubstrings = []string{
 	"failed to attach multi-uprobe",              // bpf_link_create() for BPF_TRACE_UPROBE_MULTI
 	"failed to add legacy uprobe event",          // legacy uprobe: uprobe_events write

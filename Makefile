@@ -129,7 +129,7 @@ $(OUTPUT):
 
 # container build
 
-BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:049a5a98c1f739c86bd7c5ec3a133e53c0d707ba8e175c0638782d1cc5cee7db
+BUILD_IMAGE := ghcr.io/maxgio92/xcover-build@sha256:f7fb3eff668a1e6da2c54261114cee6de887119969e463fd22bc4e6852b7955b
 BUILD_IMAGE_USERSPACE := ghcr.io/maxgio92/xcover-build@sha256:c97795774ad0aa3d9208734bf0b1740a268202c190bffc67fb53a5955b2a269b
 
 define build-in-container

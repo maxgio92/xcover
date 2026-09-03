@@ -1,0 +1,8 @@
+In file included from /tmp/proof-d/min.bpf.c:2:
+/tmp/proof-d/bpf/bpf_helpers.h:318:12: error: conflicting types for 'bpf_stream_vprintk'
+  318 | extern int bpf_stream_vprintk(int stream_id, const char *fmt__str, const void *args,
+      |            ^
+/tmp/proof-d/vmlinux.h:169299:12: note: previous declaration is here
+ 169299 | extern int bpf_stream_vprintk(int stream_id, const char *fmt__str, const void *args, u32 len__sz) __weak __ksym;
+        |            ^
+1 error generated.

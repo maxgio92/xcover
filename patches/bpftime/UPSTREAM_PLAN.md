@@ -18,6 +18,11 @@ Verified against master `0834957169da` (2026-08-28):
   non-const declarations (`libbpf.c` lines 8205, 11513, 12098) and the
   5-parameter `bpf_stream_vprintk` declaration (`bpf_helpers.h` line 318).
 
+All four remaining bugs have reproduced artifacts under `proofs/` (build
+errors for C and D, an in-process attach/detach harness for A and B, plus a
+patched-build counterfactual). See `proofs/README.md`. Attach the relevant
+log when filing each issue.
+
 File four issues, one per remaining patch. File the two runtime bugs first
 (issues 2 and 3): they form one story (the leak that exhausts the pool, and
 the corruption that exhaustion causes) and should cross-reference each
@@ -90,6 +95,16 @@ Two design points worth agreeing on before a PR:
 - The sentinel makes OOB reads silent. A `SPDLOG_WARN` on that path may
   be preferable; happy to add it.
 
+## Reproduction
+
+An in-process harness drives the public shm API (the calls the syscall
+server makes on attach/detach), so no Frida or target is needed. With
+`BPFTIME_MAX_FD_COUNT=128`, the perf-event slot leak drains the pool and
+`open_fake_fd` returns fd 129 at cycle 41; the pinned code uses it as an
+unchecked `handlers[129]` index. Rebuilding the same binary with the fix
+returns a clean `-ENOSPC` instead. Harness and logs:
+https://github.com/maxgio92/xcover/tree/main/patches/bpftime/proofs
+
 I have a working patch and can open a PR:
 https://github.com/maxgio92/xcover/blob/main/patches/bpftime/0002-fix-handler-manager-oob-and-open-fake-fd-leak.patch
 ```
@@ -145,6 +160,14 @@ libbpf's uprobe path behaves. If two links ever shared a perf event,
 the cascade would destroy it under the surviving link; reference
 counting would be needed at that point.
 
+## Reproduction
+
+Same in-process harness as the handler-bounds issue. After
+`bpftime_close(link_fd)`, `bpftime_is_perf_event_fd(perf_fd)` still
+returns 1 on the pinned commit (slot leaked); with the fix it returns 0.
+Harness and logs:
+https://github.com/maxgio92/xcover/tree/main/patches/bpftime/proofs
+
 I have a working patch and can open a PR:
 https://github.com/maxgio92/xcover/blob/main/patches/bpftime/0003-fix-link-close-leaks-perf-event-handler.patch
 ```
@@ -193,6 +216,11 @@ to `const char *`:
 
 https://github.com/maxgio92/xcover/blob/main/patches/bpftime/0004-fix-gcc14-const-qualifier-in-bundled-libbpf.patch
 
+Reproduced by compiling the bundled libbpf with the flags its own
+Makefile uses (`-Werror -Wall -std=gnu89`): three
+`-Werror=discarded-qualifiers` errors. Log:
+https://github.com/maxgio92/xcover/blob/main/patches/bpftime/proofs/issue-c-const-qualifier.log
+
 Happy to open a PR for either option.
 ```
 
@@ -235,6 +263,12 @@ GCC 14 issue, the clean fix is a submodule bump and the interim fix is
 a small diff:
 
 https://github.com/maxgio92/xcover/blob/main/patches/bpftime/0005-fix-bpf-stream-vprintk-conflicting-decl.patch
+
+Reproduced by compiling a minimal BPF program that includes both this
+kernel's `vmlinux.h` (4-param decl) and the bundled `bpf_helpers.h`
+(5-param decl): `error: conflicting types for 'bpf_stream_vprintk'`.
+Source and log:
+https://github.com/maxgio92/xcover/tree/main/patches/bpftime/proofs
 
 Happy to open a PR for either option.
 ```

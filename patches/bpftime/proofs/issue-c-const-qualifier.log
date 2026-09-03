@@ -1,0 +1,13 @@
+libbpf.c: In function ‘kallsyms_cb’:
+libbpf.c:8207:13: error: assignment discards ‘const’ qualifier from pointer target type [-Werror=discarded-qualifiers]
+ 8207 |         res = strstr(sym_name, ".llvm.");
+      |             ^
+libbpf.c: In function ‘avail_kallsyms_cb’:
+libbpf.c:11515:31: error: assignment discards ‘const’ qualifier from pointer target type [-Werror=discarded-qualifiers]
+11515 |                 if (!(sym_sfx = strstr(sym_name, ".llvm.")))
+      |                               ^
+libbpf.c: In function ‘resolve_full_path’:
+libbpf.c:12103:35: error: assignment discards ‘const’ qualifier from pointer target type [-Werror=discarded-qualifiers]
+12103 |                         next_path = strchr(s, ':');
+      |                                   ^
+cc1: all warnings being treated as errors

@@ -1,0 +1,6 @@
+[B] created perf_fd=3 prog_fd=4 link_fd=5
+[B] before close: is_perf_event_fd(3) = 1
+[B] after  close: is_perf_event_fd(3) = 1  -> LEAKED (perf slot still allocated)
+[A] pool size = 128; looping attach/detach...
+[A] cycle 41: open_fake_fd returned fd=129 >= pool=128
+[A] -> this fd is used UNCHECKED as handlers[129] index (OOB write)

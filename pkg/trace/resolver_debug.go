@@ -238,9 +238,10 @@ func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) 
 }
 
 // verifyBuildIDMatch fails unless the executable and debug file carry the same
-// GNU build-id. The id is read from PT_NOTE program headers rather than the
-// .note.gnu.build-id section so that verification still works on executables
-// whose section table has been stripped.
+// GNU build-id. The id is read from PT_NOTE program headers first, falling
+// back to the .note.gnu.build-id section when the section table is present, so
+// that verification still works on executables whose section table has been
+// stripped (see buildID).
 func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error {
 	if skip {
 		logger.Warn().Msg("build-id verification disabled (--no-build-id-check)")
@@ -260,7 +261,9 @@ func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error 
 
 // buildID returns the GNU build-id from the first PT_NOTE segment that contains
 // one, or nil if absent. Reading from the program header (not the section)
-// means it survives section-table stripping.
+// means it survives section-table stripping. The Go linker emits a PT_NOTE
+// covering only .note.go.buildid, so .note.gnu.build-id is consulted as a
+// fallback when the section table is present.
 func buildID(f *elf.File) []byte {
 	for _, p := range f.Progs {
 		if p.Type != elf.PT_NOTE {
@@ -272,6 +275,11 @@ func buildID(f *elf.File) []byte {
 		}
 		if id := parseBuildIDNote(data, f.ByteOrder); id != nil {
 			return id
+		}
+	}
+	if s := f.Section(".note.gnu.build-id"); s != nil {
+		if data, err := s.Data(); err == nil {
+			return parseBuildIDNote(data, f.ByteOrder)
 		}
 	}
 	return nil

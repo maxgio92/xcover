@@ -3,9 +3,7 @@ package trace
 import (
 	"bytes"
 	"context"
-	"debug/elf"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"sort"
@@ -360,25 +358,12 @@ func (t *UserTracer) buildReport() *coverage.CoverageReport {
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
-		coverage.WithReportBuildID(exeBuildID(t.tracee.exePath)),
+		coverage.WithReportBuildID(t.tracee.exeBuildID()),
 		coverage.WithReportKernel(kernelRelease()),
 		coverage.WithReportXcoverVersion(settings.Version),
 		coverage.WithReportGeneratedAt(time.Now().UTC().Format(time.RFC3339)),
 		coverage.WithReportFunctions(functions),
 	)
-}
-
-// exeBuildID returns the hex GNU build-id of the executable at path, or an
-// empty string when the file cannot be read or carries no build-id: the
-// report is still useful without it.
-func exeBuildID(path string) string {
-	f, err := elf.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	return hex.EncodeToString(buildID(f))
 }
 
 // kernelRelease returns the running kernel release (uname -r), or an empty

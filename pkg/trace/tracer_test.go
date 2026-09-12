@@ -3,6 +3,7 @@ package trace
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -96,11 +97,13 @@ func TestHandleEvent_DecodeError(t *testing.T) {
 func newReportTracer(t *testing.T) *UserTracer {
 	t.Helper()
 	tracee := NewUserTracee(WithTraceeExePath("testdata/gotest"))
+	id, err := hex.DecodeString(testGotestBuildID)
+	require.NoError(t, err)
+	tracee.buildID = id
 	tracee.funcs = map[cookie]funcInfo{
 		0x30: {name: "main.c", offset: 0x30},
 		0x10: {name: "main.b", offset: 0x10},
 		0x20: {name: "main.a", offset: 0x20},
-		// Two functions folded onto the same offset sort by name.
 		0x40: {name: "main.z", offset: 0x40},
 	}
 	return NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
@@ -145,6 +148,34 @@ func TestWriteReport(t *testing.T) {
 		{Name: "main.c", Offset: 0x30, Hit: true},
 		{Name: "main.z", Offset: 0x40, Hit: false},
 	}, report.Functions)
+}
+
+// TestWriteReport_BuildIDCapturedAtInit verifies that the report carries the
+// build-id of the binary whose functions were resolved, even when the file is
+// no longer at exe_path when the report is written.
+func TestWriteReport_BuildIDCapturedAtInit(t *testing.T) {
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "gotest")
+	fixture, err := os.ReadFile("testdata/gotest")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(exePath, fixture, 0o755))
+
+	tracee := NewUserTracee(
+		WithTraceeExePath(exePath),
+		WithTraceeSymPatternExclude(testExcludedSyms),
+	)
+	require.NoError(t, tracee.Init(t.Context()))
+	require.Equal(t, testGotestBuildID, tracee.exeBuildID())
+
+	require.NoError(t, os.Rename(exePath, filepath.Join(dir, "gotest.rebuilt")))
+
+	tracer := NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
+	path := filepath.Join(dir, "report.json")
+	require.NoError(t, tracer.writeReport(path))
+	report := readReport(t, path)
+
+	require.Equal(t, exePath, report.ExePath)
+	require.Equal(t, testGotestBuildID, report.BuildID)
 }
 
 func TestWriteReport_Deterministic(t *testing.T) {

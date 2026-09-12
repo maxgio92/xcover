@@ -68,6 +68,17 @@ jobs:
           file xcover
           ./xcover --help
 
+      # Reuses the cgo toolchain and libbpf built by make xcover.
+      - name: Verify generated docs are current
+        run: |
+          make docs
+          if [ -n "$(git status --porcelain README.md docs/)" ]; then
+            echo "README.md or docs/ are out of date. Run 'make docs' and commit the result."
+            git status --porcelain README.md docs/
+            git diff -- README.md docs/
+            exit 1
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -174,6 +185,19 @@ jobs:
       - name: Run tests
         run: make test-integration
 
+      # Runs after make test-integration so libbpfgo/output exists, and uses the
+      # Makefile's CGO env so cgo type-checks against the submodule's libbpf
+      # headers (the ones the binary links) rather than the system headers.
+      # The userspace tag is excluded: pkg/bpftime go:embeds the bpftime
+      # shared libraries, so vet fails unless make bpftime-libs ran first.
+      - name: Vet (default, e2e and integration tags)
+        env:
+          CC: gcc
+        run: |
+          export CGO_CFLAGS="-I $PWD/libbpfgo/output"
+          export CGO_LDFLAGS="-lelf -lz $PWD/libbpfgo/output/libbpf/libbpf.a"
+          go vet ./... && go vet -tags e2e ./e2e/ && go vet -tags integration ./pkg/trace/
+
   e2e:
     name: E2E
     runs-on: ubuntu-latest
@@ -225,7 +249,7 @@ jobs:
       - name: Run e2e tests
         run: |
           sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
-          sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v -test.count=1
+          sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v -test.count=1
 
   lint:
     name: Lint

@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,11 +40,12 @@ func TestOptionsSetup(t *testing.T) {
 	t.Cleanup(func() { settings.PidFile = origPidFile })
 
 	tests := []struct {
-		name      string
-		scope     string
-		pid       int
-		wantScope trace.Scope
-		wantErr   bool
+		name         string
+		scope        string
+		pid          int
+		userspaceBPF bool
+		wantScope    trace.Scope
+		wantErr      bool
 	}{
 		{
 			name:      "binary scope",
@@ -89,6 +91,43 @@ func TestOptionsSetup(t *testing.T) {
 			pid:     -2,
 			wantErr: true,
 		},
+		{
+			// libbpf takes a C int; anything wider would be truncated.
+			name:    "pid above MaxInt32 is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     math.MaxInt32 + 1,
+			wantErr: true,
+		},
+		{
+			// Truncates to pid_t -1, which kill(2) accepts and libbpf reads
+			// as every process.
+			name:    "pid 1<<32-1 is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     1<<32 - 1,
+			wantErr: true,
+		},
+		{
+			// Truncates to 0, which libbpf maps to xcover's own PID.
+			name:    "pid 1<<32 is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     1 << 32,
+			wantErr: true,
+		},
+		{
+			// bpftime stores the pid but never enforces it.
+			name:         "positive pid with userspace BPF is rejected",
+			scope:        string(trace.ScopeBinary),
+			pid:          os.Getpid(),
+			userspaceBPF: true,
+			wantErr:      true,
+		},
+		{
+			name:         "all processes with userspace BPF",
+			scope:        string(trace.ScopeBinary),
+			pid:          -1,
+			userspaceBPF: true,
+			wantScope:    trace.ScopeBinary,
+		},
 	}
 
 	for _, tt := range tests {
@@ -96,6 +135,7 @@ func TestOptionsSetup(t *testing.T) {
 			o := newTestOptions(t)
 			o.scope = tt.scope
 			o.pid = tt.pid
+			o.userspaceBPF = tt.userspaceBPF
 
 			scope, err := o.setup()
 

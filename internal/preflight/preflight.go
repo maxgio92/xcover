@@ -1,6 +1,7 @@
 // Package preflight validates the running environment before any BPF object
-// is loaded, so that unsupported kernels and missing privileges surface as
-// actionable errors instead of libbpf's bare "invalid argument".
+// is loaded, so that missing privileges surface as an actionable error instead
+// of an EPERM deep in the attach path, and kernels that look too old for
+// uprobe_multi get an advisory before libbpf's bare "invalid argument".
 package preflight
 
 import (
@@ -16,19 +17,17 @@ import (
 // SkipFlag is the name of the run flag that bypasses the checks.
 const SkipFlag = "skip-preflight"
 
-var (
-	// ErrKernelTooOld is returned when the running kernel is older than
-	// MinKernel.
-	ErrKernelTooOld = errors.New("kernel too old")
+// ErrMissingCapabilities is returned when the effective capability set lacks
+// what is needed to load and attach the BPF programs.
+var ErrMissingCapabilities = errors.New("missing capabilities")
 
-	// ErrMissingCapabilities is returned when the effective capability set
-	// lacks what is needed to load and attach the BPF programs.
-	ErrMissingCapabilities = errors.New("missing capabilities")
-)
-
-// MinKernel is the oldest kernel the default (kernel BPF) mode supports:
-// BPF_TRACE_UPROBE_MULTI landed in 6.6, and it in turn implies
+// MinKernel is the oldest upstream kernel the default (kernel BPF) mode
+// supports: BPF_TRACE_UPROBE_MULTI landed in 6.6, and it in turn implies
 // bpf_get_attach_cookie for uprobes (5.15) and BPF_MAP_TYPE_RINGBUF (5.8).
+//
+// It is informational only. Distribution kernels backport uprobe_multi to
+// older releases (RHEL 9.4 ships it on 5.14), so a release older than
+// MinKernel yields an advisory, not an error.
 var MinKernel = Version{Major: 6, Minor: 6}
 
 // Version is a kernel release reduced to the major.minor pair the checks
@@ -54,8 +53,9 @@ func (v Version) Before(o Version) bool {
 // ParseRelease extracts major.minor from a kernel release string as reported
 // by uname(2). Distro suffixes are tolerated: "6.12.0-1-amd64" and
 // "6.18.44-r0-gcp-6.18" both parse as 6.12 and 6.18. Anything past the minor
-// component is ignored, since patch levels and local tags do not affect the
-// features being checked.
+// component is ignored: the upstream feature set is keyed on major.minor,
+// and the patch level or local tag says nothing reliable about which
+// features a distribution backported.
 func ParseRelease(release string) (Version, error) {
 	fields := strings.SplitN(release, ".", 3)
 	if len(fields) < 2 {
@@ -86,34 +86,36 @@ func leadingDigits(s string) string {
 	return s[:end]
 }
 
-// CheckKernel reads the running kernel release and returns ErrKernelTooOld
-// (wrapped) when it is older than MinKernel. The detected version is returned
-// on success so callers can log it.
-func CheckKernel() (Version, error) {
+// CheckKernel reads the running kernel release and returns the detected
+// version together with an advisory, non-empty when the release looks older
+// than MinKernel. The version number alone cannot tell whether uprobe_multi
+// is present, since distributions backport it, so the caller should log the
+// advisory rather than fail on it. The error covers uname and parse failures.
+func CheckKernel() (Version, string, error) {
 	var uts unix.Utsname
 	if err := unix.Uname(&uts); err != nil {
-		return Version{}, errors.Wrap(err, "failed to read kernel release")
+		return Version{}, "", errors.Wrap(err, "failed to read kernel release")
 	}
 
 	return checkRelease(unix.ByteSliceToString(uts.Release[:]))
 }
 
 // checkRelease parses release and compares it with MinKernel, producing the
-// user-facing ErrKernelTooOld error. Kept separate from the uname call so the
-// error path is unit-testable.
-func checkRelease(release string) (Version, error) {
+// user-facing advisory. Kept separate from the uname call so it is
+// unit-testable.
+func checkRelease(release string) (Version, string, error) {
 	v, err := ParseRelease(release)
 	if err != nil {
-		return Version{}, err
+		return Version{}, "", err
 	}
 	if v.Before(MinKernel) {
-		return v, errors.Wrapf(ErrKernelTooOld,
-			"kernel %s detected, xcover needs Linux %s or newer (uprobe_multi); "+
-				"the version check is a heuristic, pass --%s if your kernel carries the backports",
-			release, MinKernel, SkipFlag)
+		return v, fmt.Sprintf(
+			"kernel %s is older than %s; uprobe_multi needs a distribution backport "+
+				"(RHEL 9.4 on 5.14 has one), attach will fail otherwise; pass --%s to silence this (it also skips the capability check)",
+			release, MinKernel, SkipFlag), nil
 	}
 
-	return v, nil
+	return v, "", nil
 }
 
 // capNames maps the capability bits the checks care about to their names.
@@ -180,7 +182,7 @@ type Options struct {
 	logger       log.Logger
 
 	// Check implementations, replaceable in tests.
-	checkKernel       func() (Version, error)
+	checkKernel       func() (Version, string, error)
 	checkCapabilities func() error
 }
 
@@ -203,9 +205,10 @@ func WithLogger(logger log.Logger) Option {
 	return func(o *Options) { o.logger = logger }
 }
 
-// Run executes the kernel and capability checks in order and returns the
-// first failure. Checks are skipped when requested or when running in
-// userspace BPF mode.
+// Run reports the kernel version advisory, if any, and returns the capability
+// check failure. A kernel that cannot be read or parsed is logged and
+// otherwise ignored, since the version is informational. Checks are skipped
+// when requested or when running in userspace BPF mode.
 func Run(opts ...Option) error {
 	o := &Options{
 		logger:            log.Nop(),
@@ -221,15 +224,23 @@ func Run(opts ...Option) error {
 		return nil
 	}
 
-	kernel, err := o.checkKernel()
-	if err != nil {
-		return err
+	kernel, advisory, err := o.checkKernel()
+	switch {
+	case err != nil:
+		o.logger.Warn().Err(err).Msg("kernel version not checked")
+	case advisory != "":
+		o.logger.Warn().Msg(advisory)
 	}
+
 	if err := o.checkCapabilities(); err != nil {
 		return err
 	}
 
-	o.logger.Debug().Msgf("preflight ok: kernel %s, capabilities present", kernel)
+	if kernel != (Version{}) {
+		o.logger.Debug().Msgf("preflight ok: kernel %s, capabilities present", kernel)
+	} else {
+		o.logger.Debug().Msg("preflight ok: capabilities present")
+	}
 
 	return nil
 }

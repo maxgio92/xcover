@@ -70,7 +70,7 @@ It supports programs compiled to ELF.
 	cmd.Flags().BoolVar(&o.status, "status", true, "Periodically print a status of the trace")
 	cmd.Flags().StringVar(&o.scope, "scope", string(trace.ScopeBinary), `Function scope: "binary" (all functions) or "project" (project module only, Go binaries)`)
 	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental, implies --"+preflight.SkipFlag+")")
-	cmd.Flags().BoolVar(&o.skipPreflight, preflight.SkipFlag, false, fmt.Sprintf("Skip the kernel (Linux %s+) and capability (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN) preflight checks", preflight.MinKernel))
+	cmd.Flags().BoolVar(&o.skipPreflight, preflight.SkipFlag, false, fmt.Sprintf("Skip the preflight checks: the kernel version advisory (Linux %s+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)", preflight.MinKernel))
 
 	if err := cmd.MarkFlagRequired("path"); err != nil {
 		panic(err)
@@ -130,7 +130,8 @@ func (o *Options) setup() (trace.Scope, error) {
 	return scope, nil
 }
 
-// preflight validates kernel and privileges before any BPF object is loaded.
+// preflight warns on an old-looking kernel and validates privileges before
+// any BPF object is loaded.
 func (o *Options) preflight() error {
 	return preflight.Run(
 		preflight.WithSkip(o.skipPreflight),

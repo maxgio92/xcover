@@ -1,9 +1,11 @@
 package preflight
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -115,17 +117,19 @@ func TestMissingCapabilities(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	failKernel := func() (Version, error) { return Version{5, 4}, ErrKernelTooOld }
-	okKernel := func() (Version, error) { return Version{6, 12}, nil }
+	oldKernel := func() (Version, string, error) { return Version{5, 14}, "kernel 5.14 is older than 6.6", nil }
+	unreadableKernel := func() (Version, string, error) { return Version{}, "", errors.New("uname failed") }
+	okKernel := func() (Version, string, error) { return Version{6, 12}, "", nil }
 	failCaps := func() error { return ErrMissingCapabilities }
 	okCaps := func() error { return nil }
 
 	tests := []struct {
-		name    string
-		opts    []Option
-		kernel  func() (Version, error)
-		caps    func() error
-		wantErr error
+		name     string
+		opts     []Option
+		kernel   func() (Version, string, error)
+		caps     func() error
+		wantErr  error
+		wantWarn string
 	}{
 		{
 			name:   "all checks pass",
@@ -133,10 +137,23 @@ func TestRun(t *testing.T) {
 			caps:   okCaps,
 		},
 		{
-			name:    "kernel failure is returned first",
-			kernel:  failKernel,
-			caps:    failCaps,
-			wantErr: ErrKernelTooOld,
+			name:     "old kernel is a warning, not an error",
+			kernel:   oldKernel,
+			caps:     okCaps,
+			wantWarn: "older than 6.6",
+		},
+		{
+			name:     "unreadable kernel is a warning, not an error",
+			kernel:   unreadableKernel,
+			caps:     okCaps,
+			wantWarn: "kernel version not checked",
+		},
+		{
+			name:     "old kernel does not mask the capability failure",
+			kernel:   oldKernel,
+			caps:     failCaps,
+			wantErr:  ErrMissingCapabilities,
+			wantWarn: "older than 6.6",
 		},
 		{
 			name:    "capability failure",
@@ -145,27 +162,34 @@ func TestRun(t *testing.T) {
 			wantErr: ErrMissingCapabilities,
 		},
 		{
-			name:   "skip bypasses failing checks",
+			name:   "skip bypasses failing checks and silences the advisory",
 			opts:   []Option{WithSkip(true)},
-			kernel: failKernel,
+			kernel: oldKernel,
 			caps:   failCaps,
 		},
 		{
 			name:   "userspace bpf implies skip",
 			opts:   []Option{WithUserspaceBPF(true)},
-			kernel: failKernel,
+			kernel: oldKernel,
 			caps:   failCaps,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := append(tt.opts, func(o *Options) {
+			var logs bytes.Buffer
+			opts := append(tt.opts, WithLogger(log.New(&logs)), func(o *Options) {
 				o.checkKernel = tt.kernel
 				o.checkCapabilities = tt.caps
 			})
 
 			err := Run(opts...)
+			if tt.wantWarn == "" {
+				require.NotContains(t, logs.String(), `"level":"warn"`)
+			} else {
+				require.Contains(t, logs.String(), `"level":"warn"`)
+				require.Contains(t, logs.String(), tt.wantWarn)
+			}
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 				return
@@ -178,11 +202,10 @@ func TestRun(t *testing.T) {
 // TestCheckKernelReadsRunningRelease only asserts the syscall path works and
 // yields a parseable version; the box this runs on may legitimately be old.
 func TestCheckKernelReadsRunningRelease(t *testing.T) {
-	v, err := CheckKernel()
-	if err != nil {
-		require.True(t, errors.Is(err, ErrKernelTooOld), "got %v", err)
-	}
+	v, advisory, err := CheckKernel()
+	require.NoError(t, err)
 	require.NotZero(t, v.Major)
+	require.Equal(t, v.Before(MinKernel), advisory != "")
 }
 
 // TestCheckCapabilitiesUnprivileged asserts the capget path works whatever
@@ -199,16 +222,19 @@ func TestCheckCapabilitiesUnprivileged(t *testing.T) {
 }
 
 func TestCheckRelease(t *testing.T) {
-	v, err := checkRelease("5.15.0-1051-azure")
-	require.ErrorIs(t, err, ErrKernelTooOld)
-	require.Contains(t, err.Error(), "--"+SkipFlag)
-	require.Contains(t, err.Error(), MinKernel.String())
-	require.Equal(t, Version{Major: 5, Minor: 15}, v)
+	v, advisory, err := checkRelease("5.14.0-427.13.1.el9_4.x86_64")
+	require.NoError(t, err)
+	require.Equal(t, Version{Major: 5, Minor: 14}, v)
+	require.Contains(t, advisory, "5.14.0-427.13.1.el9_4.x86_64")
+	require.Contains(t, advisory, MinKernel.String())
+	require.Contains(t, advisory, "backport")
+	require.Contains(t, advisory, "--"+SkipFlag)
 
-	v, err = checkRelease("6.6.0")
+	v, advisory, err = checkRelease("6.6.0")
 	require.NoError(t, err)
 	require.Equal(t, Version{Major: 6, Minor: 6}, v)
+	require.Empty(t, advisory)
 
-	_, err = checkRelease("garbage")
+	_, _, err = checkRelease("garbage")
 	require.Error(t, err)
 }

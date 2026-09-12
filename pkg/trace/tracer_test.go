@@ -49,8 +49,7 @@ func TestHandleEvent_Verbose(t *testing.T) {
 }
 
 // TestHandleEvent_UnknownCookie verifies that an event carrying a cookie not
-// present in tracee.funcs is still acked, matching the pre-refactor behavior
-// of counting unresolved cookies toward the reported coverage.
+// present in tracee.funcs is not acked, so it cannot count toward coverage.
 func TestHandleEvent_UnknownCookie(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -77,5 +76,19 @@ func TestHandleEvent_UnknownCookie(t *testing.T) {
 	tracer.handleEvent(data.Bytes())
 
 	_, ok := tracer.ack.Load(cookie(2))
-	require.True(t, ok)
+	require.False(t, ok)
+}
+
+// TestHandleEvent_DecodeError verifies that a truncated event is dropped
+// instead of being acked as the zero cookie.
+func TestHandleEvent_DecodeError(t *testing.T) {
+	tracee := NewUserTracee(WithTraceeExePath("testdata/gotest"))
+	tracee.funcs = map[cookie]funcInfo{0: {name: "main.zero"}}
+
+	tracer := NewUserTracer(WithTracerTracee(tracee))
+
+	tracer.handleEvent([]byte{0x01, 0x02})
+
+	_, ok := tracer.ack.Load(cookie(0))
+	require.False(t, ok)
 }

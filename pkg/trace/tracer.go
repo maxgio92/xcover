@@ -20,8 +20,13 @@ import (
 )
 
 const (
-	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
-	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
+	// bpfUprobeMultiAttachMaxOffsets is the number of offsets attached per
+	// uprobe_multi link. libbpf passes the offsets and cookies arrays to the
+	// kernel by pointer with a count, so bpf_attr size is not a constraint; the
+	// kernel caps a single link at MAX_UPROBE_MULTI_CNT (1<<20) entries. The
+	// batch stays well below that and bounded so a failing batch does not take
+	// down the attachment of the whole binary.
+	bpfUprobeMultiAttachMaxOffsets = 1 << 16
 )
 
 var (

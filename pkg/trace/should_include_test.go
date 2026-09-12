@@ -65,7 +65,7 @@ func TestNewSymFilter_InvalidPattern(t *testing.T) {
 
 // TestFilterFuncSyms exercises the per-symbol filtering behind funcSymsFromELF
 // with synthetic symbols: undefined imports, zero-address placeholders and the
-// Go linker's zero-size text markers are dropped; every other zero-size
+// Go linker's text and FIPS markers are dropped; every other zero-size
 // function is kept, including an unsized one in the last byte of .text.
 func TestFilterFuncSyms(t *testing.T) {
 	const textEnd = 0x5000
@@ -81,6 +81,9 @@ func TestFilterFuncSyms(t *testing.T) {
 		{Name: "runtime.text", Info: funcInfo, Section: 1, Value: 0x1000, Size: 0},
 		{Name: "runtime.text.1", Info: funcInfo, Section: 1, Value: 0x2800, Size: 0},
 		{Name: "runtime.etext", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0},
+		// GOFIPS140 builds emit 1-byte padding symbols around the FIPS module.
+		{Name: "go:textfipsstart", Info: funcInfo, Section: 1, Value: 0x2b00, Size: 1},
+		{Name: "go:textfipsend", Info: funcInfo, Section: 1, Value: 0x2c00, Size: 1},
 		// A sized function whose name only resembles a marker is not one.
 		{Name: "runtime.textOff", Info: funcInfo, Section: 1, Value: 0x2900, Size: 0x10},
 		{Name: "runtime.text.x", Info: funcInfo, Section: 1, Value: 0x2a00, Size: 0},

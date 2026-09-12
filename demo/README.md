@@ -23,15 +23,29 @@ script from its directory:
 ```shell
 make xcover                    # or: make xcover-userspace
 cd demo/basic
-sudo bash demo.sh              # userspace scenarios run without sudo
+sudo --preserve-env=TMUX bash demo.sh   # userspace scenarios run without sudo
 ```
+
+## Log pane
+
+When a demo runs inside tmux it splits a pane on the right that tails
+`/tmp/xcover.log`, the file `xcover run --detach` writes to (the userspace
+scenarios tail `~/.bpftime/runtime.log` instead). sudo drops `TMUX` from the
+environment by default, so the kernel demos need `sudo --preserve-env=TMUX`
+(or a tmux server started as root) for the pane to open; with plain `sudo` the
+demo runs without a pane. On a BPF_DEBUG build (`make xcover/bpf BPF_DEBUG=1`,
+then rebuild xcover) set `XCOVER_DEMO_TRACE_PIPE=1` to tail the kernel trace
+pipe and see `bpf_printk` output. The trace pipe is root-only and the pane is
+spawned by the tmux server, so this only works when tmux itself runs as root;
+otherwise the pane prints a notice and falls back to the log file. The pane is
+closed when the demo exits. Outside tmux nothing changes.
 
 ## Record and publish
 
 ```shell
 cd demo/basic
 asciinema rec -t "xcover - Functional Test Coverage Profiler" \
-  --command "sudo ./demo.sh" xcover-demo.cast
+  --command "sudo --preserve-env=TMUX ./demo.sh" xcover-demo.cast
 asciinema upload xcover-demo.cast
 ```
 

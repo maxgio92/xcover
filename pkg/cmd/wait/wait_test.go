@@ -1,6 +1,7 @@
 package wait
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,20 +52,35 @@ func TestRun_DaemonExitsWhilePolling(t *testing.T) {
 	})
 	require.NoError(t, os.WriteFile(path, []byte(strconv.Itoa(child.Process.Pid)), 0644))
 
+	// Listen on the socket without ever sending ReadyMsg: Run connecting to
+	// it is the observable proof that the initial liveness check has passed
+	// and the loop is polling, so the child can be killed without a timing
+	// guess. Run then sleeps one retry interval, re-checks liveness and must
+	// return ErrExited.
+	sockPath := filepath.Join(t.TempDir(), "hc.sock")
+	ln, err := net.Listen("unix", sockPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
 	o := &Options{
 		Options:    options.NewOptions(),
-		socketPath: filepath.Join(t.TempDir(), "never-created.sock"),
+		socketPath: sockPath,
 		timeout:    30 * time.Second,
 	}
 
 	done := make(chan error, 1)
 	go func() { done <- o.Run(nil, nil) }()
 
-	// Let the loop observe the live daemon at least once, then kill and reap
-	// it so Signal(0) stops succeeding.
-	time.Sleep(700 * time.Millisecond)
+	// Bound the accept so a Run that returns before dialing fails the test
+	// with its error instead of hanging until the package timeout.
+	require.NoError(t, ln.(*net.UnixListener).SetDeadline(time.Now().Add(5*time.Second)))
+	conn, err := ln.Accept()
+	require.NoError(t, err)
+	// Kill and reap the child so Signal(0) stops succeeding, then hang up so
+	// Run's read fails and it goes round the loop again.
 	require.NoError(t, child.Process.Kill())
 	_ = child.Wait()
+	require.NoError(t, conn.Close())
 
 	select {
 	case err := <-done:

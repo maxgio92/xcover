@@ -9,80 +9,87 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done, `[-]` dropped.
 
 ## Phase 1: stop producing silent wrong reports (release 0.6.0)
 
-Each group is one scoped PR with atomic commits.
+Each group is one scoped PR with atomic commits. Implemented on 2026-09-12
+on branches `fix/tracer-lifecycle`, `fix/symbol-resolution`,
+`fix/report-schema`, `fix/bpf-map-sizing`, `fix/pid-filter`,
+`feat/preflight`, `test/e2e-ack` and `docs/limitations`, pending review
+and push. Follow-ups found during review: the DWARF fallback in
+`resolver_debug.go` builds symbols with a zero Section, so `definedFuncs`
+drops all of them (pre-existing, needs a test that reaches that branch);
+`runtime.etext` detection only looks at the single `.text` section.
 
 ### PR 1: tracer lifecycle (`fix/tracer-lifecycle`)
 
-- [ ] Return errors from `probe.Attach` and `attachProbe`; fail `Run` before
+- [x] Return errors from `probe.Attach` and `attachProbe`; fail `Run` before
       `NotifyReadiness` when any batch fails to attach [A1][B6].
-- [ ] Remove the feed relay or make its send select on `ctx.Done()`; drain
+- [x] Remove the feed relay or make its send select on `ctx.Done()`; drain
       buffered events on cancel before returning [A2].
-- [ ] Shut the health listener down on every `Init` error path [A5].
-- [ ] `stop`: configurable grace period, non-zero exit on force kill [A4].
-- [ ] `wait`: re-check daemon liveness inside the polling loop [A5].
-- [ ] Unit tests: attach failure, pipeline drain, stop and wait paths [A18].
+- [x] Shut the health listener down on every `Init` error path [A5].
+- [x] `stop`: configurable grace period, non-zero exit on force kill [A4].
+- [x] `wait`: re-check daemon liveness inside the polling loop [A5].
+- [x] Unit tests: attach failure, pipeline drain, stop and wait paths [A18].
 
 ### PR 2: symbol resolution (`fix/symbol-resolution`)
 
-- [ ] Skip `SHN_UNDEF` and `Value == 0` symbols in `funcSymsFromELF` [B1].
-- [ ] Compile include and exclude regexes once and return an error on an
+- [x] Skip `SHN_UNDEF` and `Value == 0` symbols in `funcSymsFromELF` [B1].
+- [x] Compile include and exclude regexes once and return an error on an
       invalid pattern [B5].
-- [ ] Escape the module path like the Go linker (`.` to `%2e` in the last
+- [x] Escape the module path like the Go linker (`.` to `%2e` in the last
       element) in `filterByModulePath` [B3].
-- [ ] Skip zero-size end markers such as `runtime.etext` [B8].
-- [ ] Tests: synthetic `SHN_UNDEF` symbol, PIE C fixture asserting no
+- [x] Skip zero-size end markers such as `runtime.etext` [B8].
+- [x] Tests: synthetic `SHN_UNDEF` symbol, PIE C fixture asserting no
       offset 0, `gopkg.in/yaml%2ev3` case, invalid regex.
 
 ### PR 3: report correctness and schema (`fix/report-schema`)
 
-- [ ] `writeReport`: skip unknown cookies instead of aborting `Range`;
+- [x] `writeReport`: skip unknown cookies instead of aborting `Range`;
       compute the percentage from the resolved set [A9][B7] (issue #175).
-- [ ] `handleEvent`: return early on decode error [A9].
-- [ ] Return the `os.Create` error immediately [A13].
-- [ ] Sort `funcs_traced` and `funcs_ack` [A10].
-- [ ] Add `schema_version`, `build_id`, `kernel`, `xcover_version`, and a
+- [x] `handleEvent`: return early on decode error [A9].
+- [x] Return the `os.Create` error immediately [A13].
+- [x] Sort `funcs_traced` and `funcs_ack` [A10].
+- [x] Add `schema_version`, `build_id`, `kernel`, `xcover_version`, and a
       per-function list with `name`, `offset`, `hit` [A10].
-- [ ] Tests: unknown cookie, sorted output, schema fields.
+- [x] Tests: unknown cookie, sorted output, schema fields.
 
 ### PR 4: BPF sizing and hot path (`fix/bpf-map-sizing`)
 
-- [ ] Size `seen_funcs` from the resolved function count before load, or
+- [x] Size `seen_funcs` from the resolved function count before load, or
       fail init when the count exceeds the map [A6].
-- [ ] Move the `seen_funcs` update after a successful ringbuf reserve [A6].
-- [ ] Guard `bpf_printk` behind a debug build flag [A7].
-- [ ] Attach in one `uprobe_multi` call or a large batch; fix the comment on
+- [x] Move the `seen_funcs` update after a successful ringbuf reserve [A6].
+- [x] Guard `bpf_printk` behind a debug build flag [A7].
+- [x] Attach in one `uprobe_multi` call or a large batch; fix the comment on
       the batch constant [A12].
 
 ### PR 5: `--pid` (`fix/pid-filter`)
 
-- [ ] Plumb the flag through to the attach calls and record it in the report,
+- [x] Plumb the flag through to the attach calls and record it in the report,
       or remove the flag and the README section [A8][B2].
-- [ ] Note the 6.6 to 6.9 kernel thread-filter bug in docs [17].
+- [x] Note the 6.6 to 6.9 kernel thread-filter bug in docs [17].
 
 ### PR 6: preflight (`feat/preflight`)
 
-- [ ] Detect `uprobe_multi` support at init and fail with a clear message
+- [x] Detect `uprobe_multi` support at init and fail with a clear message
       naming the 6.6 minimum [A15][14].
-- [ ] Check for `CAP_BPF` and `CAP_PERFMON` and report which is missing [23].
+- [x] Check for `CAP_BPF` and `CAP_PERFMON` and report which is missing [23].
 
 ### PR 7: CI and tests (`test/e2e-ack`)
 
-- [ ] e2e asserts `funcs_ack` contains the fixture functions [B9].
-- [ ] Skip only on an explicit non-root check, not on error text [B9].
-- [ ] Healthcheck tests use `t.TempDir()` sockets [A18].
-- [ ] Benchmark driver waits on the health socket instead of sleeping [A18].
+- [x] e2e asserts `funcs_ack` contains the fixture functions [B9].
+- [x] Skip only on an explicit non-root check, not on error text [B9].
+- [x] Healthcheck tests use `t.TempDir()` sockets [A18].
+- [x] Benchmark driver waits on the health socket instead of sleeping [A18].
 
 ### PR 8: documentation truth (`docs/limitations`)
 
-- [ ] Add a Limitations section: kernel 6.6+, `CAP_BPF` plus `CAP_PERFMON`,
+- [x] Add a Limitations section: kernel 6.6+, `CAP_BPF` plus `CAP_PERFMON`,
       main executable only, non-inlined functions only, one name per aliased
       offset, per-hit trap cost with measured numbers [B4][B11][A15].
-- [ ] Remove "Production-ready" and "traces all function calls" [B11].
-- [ ] Add the Userspace BPF section to `README.md.tpl` [B10].
-- [ ] Delete `docs/xcover_profile.md` and `docs/xcover_start.md` [B11].
-- [ ] Fix `xcover_report.json`, `libbf-dev`, `make test` references [B11].
-- [ ] Rewrite `demo/DEMO_SETUP.md` for the current layout [B12].
-- [ ] State that entry-only probes avoid the Go uretprobe crash [25].
+- [x] Remove "Production-ready" and "traces all function calls" [B11].
+- [x] Add the Userspace BPF section to `README.md.tpl` [B10].
+- [x] Delete `docs/xcover_profile.md` and `docs/xcover_start.md` [B11].
+- [x] Fix `xcover_report.json`, `libbf-dev`, `make test` references [B11].
+- [x] Rewrite `demo/DEMO_SETUP.md` for the current layout [B12].
+- [x] State that entry-only probes avoid the Go uretprobe crash [25].
 
 ### Release hygiene
 
@@ -90,7 +97,7 @@ Each group is one scoped PR with atomic commits.
 - [ ] Per-arch BPF object output paths in `.goreleaser.yml` [B13].
 - [ ] Document the runtime `libelf` and `zlib` dependency or link them
       statically [B13].
-- [ ] Add version variables for the `-X` flags or drop the flags [B13].
+- [x] Add version variables for the `-X` flags or drop the flags [B13].
 
 ## Phase 2: integrate with the coverage ecosystem
 

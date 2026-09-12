@@ -24,7 +24,6 @@ const (
 )
 
 var (
-	feedChBufSize  = 4096
 	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
 	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath
 	// for existing callers; internal/settings is the source of truth so
@@ -157,7 +156,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	}
 	defer t.probe.CloseEventBuf()
 
-	feedCh, wg := t.startPipeline(ctx, eventsCh)
+	wg := t.startPipeline(ctx, eventsCh)
 
 	// Signal via the UDS that the tracer is ready,
 	// that is, it's consuming function events.
@@ -165,41 +164,30 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	t.hcServer.NotifyReadiness()
 
 	// Print status bar.
-	go t.printStatusBar(ctx, eventsCh, feedCh)
+	go t.printStatusBar(ctx, eventsCh)
 
 	return t.waitAndReport(ctx, wg)
 }
 
-// startPipeline starts polling the ring buffer and spawns the ingest and
-// process goroutines that carry events from it to the handler, tracked by
-// the returned WaitGroup so the caller can wait for them to drain on
-// shutdown.
-func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) (chan []byte, *sync.WaitGroup) {
+// startPipeline starts polling the ring buffer and spawns the goroutine that
+// consumes events from it, tracked by the returned WaitGroup so the caller
+// can wait for it to drain on shutdown.
+func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) *sync.WaitGroup {
 	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
 	// hence outside of InitEventBuf(), because of CGO callback from C which can make
 	// the go runtime to lock goroutine to the thread.
 	go t.probe.PollEventBuf()
 
-	// Read events from the ring buffer to internal feed.
 	t.logger.Debug().Msg("consuming events from ring buffer")
-
-	feedCh := make(chan []byte, feedChBufSize)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.ingestEvents(ctx, eventsCh, feedCh)
+		t.processEvents(ctx, eventsCh)
 	}()
 
-	// Consume events from internal feed.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		t.processEvents(ctx, feedCh)
-	}()
-
-	return feedCh, &wg
+	return &wg
 }
 
 // waitAndReport blocks until ctx is cancelled, waits for the pipeline
@@ -239,25 +227,23 @@ func (t *UserTracer) attachProbe(ctx context.Context) error {
 	return nil
 }
 
-func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
+// processEvents handles events until ctx is cancelled, then drains what is
+// already buffered in events so tail events are acked before the report is
+// written.
+func (t *UserTracer) processEvents(ctx context.Context, events <-chan []byte) {
 	for {
 		select {
 		case data := <-events:
-			// This must be as fast as possible.
-			feed <- data
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
-	for {
-		select {
-		case data := <-feed:
 			t.handleEvent(data)
 		case <-ctx.Done():
-			return
+			for {
+				select {
+				case data := <-events:
+					t.handleEvent(data)
+				default:
+					return
+				}
+			}
 		}
 	}
 }

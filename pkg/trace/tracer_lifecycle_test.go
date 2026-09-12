@@ -3,6 +3,7 @@ package trace
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	"github.com/maxgio92/xcover/internal/utils"
 )
 
 // fakeProbe satisfies Probe without a BPF-capable kernel. InitEventBuf hands
@@ -69,6 +72,13 @@ func newLifecycleTracer(t *testing.T, p Probe) (*UserTracer, string) {
 	return tracer, HealthCheckSockPath
 }
 
+func encodeEvent(t *testing.T, ck cookie) []byte {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	require.NoError(t, binary.Write(buf, binary.LittleEndian, Event{Cookie: ck}))
+	return buf.Bytes()
+}
+
 // TestRun_AttachFailure asserts that a failed attach fails Run before
 // readiness is signalled, so a `wait` client never reads ReadyMsg, and that
 // the BPF module is still torn down and the socket removed.
@@ -100,4 +110,38 @@ func TestRun_AttachFailure(t *testing.T) {
 
 	_, err = os.Stat(sockPath)
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestRun_DrainsBufferedEventsOnCancel asserts that every event already
+// buffered when the context is cancelled is acked before Run returns.
+func TestRun_DrainsBufferedEventsOnCancel(t *testing.T) {
+	const n = 300
+
+	p := &fakeProbe{events: make(chan []byte, n)}
+	tracer, _ := newLifecycleTracer(t, p)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	require.NoError(t, tracer.Init(ctx))
+
+	for i := 0; i < n; i++ {
+		p.events <- encodeEvent(t, cookie(lifecycleEntries[i%len(lifecycleEntries)].Offset))
+	}
+	// Cancel before Run consumes anything so the whole batch goes through the
+	// drain path rather than the steady-state loop.
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- tracer.Run(ctx) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+
+	require.Equal(t, uint64(n), tracer.consumed)
+	require.Equal(t, len(lifecycleEntries), utils.LenSyncMap(&tracer.ack))
+	require.Empty(t, p.events)
+	require.True(t, p.modClosed)
 }

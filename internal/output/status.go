@@ -20,7 +20,7 @@ func StatusBar(ctx context.Context, refreshRate time.Duration, printF func()) {
 	}
 }
 
-func PrettyTraceStatus(cov float64, rate uint64, evtUtil, feedUtil int) string {
+func PrettyTraceStatus(cov float64, rate uint64, evtUtil int) string {
 	return fmt.Sprintf("\r%-50s %-20s %-20s",
 		fmt.Sprintf("Coverage by functions: [%s] %6.2f%%", ProgressBar(int(cov), 40), cov),
 		fmt.Sprintf("Events/s: %4d", rate),

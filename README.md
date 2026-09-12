@@ -152,9 +152,21 @@ Non-Go binaries always use binary scope.
 
 ### Process filter
 
-`--pid` is accepted by the CLI but is not applied yet: probes attach to the
-executable file and fire for every process that runs it. Track progress in the
-issue tracker before relying on this flag.
+```shell
+xcover run --path EXE_PATH --pid PID
+```
+
+`--pid` restricts tracing to one process. The process must be running when the
+probes attach, otherwise the run fails before readiness is signalled. Without
+`--pid`, every process that executes the binary counts toward coverage.
+
+The kernel `uprobe_multi` filter matches the thread group, so every thread of
+the process is traced on fixed kernels. Linux 6.6 to 6.9 without the backport of
+commit 46ba0e49b642 filtered by thread instead, so on those kernels only hits
+from the main thread are recorded.
+
+The filter is kernel mode only: `--pid` is refused together with
+`--userspace-bpf`, because bpftime does not enforce the uprobe PID.
 
 ## Symbolization
 
@@ -254,14 +266,17 @@ type CoverageReport struct {
 	FuncsAck    []string `json:"funcs_ack"`    // functions that ran at least once
 	CovByFunc   float64  `json:"cov_by_func"`  // share of funcs_traced that ran, in percent
 	ExePath     string   `json:"exe_path"`
+	PID         int      `json:"pid,omitempty"`  // set when --pid restricted the trace
 }
 ```
 
 Notes on the numbers:
 
 - Coverage is per function. There is no line, branch or call-count information.
-- Hits are aggregated across every process that ran the binary during the
-  session. The report does not say which process exercised a function.
+- Without `--pid`, hits are aggregated across every process that ran the
+  binary during the session and the report does not say which process
+  exercised a function. With `--pid`, the `pid` field records the process the
+  trace was restricted to.
 - If any probe fails to attach, `xcover run` exits with an error before
   signalling readiness and writes no report, so a low number never hides an
   attach failure. `xcover wait` returns an error in that case; check

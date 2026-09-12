@@ -23,7 +23,7 @@ xcover run [flags]
       --include string      Regex pattern to include function symbol names
       --no-build-id-check   Skip GNU build-id verification between --path and --debug-path
   -p, --path string         Path to the ELF executable
-      --pid int             Only trace the process with this PID (-1 traces every process executing the binary) (default -1)
+      --pid int             Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary) (default -1)
       --report              Generate report (as xcover-report.json) (default true)
       --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
       --status              Periodically print a status of the trace (default true)

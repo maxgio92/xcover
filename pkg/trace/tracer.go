@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -24,8 +25,14 @@ const (
 )
 
 var (
-	feedChBufSize  = 4096
 	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
+	// drainQuietPeriod is how long the event consumer keeps receiving after
+	// shutdown starts without any event arriving before it gives up. It
+	// covers records still in the kernel ring or an in-flight libbpf poll
+	// callback (poll timeout is probe.evtRingBufPollTimeout, 60 ms), since
+	// libbpfgo exposes no way to consume the ring synchronously. Tests
+	// shorten it.
+	drainQuietPeriod = 150 * time.Millisecond
 	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath
 	// for existing callers; internal/settings is the source of truth so
 	// cgo-free consumers (e.g. e2e tests) can reference it without pulling
@@ -37,9 +44,22 @@ type Event struct {
 	Cookie cookie
 }
 
+// Probe is the set of BPF probe operations UserTracer drives. It is
+// satisfied by *probe.Probe and exists so tests can inject a fake through
+// WithTracerProbe without a BPF-capable kernel.
+type Probe interface {
+	Init(ctx context.Context) error
+	Attach(ctx context.Context, exePath string, offsets, cookies []uint64) error
+	InitEventBuf(ctx context.Context) (chan []byte, error)
+	PollEventBuf()
+	CloseEventBuf()
+	DetachLinks()
+	CloseBPFMod()
+}
+
 type UserTracer struct {
 	// Tracer objects.
-	probe *probe.Probe
+	probe Probe
 	// Tracee objects.
 	tracee *UserTracee
 	// User functions being acknowledged.
@@ -77,7 +97,7 @@ func (t *UserTracer) validateTracee() error {
 	return nil
 }
 
-func (t *UserTracer) Init(ctx context.Context) error {
+func (t *UserTracer) Init(ctx context.Context) (err error) {
 	if t.writer == nil {
 		t.writer = os.Stdout
 	}
@@ -93,12 +113,24 @@ func (t *UserTracer) Init(ctx context.Context) error {
 	if err := t.hcServer.InitializeListener(ctx); err != nil {
 		return err
 	}
+	// Run only shuts the listener down once it starts, so every later Init
+	// failure must do it here or the socket file outlives the process.
+	defer func() {
+		if err == nil {
+			return
+		}
+		if serr := t.hcServer.ShutdownListener(); serr != nil {
+			t.logger.Warn().Err(serr).Msg("failed to stop listener")
+		}
+	}()
 
-	probeOpts := []probe.Option{probe.WithLogger(t.logger)}
-	if t.userspaceBPF {
-		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	if t.probe == nil {
+		probeOpts := []probe.Option{probe.WithLogger(t.logger)}
+		if t.userspaceBPF {
+			probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+		}
+		t.probe = probe.NewProbe(probeOpts...)
 	}
-	t.probe = probe.NewProbe(probeOpts...)
 	if err := t.probe.Init(ctx); err != nil {
 		return errors.Wrap(err, "error initializing BPF probe")
 	}
@@ -124,14 +156,18 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Attach one uprobe per function to trace.
-	t.logger.Debug().Msg("attaching trace to selected functions")
-	t.attachProbe(ctx)
 	// Defers run LIFO: CloseBPFMod must be registered before CloseEventBuf so
 	// it runs second, after CloseEventBuf stops the ring buffer poll goroutine.
-	// Registering it right after attach also detaches the uprobes when
-	// InitEventBuf fails.
+	// Registering it before attach also detaches the links created by the
+	// batches that succeeded when a later batch or InitEventBuf fails.
 	defer t.probe.CloseBPFMod()
+
+	// Attach one uprobe per function to trace. Fail before signalling
+	// readiness so `wait` never reports ready for a tracer with no probes.
+	t.logger.Debug().Msg("attaching trace to selected functions")
+	if err := t.attachProbe(ctx); err != nil {
+		return err
+	}
 
 	eventsCh, err := t.probe.InitEventBuf(ctx)
 	if err != nil {
@@ -139,7 +175,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	}
 	defer t.probe.CloseEventBuf()
 
-	feedCh, wg := t.startPipeline(ctx, eventsCh)
+	stop := make(chan struct{})
+	wg := t.startPipeline(eventsCh, stop)
 
 	// Signal via the UDS that the tracer is ready,
 	// that is, it's consuming function events.
@@ -147,59 +184,57 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	t.hcServer.NotifyReadiness()
 
 	// Print status bar.
-	go t.printStatusBar(ctx, eventsCh, feedCh)
+	go t.printStatusBar(ctx, eventsCh)
 
-	return t.waitAndReport(ctx, wg)
+	return t.waitAndReport(ctx, stop, wg)
 }
 
-// startPipeline starts polling the ring buffer and spawns the ingest and
-// process goroutines that carry events from it to the handler, tracked by
-// the returned WaitGroup so the caller can wait for them to drain on
-// shutdown.
-func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) (chan []byte, *sync.WaitGroup) {
+// startPipeline starts polling the ring buffer and spawns the goroutine that
+// consumes events from it until stop is closed, tracked by the returned
+// WaitGroup so the caller can wait for it to drain on shutdown.
+func (t *UserTracer) startPipeline(eventsCh <-chan []byte, stop <-chan struct{}) *sync.WaitGroup {
 	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
 	// hence outside of InitEventBuf(), because of CGO callback from C which can make
 	// the go runtime to lock goroutine to the thread.
 	go t.probe.PollEventBuf()
 
-	// Read events from the ring buffer to internal feed.
 	t.logger.Debug().Msg("consuming events from ring buffer")
-
-	feedCh := make(chan []byte, feedChBufSize)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.ingestEvents(ctx, eventsCh, feedCh)
+		t.processEvents(eventsCh, stop)
 	}()
 
-	// Consume events from internal feed.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		t.processEvents(ctx, feedCh)
-	}()
-
-	return feedCh, &wg
+	return &wg
 }
 
-// waitAndReport blocks until ctx is cancelled, waits for the pipeline
-// goroutines tracked by wg to drain, then writes the coverage report. The
-// health check listener is stopped by Run's deferred ShutdownListener call.
-func (t *UserTracer) waitAndReport(ctx context.Context, wg *sync.WaitGroup) error {
+// waitAndReport blocks until ctx is cancelled, detaches the uprobes so no new
+// events are produced, closes stop so the consumer drains what is still in
+// flight, waits for it, then writes the coverage report. The health check
+// listener is stopped by Run's deferred ShutdownListener call.
+func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg *sync.WaitGroup) error {
 	// Waiting for signals.
 	<-ctx.Done()
 	t.logger.Debug().Msg("received signal")
 
-	// Waiting for reader and consumer to complete.
+	// Detach before draining: the drain is bounded by a quiet period, so
+	// events must stop being produced for it to terminate and to be complete.
+	t.probe.DetachLinks()
+	close(stop)
+
+	// Waiting for the consumer to drain.
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
 	return t.writeReport(ReportFileName)
 }
 
-func (t *UserTracer) attachProbe(ctx context.Context) {
+// attachProbe attaches the probe to every tracee function in uprobe_multi
+// sized batches and returns the first batch failure; links created by earlier
+// batches are left for CloseBPFMod to destroy.
+func (t *UserTracer) attachProbe(ctx context.Context) error {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
 	offsets, cookies := t.tracee.GetFuncProbes()
@@ -211,30 +246,55 @@ func (t *UserTracer) attachProbe(ctx context.Context) {
 		}
 
 		if err := t.probe.Attach(ctx, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
-			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
+			return errors.Wrap(err, "error attaching probe")
 		}
 	}
+
+	return nil
 }
 
-func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
+// processEvents handles events until stop is closed, then keeps receiving
+// until no event has arrived for drainQuietPeriod, so events still buffered
+// in the channel, in the kernel ring, or in an in-flight poll callback are
+// acked before the report is written. The caller detaches the uprobes before
+// closing stop, so the quiet period is reached once the ring is empty.
+func (t *UserTracer) processEvents(events <-chan []byte, stop <-chan struct{}) {
 	for {
 		select {
 		case data := <-events:
-			// This must be as fast as possible.
-			feed <- data
-		case <-ctx.Done():
+			t.handleEvent(data)
+		case <-stop:
+			t.drainEvents(events)
 			return
 		}
 	}
 }
 
-func (t *UserTracer) processEvents(ctx context.Context, feed <-chan []byte) {
+// drainEvents handles events until drainQuietPeriod elapses without one.
+func (t *UserTracer) drainEvents(events <-chan []byte) {
+	quiet := time.NewTimer(drainQuietPeriod)
+	defer quiet.Stop()
+
 	for {
 		select {
-		case data := <-feed:
+		case data := <-events:
 			t.handleEvent(data)
-		case <-ctx.Done():
-			return
+			// Go 1.23+ timer channels are synchronous, so Reset alone is
+			// enough: no stale tick can be delivered after it.
+			quiet.Reset(drainQuietPeriod)
+		case <-quiet.C:
+			// When the timer and the channel are both ready select picks at
+			// random, so returning here could leave events queued for
+			// RingBuffer.Stop to discard. Only return once the channel has
+			// been observed empty; an event found here renews the quiet
+			// period so a producer that wakes up late keeps its batch.
+			select {
+			case data := <-events:
+				t.handleEvent(data)
+				quiet.Reset(drainQuietPeriod)
+			default:
+				return
+			}
 		}
 	}
 }

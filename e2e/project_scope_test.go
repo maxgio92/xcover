@@ -115,7 +115,7 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	stopped := false
 	defer func() {
 		if !stopped {
-			_, _ = commandOutput(workDir, 10*time.Second, xcover, "stop")
+			_, _ = commandOutput(workDir, 10*time.Second, xcover, "stop", "--timeout=5s")
 		}
 	}()
 
@@ -132,7 +132,7 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	t.Log("running fixture binary")
 	runCommand(t, workDir, 10*time.Second, bin)
 	t.Log("stopping xcover daemon")
-	runCommand(t, workDir, 10*time.Second, xcover, "stop")
+	runCommand(t, workDir, 10*time.Second, xcover, "stop", "--timeout=5s")
 	stopped = true
 
 	report := readReport(t, filepath.Join(workDir, reportFile))

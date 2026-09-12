@@ -9,7 +9,8 @@ xcover stop [flags]
 ### Options
 
 ```
-  -h, --help   help for stop
+  -h, --help               help for stop
+      --timeout duration   Grace period to wait for the daemon to exit before force killing it (default 30s)
 ```
 
 ### Options inherited from parent commands

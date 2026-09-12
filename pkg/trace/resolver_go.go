@@ -27,6 +27,8 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Validated before goModulePath so a bad pattern surfaces as
+		// ErrInvalidPattern even when the binary cannot be read.
 		if err := ValidateSymPatterns(include, exclude); err != nil {
 			return nil, err
 		}

@@ -81,6 +81,22 @@ func TestBinaryScopeRetainsNonProjectSymbols(t *testing.T) {
 func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	t.Helper()
 
+	xcover := xcoverBinary(t)
+	workDir := t.TempDir()
+	bin := buildGoFixture(t, workDir, projectScopeGoScenario)
+	t.Logf("built Go fixture binary: %s", bin)
+
+	return runXcoverSession(t, xcover, workDir, []string{"--path", bin, "--scope=" + scope}, func() {
+		t.Log("running fixture binary")
+		runCommand(t, workDir, 10*time.Second, bin)
+	})
+}
+
+// xcoverBinary returns the xcover binary under test or skips when it is not
+// configured, and skips when another xcover instance owns the fixed paths.
+func xcoverBinary(t *testing.T) string {
+	t.Helper()
+
 	xcover := os.Getenv(xcoverBinEnv)
 	if xcover == "" {
 		t.Skipf("%s is not set", xcoverBinEnv)
@@ -90,25 +106,24 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	}
 	t.Logf("using xcover binary: %s", xcover)
 	requireNoRunningXcover(t)
+	return xcover
+}
 
-	workDir := t.TempDir()
-	bin := buildGoProjectFixture(t, workDir)
-	t.Logf("built Go fixture binary: %s", bin)
+// runXcoverSession starts a detached xcover run in workDir with runArgs, waits
+// for readiness, calls exercise, stops the daemon and returns the report it
+// wrote to workDir.
+func runXcoverSession(t *testing.T, xcover, workDir string, runArgs []string, exercise func()) coverage.CoverageReport {
+	t.Helper()
+
 	logOffset := fileSize(t, logFile)
+	args := append([]string{"--log-level=debug", "run", "--detach", "--status=false"}, runArgs...)
 
-	t.Logf("starting xcover daemon with --scope=%s", scope)
-	if out, err := commandOutput(workDir, 10*time.Second, xcover,
-		"--log-level=debug",
-		"run",
-		"--path", bin,
-		"--scope="+scope,
-		"--detach",
-		"--status=false",
-	); err != nil {
+	t.Logf("starting xcover daemon: %s", commandLine(xcover, args...))
+	if out, err := commandOutput(workDir, 10*time.Second, xcover, args...); err != nil {
 		if shouldSkipForRuntimeEnvironment(out) {
 			t.Skipf("xcover e2e runtime requirements are unavailable:\n%s", strings.TrimSpace(out))
 		}
-		t.Fatalf("%s failed: %v\n%s", commandLine(xcover, "--log-level=debug", "run", "--path", bin, "--scope="+scope, "--detach", "--status=false"), err, out)
+		t.Fatalf("%s failed: %v\n%s", commandLine(xcover, args...), err, out)
 	}
 	t.Log("xcover daemon start command returned")
 
@@ -129,8 +144,8 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	}
 	t.Log("xcover reported ready")
 
-	t.Log("running fixture binary")
-	runCommand(t, workDir, 10*time.Second, bin)
+	exercise()
+
 	t.Log("stopping xcover daemon")
 	runCommand(t, workDir, 10*time.Second, xcover, "stop", "--timeout=5s")
 	stopped = true
@@ -161,16 +176,18 @@ func requireNoRunningXcover(t *testing.T) {
 	}
 }
 
-func buildGoProjectFixture(t *testing.T, workDir string) string {
+// buildGoFixture copies the named testdata scenario into workDir and builds
+// it as a Go module so project scope resolves its functions.
+func buildGoFixture(t *testing.T, workDir, scenario string) string {
 	t.Helper()
 
 	srcDir := filepath.Join(workDir, "fixture")
-	scenarioDir := fixtureScenarioDir(t, projectScopeGoScenario)
+	scenarioDir := fixtureScenarioDir(t, scenario)
 	if err := os.CopyFS(srcDir, os.DirFS(scenarioDir)); err != nil {
-		t.Fatalf("failed to copy fixture scenario %s: %v", projectScopeGoScenario, err)
+		t.Fatalf("failed to copy fixture scenario %s: %v", scenario, err)
 	}
 
-	bin := filepath.Join(workDir, "testmod")
+	bin := filepath.Join(workDir, scenario)
 	runCommand(t, srcDir, 30*time.Second, "go", "build", "-buildvcs=false", "-o", bin, ".")
 	return bin
 }

@@ -54,7 +54,7 @@ It supports programs compiled to ELF.
 	}
 
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
-	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+	cmd.Flags().IntVar(&o.pid, "pid", -1, "Only trace the process with this PID (-1 traces every process executing the binary)")
 
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
@@ -115,12 +115,36 @@ func (o *Options) setup() (trace.Scope, error) {
 	// Store PID file.
 	common.WritePID(os.Getpid())
 
+	if err := validatePID(o.pid); err != nil {
+		return "", err
+	}
+
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
 		return "", err
 	}
 
 	return scope, nil
+}
+
+// validatePID checks the --pid flag. libbpf maps 0 to xcover's own PID and
+// the kernel rejects other negative values, so only -1 (all processes) or a
+// real PID make sense. A PID that is not running is rejected here because the
+// kernel would refuse the uprobe_multi link with ESRCH and a typo would
+// otherwise turn into a zero-coverage run. Signal 0 checks existence without
+// delivering anything; EPERM means the process exists but is owned by someone
+// else, which is still a live target. The check is inherently racy.
+func validatePID(pid int) error {
+	if pid == -1 {
+		return nil
+	}
+	if pid <= 0 {
+		return errors.Errorf("invalid --pid %d: must be -1 or a positive PID", pid)
+	}
+	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+		return errors.Wrapf(err, "--pid %d: no such process", pid)
+	}
+	return nil
 }
 
 // buildTracer constructs the tracee to trace and the tracer that drives it,
@@ -149,6 +173,7 @@ func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 		trace.WithTracerReport(o.report),
 		trace.WithTracerStatus(o.status),
 		trace.WithTracerUserspaceBPF(o.userspaceBPF),
+		trace.WithTracerPID(o.pid),
 		trace.WithTracerTracee(tracee),
 	)
 }
@@ -178,6 +203,12 @@ func forwardedFlagArgs(fs *pflag.FlagSet, skip map[string]bool) []string {
 }
 
 func (o *Options) daemonize(cmd *cobra.Command) error {
+	// Validate the target before forking so the error reaches the user
+	// instead of only the daemon log.
+	if err := validatePID(o.pid); err != nil {
+		return err
+	}
+
 	// Check if already running.
 	if common.IsDaemonRunning() {
 		fmt.Println("Daemon already running")

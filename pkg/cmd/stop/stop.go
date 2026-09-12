@@ -85,12 +85,17 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	// Force kill if still running. The daemon writes its report on SIGTERM,
 	// so SIGKILL means the report may never have been produced.
-	if err := process.Kill(); errors.Is(err, os.ErrProcessDone) {
+	err = process.Kill()
+	switch {
+	case errors.Is(err, os.ErrProcessDone):
 		// The daemon exited on its own during the last poll interval.
 		fmt.Printf("%s stopped (PID %d)\n", settings.CmdName, pid)
 		common.RemovePID()
 
 		return nil
+	case err != nil:
+		// The daemon is still alive (e.g. EPERM), so keep the PID file.
+		return errors.Wrapf(err, "failed to force kill %s (PID %d)", settings.CmdName, pid)
 	}
 	common.RemovePID()
 	fmt.Printf("%s force killed (PID %d), the coverage report may be missing\n", settings.CmdName, pid)

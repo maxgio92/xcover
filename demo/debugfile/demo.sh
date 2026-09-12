@@ -2,7 +2,7 @@
 # Automated xcover debug file demo for asciinema
 # Demonstrates coverage profiling on a stripped C binary using a separate
 # debug file to resolve function names.
-# Run as: sudo bash automated-demo-debugfile.sh
+# Run as: sudo bash demo.sh
 
 set -euo pipefail
 

@@ -4,9 +4,11 @@ xcover can optionally run BPF programs entirely in userspace via the
 [bpftime](https://github.com/eunomia-bpf/bpftime) runtime, eliminating the
 kernel trap cost on every traced function call.
 
-> **Status:** experimental. Benchmarks (see `benchmark/`) measure a ~65% lower
-> per-call overhead on the hit path and ~63% on the miss path compared to
-> kernel uprobes.
+> **Status:** experimental and not yet in a tagged release. The
+> [benchmark](../benchmark/README.md) measures about 65% lower per-call
+> overhead on the already-seen path and 63% on the first-hit path compared to
+> kernel uprobes (one machine, 100 probes, 10 rounds). It also runs without
+> `CAP_BPF`.
 
 ## How it works
 
@@ -17,8 +19,8 @@ Two bpftime shared libraries are involved:
   itself at startup via `memfd_create` and self re-exec.
 
 - **bpftime-agent.so** - handles uprobe hits in userspace inside the tracee.
-  Must be preloaded manually by the user before the tracee starts (see Usage).
-  For automatic injection see the `xcover-userspace-dlopen` branch.
+  Must be preloaded by the user before the tracee starts (see Usage).
+  Automatic injection is not implemented.
 
 ## Requirements
 
@@ -33,35 +35,56 @@ Two bpftime shared libraries are involved:
 
 ## Prerequisites
 
-Build the bpftime libraries and embed them into xcover:
+Build the dedicated binary. The target clones the pinned bpftime commit,
+applies `patches/bpftime/*.patch`, builds the two shared libraries, copies
+them to `pkg/bpftime/libs/` and compiles xcover with `-tags userspace`:
 
 ```sh
-make bpftime-libs
-go build .
+make xcover-userspace
 ```
+
+It needs cmake 3.16+, a C++17 compiler, libelf, zlib and LLVM 18. The plain
+`xcover` binary accepts `--userspace-bpf` but fails at startup with
+"xcover was not built with userspace BPF support"; use `xcover-userspace`.
+
+The examples below assume `xcover-userspace` is on your `PATH` as `xcover`.
 
 ## Usage
 
-**1. Extract the agent library**
+**1. Start xcover in userspace BPF mode**
 
 ```sh
-export LD_PRELOAD=$(xcover agent extract)
+xcover run --detach --path ./my-binary --userspace-bpf
+xcover wait
 ```
 
-**2. Run the tracee with the agent preloaded**
+**2. Extract the agent library**
 
 ```sh
-LD_PRELOAD=$LD_PRELOAD ./my-binary &
+export XCOVER_AGENT=$(xcover agent extract)
 ```
 
-**3. Run xcover in userspace BPF mode**
+`agent extract` writes the embedded agent to a temporary file
+(`/tmp/bpftime-agent-*.so`) and prints the path. The file is not removed
+automatically.
+
+**3. Run the tracee with the agent preloaded**
 
 ```sh
-xcover run --path ./my-binary --userspace-bpf
+LD_PRELOAD=$XCOVER_AGENT ./my-binary test-1
+LD_PRELOAD=$XCOVER_AGENT ./my-binary test-2
 ```
 
-Everything else (waiting for readiness, stopping, collecting the report) works
-the same as in kernel mode.
+**4. Stop and read the report**
+
+```sh
+xcover stop
+jq .cov_by_func xcover-report.json
+```
+
+Waiting for readiness, stopping and the report format are the same as in
+kernel mode. The two demos in `demo/userspace/` and `demo/userspace-stripped/`
+script this flow.
 
 ## Limitations
 
@@ -78,8 +101,13 @@ control, and for which we want the most transparent UX possible.
 - **Dynamically linked binaries only.** See Requirements and the Binary
   support section.
 - **Self re-exec on first invocation.** The `--userspace-bpf` flag causes
-  xcover to re-exec itself with the syscall-server preloaded. Transparent in
-  normal usage but may interact unexpectedly with process supervisors.
+  xcover to re-exec itself with the syscall-server preloaded and
+  `XCOVER_BPFTIME_LOADED=1` set. Transparent in normal usage but may interact
+  unexpectedly with process supervisors.
+- **One uprobe per function.** bpftime does not implement `uprobe_multi`, so
+  xcover attaches a perf-event uprobe per function. Attaching thousands of
+  functions is slower than in kernel mode and consumes bpftime handler slots;
+  the benchmark raises `BPFTIME_MAX_FD_COUNT` for this reason.
 
 ## Binary support
 

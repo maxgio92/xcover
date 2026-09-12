@@ -36,7 +36,7 @@ N ?= 10000
 # And:
 # N = 10,000
 # t_miss = 2,674 ns
-# t_hit = 1,151 ns ns
+# t_hit = 1,151 ns
 #
 # And the consequent calculations:
 # T_miss = N × t_miss = 10,000 × 2,674 ns ≈ 26.7 ms

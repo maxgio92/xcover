@@ -1,7 +1,7 @@
 #!/bin/bash
 # Automated xcover userspace BPF demo for asciinema
-# Requires bpftime libs to be built: make bpftime-libs && go build .
-# Run as: sudo bash automated-demo-userspace.sh
+# Requires the userspace build: make xcover-userspace
+# Run as: bash demo.sh (no root needed)
 
 set -euo pipefail
 

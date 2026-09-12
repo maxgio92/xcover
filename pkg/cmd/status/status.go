@@ -19,7 +19,7 @@ func NewCommand(opts *options.Options) *cobra.Command {
 	o := &Options{opts}
 	cmd := &cobra.Command{
 		Use:               "status",
-		Short:             fmt.Sprintf("Check the the %s profiler status", settings.CmdName),
+		Short:             fmt.Sprintf("Check the %s profiler status", settings.CmdName),
 		DisableAutoGenTag: true,
 		SilenceUsage:      true,
 		RunE:              o.Run,

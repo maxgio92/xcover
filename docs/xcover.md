@@ -22,8 +22,8 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 ### SEE ALSO
 
-* [xcover run](docs/xcover_run.md)	 - Run the coverage profiling for a program
-* [xcover status](docs/xcover_status.md)	 - Check the the xcover profiler status
-* [xcover stop](docs/xcover_stop.md)	 - Stop the xcover profiler daemon
-* [xcover wait](docs/xcover_wait.md)	 - Wait for the xcover profiler to be ready
+* [xcover run](xcover_run.md)	 - Run the coverage profiling for a program
+* [xcover status](xcover_status.md)	 - Check the xcover profiler status
+* [xcover stop](xcover_stop.md)	 - Stop the xcover profiler daemon
+* [xcover wait](xcover_wait.md)	 - Wait for the xcover profiler to be ready
 

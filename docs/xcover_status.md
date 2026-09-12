@@ -1,6 +1,6 @@
 ## xcover status
 
-Check the the xcover profiler status
+Check the xcover profiler status
 
 ```
 xcover status [flags]
@@ -20,5 +20,5 @@ xcover status [flags]
 
 ### SEE ALSO
 
-* [xcover](README.md)	 - xcover is a functional test coverage profiler
+* [xcover](../README.md)	 - xcover is a functional test coverage profiler
 

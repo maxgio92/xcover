@@ -148,3 +148,8 @@ func TestEmbeddedObjectHasNoPrintk(t *testing.T) {
 		}
 	}
 }
+
+func TestNewProbePID(t *testing.T) {
+	require.Equal(t, -1, NewProbe().pid, "default must trace every process")
+	require.Equal(t, 1234, NewProbe(WithPID(1234)).pid)
+}

@@ -82,7 +82,7 @@ type UserTracer struct {
 
 func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	tracer := &UserTracer{
-		UserTracerOptions: &UserTracerOptions{},
+		UserTracerOptions: &UserTracerOptions{pid: -1},
 	}
 	for _, opt := range opts {
 		opt(tracer)
@@ -159,6 +159,7 @@ func (t *UserTracer) defaultProbe(funcCount int) Probe {
 	probeOpts := []probe.Option{
 		probe.WithLogger(t.logger),
 		probe.WithFuncCount(funcCount),
+		probe.WithPID(t.pid),
 	}
 	if t.userspaceBPF {
 		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
@@ -413,6 +414,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
+		coverage.WithReportPID(t.pid),
 	)
 
 	file, err := os.Create(reportPath)

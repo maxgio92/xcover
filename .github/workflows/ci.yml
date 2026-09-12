@@ -225,7 +225,7 @@ jobs:
       - name: Run e2e tests
         run: |
           sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
-          sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v -test.count=1
+          sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v -test.count=1
 
   lint:
     name: Lint

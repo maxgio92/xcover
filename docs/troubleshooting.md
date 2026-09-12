@@ -210,16 +210,15 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 
 - Functions the compiler inlined have a symbol but no entry point, so their
   probe never fires.
-- More than 40960 distinct functions ran. The BPF `seen_funcs` map holds
-  40960 entries and the insert is not checked (`bpf/trace.bpf.c`), so
-  further functions are not deduplicated and their events keep flowing; the
-  effect on the report depends on which functions were recorded first.
+- The kernel rejected a `seen_funcs` insert. The map is sized to the traced
+  function count, so this is rare; when it happens `xcover run` logs a warning
+  on exit with the number of dropped first hits (`bpf/trace.bpf.c`,
+  `drops` map).
 - `--pid` was set. The flag is parsed but not applied
   (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`), so hits from every process
   running the binary are counted and the report does not describe a single
   process.
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
-`--scope project`, `--include` or `--exclude` so the function count is well
-below 40960. Compare `funcs_traced` with `funcs_ack` to see which functions
-never fired.
+`--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with
+`funcs_ack` to see which functions never fired.

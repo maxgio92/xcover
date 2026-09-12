@@ -249,10 +249,10 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
   number of calls whose event was discarded because the function could not be
   recorded in `seen_funcs`, so it can exceed the number of functions missing
   from the report.
-- `--pid` was set. The flag is parsed but not applied
-  (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`), so hits from every process
-  running the binary are counted and the report does not describe a single
-  process.
+- `--pid` was set and the target process exited before the probes attached,
+  or forked the work to a child: only the named process is traced
+  (`pkg/probe/probe.go`), so hits from other processes running the binary are
+  not counted and the report's `pid` field names the traced process.
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
 `--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with

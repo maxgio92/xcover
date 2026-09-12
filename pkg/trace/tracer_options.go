@@ -13,6 +13,7 @@ type UserTracerOptions struct {
 	status       bool
 	verbose      bool
 	userspaceBPF bool
+	pid          int
 	writer       io.Writer
 
 	logger log.Logger
@@ -68,5 +69,13 @@ func WithTracerUserspaceBPF(enabled bool) UserTracerOpt {
 func WithTracerProbe(p Probe) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.probe = p
+	}
+}
+
+// WithTracerPID restricts tracing to the given process. The default of -1
+// traces every process executing the tracee binary.
+func WithTracerPID(pid int) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.pid = pid
 	}
 }

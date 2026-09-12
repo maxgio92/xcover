@@ -88,7 +88,7 @@ func (t *UserTracer) validateTracee() error {
 	return nil
 }
 
-func (t *UserTracer) Init(ctx context.Context) error {
+func (t *UserTracer) Init(ctx context.Context) (err error) {
 	if t.writer == nil {
 		t.writer = os.Stdout
 	}
@@ -104,6 +104,16 @@ func (t *UserTracer) Init(ctx context.Context) error {
 	if err := t.hcServer.InitializeListener(ctx); err != nil {
 		return err
 	}
+	// Run only shuts the listener down once it starts, so every later Init
+	// failure must do it here or the socket file outlives the process.
+	defer func() {
+		if err == nil {
+			return
+		}
+		if serr := t.hcServer.ShutdownListener(); serr != nil {
+			t.logger.Warn().Err(serr).Msg("failed to stop listener")
+		}
+	}()
 
 	if t.probe == nil {
 		probeOpts := []probe.Option{probe.WithLogger(t.logger)}

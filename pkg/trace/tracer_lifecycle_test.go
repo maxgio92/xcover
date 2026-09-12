@@ -145,3 +145,16 @@ func TestRun_DrainsBufferedEventsOnCancel(t *testing.T) {
 	require.Empty(t, p.events)
 	require.True(t, p.modClosed)
 }
+
+// TestInit_ProbeFailureShutsDownListener asserts that a probe Init failure
+// removes the health check socket instead of leaving it stale.
+func TestInit_ProbeFailureShutsDownListener(t *testing.T) {
+	initErr := errors.New("bpf load failed")
+	tracer, sockPath := newLifecycleTracer(t, &fakeProbe{initErr: initErr})
+
+	err := tracer.Init(t.Context())
+	require.ErrorIs(t, err, initErr)
+
+	_, err = os.Stat(sockPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

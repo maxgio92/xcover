@@ -3,13 +3,18 @@ package trace
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/coverage"
@@ -302,29 +307,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return nil
 	}
 
-	traced := make([]string, 0, len(t.tracee.funcs))
-	for _, fn := range t.tracee.funcs {
-		traced = append(traced, fn.name)
-	}
-
-	// Acked cookies that no longer resolve to a function are skipped and do
-	// not count as coverage.
-	ack := make([]string, 0, len(t.tracee.funcs))
-	t.ack.Range(func(k, v interface{}) bool {
-		if fun, ok := t.tracee.funcs[k.(cookie)]; ok {
-			ack = append(ack, fun.name)
-		}
-		return true
-	})
-
-	covByFunc := float64(len(ack)) / float64(len(t.tracee.funcs)) * 100
-
-	report := coverage.NewCoverageReport(
-		coverage.WithReportFuncsAck(ack),
-		coverage.WithReportFuncsTraced(traced),
-		coverage.WithReportFuncsCov(covByFunc),
-		coverage.WithReportExePath(t.tracee.exePath),
-	)
+	report := t.buildReport()
 
 	file, err := os.Create(reportPath)
 	if err != nil {
@@ -339,4 +322,72 @@ func (t *UserTracer) writeReport(reportPath string) error {
 	t.logger.Info().Str("path", reportPath).Msg("report generated")
 
 	return nil
+}
+
+// buildReport assembles the coverage report from the traced function set and
+// the acked cookies. Lists are sorted so that identical sessions produce
+// byte-identical reports apart from generated_at. Acked cookies that no
+// longer resolve to a function are skipped and do not count as coverage.
+func (t *UserTracer) buildReport() *coverage.CoverageReport {
+	traced := make([]string, 0, len(t.tracee.funcs))
+	functions := make([]coverage.FunctionCoverage, 0, len(t.tracee.funcs))
+	for ck, fn := range t.tracee.funcs {
+		_, hit := t.ack.Load(ck)
+		traced = append(traced, fn.name)
+		functions = append(functions, coverage.FunctionCoverage{Name: fn.name, Offset: fn.offset, Hit: hit})
+	}
+	sort.Strings(traced)
+	sort.Slice(functions, func(i, j int) bool {
+		if functions[i].Offset != functions[j].Offset {
+			return functions[i].Offset < functions[j].Offset
+		}
+		return functions[i].Name < functions[j].Name
+	})
+
+	ack := make([]string, 0, len(functions))
+	t.ack.Range(func(k, v interface{}) bool {
+		if fun, ok := t.tracee.funcs[k.(cookie)]; ok {
+			ack = append(ack, fun.name)
+		}
+		return true
+	})
+	sort.Strings(ack)
+
+	covByFunc := float64(len(ack)) / float64(len(t.tracee.funcs)) * 100
+
+	return coverage.NewCoverageReport(
+		coverage.WithReportFuncsAck(ack),
+		coverage.WithReportFuncsTraced(traced),
+		coverage.WithReportFuncsCov(covByFunc),
+		coverage.WithReportExePath(t.tracee.exePath),
+		coverage.WithReportBuildID(exeBuildID(t.tracee.exePath)),
+		coverage.WithReportKernel(kernelRelease()),
+		coverage.WithReportXcoverVersion(settings.Version),
+		coverage.WithReportGeneratedAt(time.Now().UTC().Format(time.RFC3339)),
+		coverage.WithReportFunctions(functions),
+	)
+}
+
+// exeBuildID returns the hex GNU build-id of the executable at path, or an
+// empty string when the file cannot be read or carries no build-id: the
+// report is still useful without it.
+func exeBuildID(path string) string {
+	f, err := elf.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	return hex.EncodeToString(buildID(f))
+}
+
+// kernelRelease returns the running kernel release (uname -r), or an empty
+// string if uname fails.
+func kernelRelease() string {
+	var uts unix.Utsname
+	if err := unix.Uname(&uts); err != nil {
+		return ""
+	}
+
+	return unix.ByteSliceToString(uts.Release[:])
 }

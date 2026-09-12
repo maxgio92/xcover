@@ -32,9 +32,7 @@ builds:
       - -v
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X github.com/maxgio92/xcover/internal/settings.Version={{.Version}}
     # Custom build command to use the Makefile approach
     hooks:
       pre:

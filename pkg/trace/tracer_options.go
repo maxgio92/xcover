@@ -63,7 +63,8 @@ func WithTracerUserspaceBPF(enabled bool) UserTracerOpt {
 }
 
 // WithTracerProbe injects the Probe implementation the tracer drives. When
-// unset, Init builds the real libbpf-backed *probe.Probe.
+// unset, Init builds the real libbpf-backed *probe.Probe sized for the
+// tracee function count.
 func WithTracerProbe(p Probe) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.probe = p

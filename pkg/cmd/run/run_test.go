@@ -20,6 +20,8 @@ func newTestOptions(t *testing.T) *Options {
 
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	o := new(Options)
+	// Mirror the --pid flag default; the zero value is rejected by setup().
+	o.pid = -1
 	o.Options = options.NewOptions(
 		options.WithContext(context.Background()),
 		options.WithLogger(logger),
@@ -39,22 +41,52 @@ func TestOptionsSetup(t *testing.T) {
 	tests := []struct {
 		name      string
 		scope     string
+		pid       int
 		wantScope trace.Scope
 		wantErr   bool
 	}{
 		{
 			name:      "binary scope",
 			scope:     string(trace.ScopeBinary),
+			pid:       -1,
 			wantScope: trace.ScopeBinary,
 		},
 		{
 			name:      "project scope",
 			scope:     string(trace.ScopeProject),
+			pid:       -1,
 			wantScope: trace.ScopeProject,
 		},
 		{
 			name:    "unknown scope",
 			scope:   "bogus",
+			pid:     -1,
+			wantErr: true,
+		},
+		{
+			name:      "running pid",
+			scope:     string(trace.ScopeBinary),
+			pid:       os.Getpid(),
+			wantScope: trace.ScopeBinary,
+		},
+		{
+			// Above pid_max on every Linux configuration, so it can never be
+			// a running process.
+			name:    "nonexistent pid is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     1<<22 + 1,
+			wantErr: true,
+		},
+		{
+			name:    "pid zero is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     0,
+			wantErr: true,
+		},
+		{
+			name:    "negative pid other than -1 is rejected",
+			scope:   string(trace.ScopeBinary),
+			pid:     -2,
 			wantErr: true,
 		},
 	}
@@ -63,6 +95,7 @@ func TestOptionsSetup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			o := newTestOptions(t)
 			o.scope = tt.scope
+			o.pid = tt.pid
 
 			scope, err := o.setup()
 

@@ -20,8 +20,13 @@ import (
 )
 
 const (
-	bpfMaxBufferSize               = 1024                 // Maximum size of bpf_attr needed to batch offsets for uprobe_multi attachments.
-	bpfUprobeMultiAttachMaxOffsets = bpfMaxBufferSize / 8 // 8 is the byte size of uint64 used to represent offsets.
+	// bpfUprobeMultiAttachMaxOffsets is the number of offsets attached per
+	// uprobe_multi link. libbpf passes the offsets and cookies arrays to the
+	// kernel by pointer with a count, so bpf_attr size is not a constraint; the
+	// kernel caps a single link at MAX_UPROBE_MULTI_CNT (1<<20) entries. The
+	// batch stays well below that cap while keeping the per-syscall arrays
+	// bounded.
+	bpfUprobeMultiAttachMaxOffsets = 1 << 16
 )
 
 var (
@@ -55,6 +60,9 @@ type Probe interface {
 	CloseEventBuf()
 	DetachLinks()
 	CloseBPFMod()
+	// Drops returns how many calls the BPF program could not record because
+	// the seen_funcs insert failed.
+	Drops() (uint64, error)
 }
 
 type UserTracer struct {
@@ -124,19 +132,10 @@ func (t *UserTracer) Init(ctx context.Context) (err error) {
 		}
 	}()
 
-	if t.probe == nil {
-		probeOpts := []probe.Option{probe.WithLogger(t.logger)}
-		if t.userspaceBPF {
-			probeOpts = append(probeOpts, probe.WithUserspaceBPF())
-		}
-		t.probe = probe.NewProbe(probeOpts...)
-	}
-	if err := t.probe.Init(ctx); err != nil {
-		return errors.Wrap(err, "error initializing BPF probe")
-	}
-
-	// Initialize the tracee includes to load all the data about
-	// the tracee, like symbols and function offsets.
+	// Initialize the tracee first: it resolves the symbols and function
+	// offsets, and the probe needs the resulting function count to size the
+	// seen_funcs map before loading the BPF object. The tracee does not depend
+	// on the probe, so initializing it first is safe.
 	if err := t.tracee.Init(ctx); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")
 	}
@@ -144,7 +143,27 @@ func (t *UserTracer) Init(ctx context.Context) (err error) {
 		return err
 	}
 
+	if t.probe == nil {
+		t.probe = t.defaultProbe(len(t.tracee.funcs))
+	}
+	if err := t.probe.Init(ctx); err != nil {
+		return errors.Wrap(err, "error initializing BPF probe")
+	}
+
 	return nil
+}
+
+// defaultProbe builds the kernel (or bpftime) BPF probe sized for funcCount
+// traced functions.
+func (t *UserTracer) defaultProbe(funcCount int) Probe {
+	probeOpts := []probe.Option{
+		probe.WithLogger(t.logger),
+		probe.WithFuncCount(funcCount),
+	}
+	if t.userspaceBPF {
+		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	}
+	return probe.NewProbe(probeOpts...)
 }
 
 func (t *UserTracer) Run(ctx context.Context) error {
@@ -228,7 +247,24 @@ func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
+	t.warnDrops()
+
 	return t.writeReport(ReportFileName)
+}
+
+// warnDrops reads the BPF drop counter and warns when calls could not be
+// recorded because the seen_funcs insert failed: their functions are missing
+// from the report.
+func (t *UserTracer) warnDrops() {
+	drops, err := t.probe.Drops()
+	if err != nil {
+		t.logger.Warn().Err(err).Msg("failed to read the dropped calls counter")
+		return
+	}
+	if drops > 0 {
+		t.logger.Warn().Uint64("dropped", drops).
+			Msg("calls not recorded because the seen_funcs map rejected the insert; the report undercounts coverage, narrow the probe set with --scope or --exclude")
+	}
 }
 
 // attachProbe attaches the probe to every tracee function in uprobe_multi

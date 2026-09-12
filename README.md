@@ -329,6 +329,11 @@ tracing 15k functions can take close to a minute. Use `--scope project` or
 `--exclude` to keep the probe set small. xcover suits functional test runs, not
 latency benchmarks.
 
+The BPF handler's debug logging (`bpf_printk`) is compiled out by default so
+it does not add to the per-call cost. `make xcover/bpf BPF_DEBUG=1`, followed
+by a rebuild of `xcover` (the object is embedded in the binary), turns it back
+on for `trace_pipe` inspection.
+
 ## Limitations
 
 - **Inlined functions are invisible.** A uprobe needs an entry point in the
@@ -338,10 +343,10 @@ latency benchmarks.
   returns, arguments or call counts.
 - **First hit only, per session.** The kernel map dedups per function, so the
   report answers "did it run", not "how often".
-- **At most 40960 distinct functions per session.** Beyond that the kernel map
-  is full; the insert is not checked, so further functions are not deduped
-  and every call emits an event. No warning is printed. Narrow the probe set
-  with `--scope` or `--exclude`.
+- **Map sizing.** The kernel `seen_funcs` map is sized to the number of traced
+  functions. If the kernel still rejects an insert, the function's first hit
+  is counted as a drop and `xcover run` warns on exit that the report
+  undercounts; narrow the probe set with `--scope` or `--exclude` in that case.
 - **One daemon per host.** State files are fixed under `/tmp`.
 - **Kernel 6.6+, Linux only.** On older kernels the attach fails and
   `xcover run` exits with an error before signalling readiness.

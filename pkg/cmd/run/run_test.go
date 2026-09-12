@@ -46,14 +46,41 @@ func TestOptionsSetup(t *testing.T) {
 		scope        string
 		pid          int
 		userspaceBPF bool
+		include      string
+		exclude      string
 		wantScope    trace.Scope
 		wantErr      bool
+		wantErrIs    error
 	}{
 		{
 			name:      "binary scope",
 			scope:     string(trace.ScopeBinary),
 			pid:       -1,
 			wantScope: trace.ScopeBinary,
+		},
+		{
+			name:      "valid patterns",
+			scope:     string(trace.ScopeBinary),
+			pid:       -1,
+			include:   `^main\.`,
+			exclude:   `^runtime\.`,
+			wantScope: trace.ScopeBinary,
+		},
+		{
+			name:      "invalid include pattern",
+			scope:     string(trace.ScopeBinary),
+			pid:       -1,
+			include:   "(",
+			wantErr:   true,
+			wantErrIs: trace.ErrInvalidPattern,
+		},
+		{
+			name:      "invalid exclude pattern",
+			scope:     string(trace.ScopeBinary),
+			pid:       -1,
+			exclude:   "[",
+			wantErr:   true,
+			wantErrIs: trace.ErrInvalidPattern,
 		},
 		{
 			name:      "project scope",
@@ -137,6 +164,8 @@ func TestOptionsSetup(t *testing.T) {
 			o.scope = tt.scope
 			o.pid = tt.pid
 			o.userspaceBPF = tt.userspaceBPF
+			o.symIncludePattern = tt.include
+			o.symExcludePattern = tt.exclude
 
 			scope, err := o.setup()
 
@@ -148,6 +177,9 @@ func TestOptionsSetup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
 				return
 			}
 			require.NoError(t, err)

@@ -114,12 +114,13 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// setup performs the PID file bookkeeping and function scope parsing needed
-// before a tracer can be built. The PID file is written unconditionally so
-// that the caller's deferred removal, armed right after this call, always
-// cleans it up regardless of the returned error. Log-level configuration is
-// handled centrally by the parent command's PersistentPreRunE before RunE
-// runs, so o.Logger is already at the requested level here.
+// setup performs the PID file bookkeeping, function scope parsing and symbol
+// pattern validation needed before a tracer can be built. The PID file is
+// written unconditionally so that the caller's deferred removal, armed right
+// after this call, always cleans it up regardless of the returned error.
+// Log-level configuration is handled centrally by the parent command's
+// PersistentPreRunE before RunE runs, so o.Logger is already at the requested
+// level here.
 func (o *Options) setup() (trace.Scope, error) {
 	// Store PID file.
 	common.WritePID(os.Getpid())
@@ -130,6 +131,10 @@ func (o *Options) setup() (trace.Scope, error) {
 
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
+		return "", err
+	}
+
+	if err := trace.ValidateSymPatterns(o.symIncludePattern, o.symExcludePattern); err != nil {
 		return "", err
 	}
 
@@ -264,6 +269,12 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Validate the target before forking so the error reaches the user
 	// instead of only the daemon log.
 	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
+		return err
+	}
+
+	// Reject invalid symbol patterns here, in the parent: the daemon would
+	// otherwise fail after this process has already returned success.
+	if err := trace.ValidateSymPatterns(o.symIncludePattern, o.symExcludePattern); err != nil {
 		return err
 	}
 

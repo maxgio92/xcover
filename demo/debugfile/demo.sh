@@ -2,7 +2,7 @@
 # Automated xcover debug file demo for asciinema
 # Demonstrates coverage profiling on a stripped C binary using a separate
 # debug file to resolve function names.
-# Run as: sudo bash demo.sh
+# Run as: sudo --preserve-env=TMUX bash demo.sh   (TMUX is needed for the log pane)
 
 set -euo pipefail
 
@@ -12,7 +12,11 @@ DEBUG_FILE="./demo-app.debug"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
 
+# shellcheck source=../lib/log-pane.sh
+source "${SCRIPT_DIR}/../lib/log-pane.sh"
+
 function cleanup() {
+    teardown_log_pane
     ${XCOVER} stop 2>/dev/null || true
     pkill -f "${XCOVER} run" 2>/dev/null || true
     rm -f $DEMO_APP $DEBUG_FILE
@@ -28,6 +32,7 @@ function main() {
 	    exit 1
 	fi
 
+	setup_log_pane kernel
 	clear
 	runCmd "# === xcover: Coverage with a separate debug file ==="
 	runCmd "# Strip the binary for production. Keep the debug file for profiling."
@@ -73,4 +78,4 @@ function runCmd() {
 	sleep "${SLEEP}"
 }
 
-main $@
+main "$@"

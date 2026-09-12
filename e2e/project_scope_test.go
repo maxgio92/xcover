@@ -20,7 +20,10 @@ import (
 )
 
 const (
-	xcoverBinEnv           = "XCOVER_E2E_BIN"
+	xcoverBinEnv = "XCOVER_E2E_BIN"
+	// requireEnv, when set to "1", turns the missing-privilege skip into a
+	// failure so CI cannot silently pass without running the suite.
+	requireEnv             = "XCOVER_E2E_REQUIRE"
 	reportFile             = "xcover-report.json"
 	projectScopeGoScenario = "project-scope-go-module"
 	projectScope           = "project"
@@ -37,12 +40,7 @@ func TestProjectScopeFiltersToGoModule(t *testing.T) {
 	report := runXcoverWithFixture(t, projectScope)
 	traced := stringSet(report.FuncsTraced)
 
-	for _, name := range []string{
-		"main.appLogic",
-		"main.main",
-		"example.com/testmod/pkg.Helper",
-		"example.com/testmod/pkg.internal",
-	} {
+	for _, name := range fixtureExecutedFuncs {
 		if !traced[name] {
 			t.Fatalf("expected project scoped report to trace %q; traced=%v", name, report.FuncsTraced)
 		}
@@ -53,18 +51,15 @@ func TestProjectScopeFiltersToGoModule(t *testing.T) {
 			t.Fatalf("project scoped report leaked non-project function %q; traced=%v", name, report.FuncsTraced)
 		}
 	}
+
+	assertFixtureFunctionsAcked(t, report)
 }
 
 func TestBinaryScopeRetainsNonProjectSymbols(t *testing.T) {
 	report := runXcoverWithFixture(t, binaryScope)
 	traced := stringSet(report.FuncsTraced)
 
-	for _, name := range []string{
-		"main.appLogic",
-		"main.main",
-		"example.com/testmod/pkg.Helper",
-		"example.com/testmod/pkg.internal",
-	} {
+	for _, name := range fixtureExecutedFuncs {
 		if !traced[name] {
 			t.Fatalf("expected binary scoped report to trace project function %q; traced=%v", name, report.FuncsTraced)
 		}
@@ -76,6 +71,34 @@ func TestBinaryScopeRetainsNonProjectSymbols(t *testing.T) {
 	if !hasAnyPrefix(report.FuncsTraced, "fmt.") {
 		t.Fatalf("expected binary scoped report to retain fmt symbols; traced=%v", report.FuncsTraced)
 	}
+
+	assertFixtureFunctionsAcked(t, report)
+}
+
+// fixtureExecutedFuncs lists the project functions the fixture binary
+// executes on every run (see testdata/project-scope-go-module). appLogic,
+// Helper and internal are //go:noinline and main is the entry point, so each
+// one must fire its uprobe and reach the report through the ring buffer,
+// cookie decoding and ack path.
+var fixtureExecutedFuncs = []string{
+	"main.main",
+	"main.appLogic",
+	"example.com/testmod/pkg.Helper",
+	"example.com/testmod/pkg.internal",
+}
+
+func assertFixtureFunctionsAcked(t *testing.T, report coverage.CoverageReport) {
+	t.Helper()
+
+	acked := stringSet(report.FuncsAck)
+	for _, name := range fixtureExecutedFuncs {
+		if !acked[name] {
+			t.Fatalf("expected report to acknowledge executed function %q; ack=%v", name, report.FuncsAck)
+		}
+	}
+	if report.CovByFunc <= 0 {
+		t.Fatalf("expected positive function coverage; got %v (ack=%v, traced=%d)", report.CovByFunc, report.FuncsAck, len(report.FuncsTraced))
+	}
 }
 
 func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
@@ -83,12 +106,16 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 
 	xcover := os.Getenv(xcoverBinEnv)
 	if xcover == "" {
+		if os.Getenv(requireEnv) == "1" {
+			t.Fatalf("%s=1 but %s is not set", requireEnv, xcoverBinEnv)
+		}
 		t.Skipf("%s is not set", xcoverBinEnv)
 	}
 	if _, err := os.Stat(xcover); err != nil {
 		t.Fatalf("xcover binary is not available at %q: %v", xcover, err)
 	}
 	t.Logf("using xcover binary: %s", xcover)
+	requirePrivileges(t)
 	requireNoRunningXcover(t)
 
 	workDir := t.TempDir()
@@ -105,9 +132,6 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 		"--detach",
 		"--status=false",
 	); err != nil {
-		if shouldSkipForRuntimeEnvironment(out) {
-			t.Skipf("xcover e2e runtime requirements are unavailable:\n%s", strings.TrimSpace(out))
-		}
 		t.Fatalf("%s failed: %v\n%s", commandLine(xcover, "--log-level=debug", "run", "--path", bin, "--scope="+scope, "--detach", "--status=false"), err, out)
 	}
 	t.Log("xcover daemon start command returned")
@@ -122,9 +146,6 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	t.Log("waiting for xcover readiness")
 	if out, err := commandOutput(workDir, 20*time.Second, xcover, "wait", "--timeout=15s"); err != nil {
 		logTail := readSince(t, logFile, logOffset)
-		if shouldSkipForRuntimeEnvironment(out + "\n" + logTail) {
-			t.Skipf("xcover e2e runtime requirements are unavailable:\n%s", strings.TrimSpace(out+"\n"+logTail))
-		}
 		t.Fatalf("xcover wait failed: %v\n%s\n%s", err, out, logTail)
 	}
 	t.Log("xcover reported ready")
@@ -138,6 +159,21 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	report := readReport(t, filepath.Join(workDir, reportFile))
 	t.Logf("read report with %d traced functions and %d acknowledged functions", len(report.FuncsTraced), len(report.FuncsAck))
 	return report
+}
+
+// requirePrivileges skips the test when it does not run as root, unless
+// XCOVER_E2E_REQUIRE=1 demands the suite to run, in which case a missing
+// privilege is a failure. Any xcover error past this point, including BPF
+// load or attach failures, fails the test instead of skipping it.
+func requirePrivileges(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		return
+	}
+	if os.Getenv(requireEnv) == "1" {
+		t.Fatalf("%s=1 but the e2e tests are not running as root (euid=%d)", requireEnv, os.Geteuid())
+	}
+	t.Skipf("skipping e2e test: requires root (euid=%d); set %s=1 to fail instead", os.Geteuid(), requireEnv)
 }
 
 func requireNoRunningXcover(t *testing.T) {
@@ -234,14 +270,6 @@ func readSince(t *testing.T, path string, offset int64) string {
 		return ""
 	}
 	return string(data[offset:])
-}
-
-func shouldSkipForRuntimeEnvironment(output string) bool {
-	output = strings.ToLower(output)
-	return strings.Contains(output, "operation not permitted") ||
-		strings.Contains(output, "permission denied") ||
-		strings.Contains(output, "failed to load bpf object") ||
-		strings.Contains(output, "error initializing bpf probe")
 }
 
 func readReport(t *testing.T, path string) coverage.CoverageReport {

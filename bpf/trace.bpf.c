@@ -25,7 +25,10 @@ struct {
 /* Function trace report tracking map */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 40960); /* Maximum number of function symbols to track */
+    /* Default maximum number of function symbols to track. The loader
+     * resizes the map when it knows the traced function count; otherwise
+     * this default applies. */
+    __uint(max_entries, 40960);
     __type(key, u64);           /* Function cookie */
     __type(value, u8);          /* Report marker */
 } seen_funcs SEC(".maps");

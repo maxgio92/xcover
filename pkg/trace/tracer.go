@@ -124,19 +124,10 @@ func (t *UserTracer) Init(ctx context.Context) (err error) {
 		}
 	}()
 
-	if t.probe == nil {
-		probeOpts := []probe.Option{probe.WithLogger(t.logger)}
-		if t.userspaceBPF {
-			probeOpts = append(probeOpts, probe.WithUserspaceBPF())
-		}
-		t.probe = probe.NewProbe(probeOpts...)
-	}
-	if err := t.probe.Init(ctx); err != nil {
-		return errors.Wrap(err, "error initializing BPF probe")
-	}
-
-	// Initialize the tracee includes to load all the data about
-	// the tracee, like symbols and function offsets.
+	// Initialize the tracee first: it resolves the symbols and function
+	// offsets, and the probe needs the resulting function count to size the
+	// seen_funcs map before loading the BPF object. The tracee does not depend
+	// on the probe, so initializing it first is safe.
 	if err := t.tracee.Init(ctx); err != nil {
 		return errors.Wrapf(err, "failed to init tracer")
 	}
@@ -144,7 +135,27 @@ func (t *UserTracer) Init(ctx context.Context) (err error) {
 		return err
 	}
 
+	if t.probe == nil {
+		t.probe = t.defaultProbe(len(t.tracee.funcs))
+	}
+	if err := t.probe.Init(ctx); err != nil {
+		return errors.Wrap(err, "error initializing BPF probe")
+	}
+
 	return nil
+}
+
+// defaultProbe builds the kernel (or bpftime) BPF probe sized for funcCount
+// traced functions.
+func (t *UserTracer) defaultProbe(funcCount int) Probe {
+	probeOpts := []probe.Option{
+		probe.WithLogger(t.logger),
+		probe.WithFuncCount(funcCount),
+	}
+	if t.userspaceBPF {
+		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	}
+	return probe.NewProbe(probeOpts...)
 }
 
 func (t *UserTracer) Run(ctx context.Context) error {

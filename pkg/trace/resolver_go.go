@@ -27,6 +27,9 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if err := ValidateSymPatterns(include, exclude); err != nil {
+			return nil, err
+		}
 
 		modPath, err := goModulePath(path)
 		if err != nil {

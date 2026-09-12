@@ -65,7 +65,8 @@ func TestNewSymFilter_InvalidPattern(t *testing.T) {
 
 // TestFilterFuncSyms exercises the per-symbol filtering behind funcSymsFromELF
 // with synthetic symbols: undefined imports, zero-address placeholders and the
-// .text end marker are dropped, other zero-size functions are kept.
+// Go linker's zero-size text markers are dropped; every other zero-size
+// function is kept, including an unsized one in the last byte of .text.
 func TestFilterFuncSyms(t *testing.T) {
 	const textEnd = 0x5000
 	funcInfo := elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC)
@@ -74,20 +75,26 @@ func TestFilterFuncSyms(t *testing.T) {
 		{Name: "puts@GLIBC_2.2.5", Info: funcInfo, Section: elf.SHN_UNDEF, Value: 0, Size: 0},
 		{Name: "undef_with_value", Info: funcInfo, Section: elf.SHN_UNDEF, Value: 0x2000, Size: 0x10},
 		{Name: "zero_value", Info: funcInfo, Section: 1, Value: 0, Size: 0x10},
-		// runtime.etext sits MinLC bytes before the section end: 1 on amd64,
-		// 4 on arm64. An exact-end marker is covered too.
+		// The three Go linker markers: runtime.text aliases the address of the
+		// first real function, runtime.text.N delimits a split text section,
+		// runtime.etext sits MinLC bytes before the section end.
+		{Name: "runtime.text", Info: funcInfo, Section: 1, Value: 0x1000, Size: 0},
+		{Name: "runtime.text.1", Info: funcInfo, Section: 1, Value: 0x2800, Size: 0},
 		{Name: "runtime.etext", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0},
-		{Name: "runtime.etext.arm64", Info: funcInfo, Section: 1, Value: textEnd - 4, Size: 0},
-		{Name: "etext_exact", Info: funcInfo, Section: 1, Value: textEnd, Size: 0},
+		// A sized function whose name only resembles a marker is not one.
+		{Name: "runtime.textOff", Info: funcInfo, Section: 1, Value: 0x2900, Size: 0x10},
+		{Name: "runtime.text.x", Info: funcInfo, Section: 1, Value: 0x2a00, Size: 0},
+		// Unsized assembly functions are code, even in the last byte of .text
+		// (a called one-byte ret with no .size directive).
 		{Name: "asm_no_size", Info: funcInfo, Section: 1, Value: 0x3000, Size: 0},
-		{Name: "asm_no_size_near_end", Info: funcInfo, Section: 1, Value: textEnd - 5, Size: 0},
+		{Name: "tail_func", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0},
 		{Name: "sized_at_text_end", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0x1},
 		{Name: "fini_zero_size", Info: funcInfo, Section: 3, Value: textEnd + 0x10, Size: 0},
 		{Name: "data_object", Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_OBJECT), Section: 2, Value: 0x4000, Size: 0x8},
 	}
-	kept := []string{"main.main", "asm_no_size", "asm_no_size_near_end", "sized_at_text_end", "fini_zero_size"}
+	kept := []string{"main.main", "runtime.textOff", "runtime.text.x", "asm_no_size", "tail_func", "sized_at_text_end", "fini_zero_size"}
 
-	got := filterFuncSyms(syms, textEnd, mustSymFilter(t, "", "", nil, nil))
+	got := filterFuncSyms(syms, mustSymFilter(t, "", "", nil, nil))
 
 	var names []string
 	for _, s := range got {
@@ -95,17 +102,8 @@ func TestFilterFuncSyms(t *testing.T) {
 	}
 	require.ElementsMatch(t, kept, names)
 
-	// With an unknown .text end (0) the marker check is disabled but the
-	// undefined/zero-address checks still apply.
-	got = filterFuncSyms(syms, 0, mustSymFilter(t, "", "", nil, nil))
-	names = names[:0]
-	for _, s := range got {
-		names = append(names, s.Name)
-	}
-	require.ElementsMatch(t, append(kept, "runtime.etext", "runtime.etext.arm64", "etext_exact"), names)
-
 	// Name patterns are applied after the structural checks.
-	got = filterFuncSyms(syms, textEnd, mustSymFilter(t, "^main", "", nil, nil))
+	got = filterFuncSyms(syms, mustSymFilter(t, "^main", "", nil, nil))
 	require.Len(t, got, 1)
 	require.Equal(t, "main.main", got[0].Name)
 }

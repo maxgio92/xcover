@@ -81,32 +81,25 @@ func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
 		return nil, err
 	}
 
-	var textEnd uint64
-	if text := f.Section(".text"); text != nil {
-		textEnd = text.Addr + text.Size
-	}
-	return filterFuncSyms(syms, textEnd, filter), nil
+	return filterFuncSyms(syms, filter), nil
 }
 
-// textEndMarkerPad is how close to the end of .text a zero-size function symbol
-// must sit to be treated as an end marker rather than code. The Go linker
-// places runtime.etext at the end of the code and then pads .text by
-// Arch.MinLC bytes (1 on x86, 2 on s390x, 4 elsewhere) so the marker does not
-// collide with the next symbol (cmd/link/internal/ld/data.go, textaddress), so
-// the marker is never exactly at the section end.
-const textEndMarkerPad = 4
+// goTextMarkerRe matches the zero-size STT_FUNC symbols the Go linker emits to
+// delimit code: runtime.text, runtime.text.N for split text sections, and
+// runtime.etext (cmd/link/internal/ld/symtab.go). lld's etext/_etext are
+// STT_NOTYPE and never reach this check.
+var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
 
 // filterFuncSyms keeps the STT_FUNC symbols that name code present in the file
-// and pass filter. textEnd is the virtual address one past the end of .text
-// (0 when unknown).
+// and pass filter.
 //
 // Undefined imports (e.g. puts@GLIBC_2.2.5: STT_FUNC, SHN_UNDEF, Value 0) are
 // dropped: on a PIE the first PT_LOAD has Vaddr 0, so Value 0 would map to file
 // offset 0 (the ELF header) and be probed as a function that can never fire.
-// Zero-size symbols within textEndMarkerPad of textEnd are end markers such as
-// Go's runtime.etext, not functions. Other zero-size symbols are kept because
-// some toolchains emit assembly functions with Size 0.
-func filterFuncSyms(syms []elf.Symbol, textEnd uint64, filter symFilter) []elf.Symbol {
+// The Go linker's zero-size text markers are dropped by name. Every other
+// zero-size symbol is kept: some toolchains emit assembly functions with Size
+// 0, including ones at the very end of .text.
+func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
 	var out []elf.Symbol
 	for _, sym := range syms {
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
@@ -115,7 +108,7 @@ func filterFuncSyms(syms []elf.Symbol, textEnd uint64, filter symFilter) []elf.S
 		if !isDefinedFunc(sym) {
 			continue
 		}
-		if isTextEndMarker(sym, textEnd) {
+		if isGoTextMarker(sym) {
 			continue
 		}
 		if !filter.shouldInclude(sym) {
@@ -126,11 +119,10 @@ func filterFuncSyms(syms []elf.Symbol, textEnd uint64, filter symFilter) []elf.S
 	return out
 }
 
-// isTextEndMarker reports whether sym is a zero-size end-of-code marker such as
-// runtime.etext: it lies at or within textEndMarkerPad bytes before textEnd,
-// leaving no room for code. textEnd 0 (unknown) disables the check.
-func isTextEndMarker(sym elf.Symbol, textEnd uint64) bool {
-	return sym.Size == 0 && textEnd != 0 && sym.Value <= textEnd && textEnd-sym.Value <= textEndMarkerPad
+// isGoTextMarker reports whether sym is one of the Go linker's zero-size
+// text delimiters (see goTextMarkerRe).
+func isGoTextMarker(sym elf.Symbol) bool {
+	return sym.Size == 0 && goTextMarkerRe.MatchString(sym.Name)
 }
 
 // isDefinedFunc reports whether sym refers to code present in this file rather

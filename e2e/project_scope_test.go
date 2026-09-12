@@ -21,8 +21,9 @@ import (
 
 const (
 	xcoverBinEnv = "XCOVER_E2E_BIN"
-	// requireEnv, when set to "1", turns the missing-privilege skip into a
-	// failure so CI cannot silently pass without running the suite.
+	// requireEnv, when set to "1", turns every environment-precondition skip
+	// (privileges, stale state files, missing binary) into a failure so CI
+	// cannot silently pass without running the suite.
 	requireEnv             = "XCOVER_E2E_REQUIRE"
 	reportFile             = "xcover-report.json"
 	projectScopeGoScenario = "project-scope-go-module"
@@ -106,10 +107,7 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 
 	xcover := os.Getenv(xcoverBinEnv)
 	if xcover == "" {
-		if os.Getenv(requireEnv) == "1" {
-			t.Fatalf("%s=1 but %s is not set", requireEnv, xcoverBinEnv)
-		}
-		t.Skipf("%s is not set", xcoverBinEnv)
+		skipOrFail(t, "%s is not set", xcoverBinEnv)
 	}
 	if _, err := os.Stat(xcover); err != nil {
 		t.Fatalf("xcover binary is not available at %q: %v", xcover, err)
@@ -161,26 +159,34 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 	return report
 }
 
-// requirePrivileges skips the test when it does not run as root, unless
-// XCOVER_E2E_REQUIRE=1 demands the suite to run, in which case a missing
-// privilege is a failure. Any xcover error past this point, including BPF
-// load or attach failures, fails the test instead of skipping it.
+// skipOrFail skips the test because an environment precondition is unmet,
+// unless XCOVER_E2E_REQUIRE=1 demands the suite to run, in which case the
+// unmet precondition is a failure. CI sets the variable so a stale socket or
+// a missing privilege cannot turn into a silent pass.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	reason := fmt.Sprintf(format, args...)
+	if os.Getenv(requireEnv) == "1" {
+		t.Fatalf("%s=1 but %s", requireEnv, reason)
+	}
+	t.Skipf("skipping e2e test: %s; set %s=1 to fail instead", reason, requireEnv)
+}
+
+// requirePrivileges checks the test runs as root. Any xcover error past this
+// point, including BPF load or attach failures, fails the test instead of
+// skipping it.
 func requirePrivileges(t *testing.T) {
 	t.Helper()
-	if os.Geteuid() == 0 {
-		return
+	if os.Geteuid() != 0 {
+		skipOrFail(t, "the e2e tests are not running as root (euid=%d)", os.Geteuid())
 	}
-	if os.Getenv(requireEnv) == "1" {
-		t.Fatalf("%s=1 but the e2e tests are not running as root (euid=%d)", requireEnv, os.Geteuid())
-	}
-	t.Skipf("skipping e2e test: requires root (euid=%d); set %s=1 to fail instead", os.Geteuid(), requireEnv)
 }
 
 func requireNoRunningXcover(t *testing.T) {
 	t.Helper()
 	for _, path := range []string{pidFile, socketFile} {
 		if _, err := os.Stat(path); err == nil {
-			t.Skipf("skipping e2e test because %s already exists", path)
+			skipOrFail(t, "%s already exists", path)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("failed to inspect %s: %v", path, err)
 		}
@@ -189,7 +195,7 @@ func requireNoRunningXcover(t *testing.T) {
 	if _, err := os.Stat(logFile); err == nil {
 		file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_APPEND, 0)
 		if err != nil {
-			t.Skipf("skipping e2e test because %s is not writable: %v", logFile, err)
+			skipOrFail(t, "%s is not writable: %v", logFile, err)
 		}
 		file.Close()
 	} else if !errors.Is(err, os.ErrNotExist) {

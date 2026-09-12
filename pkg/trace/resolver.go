@@ -120,8 +120,13 @@ func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
 }
 
 // isGoTextMarker reports whether sym is one of the Go linker's zero-size
-// text delimiters (see goTextMarkerRe).
+// text delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
+// go:textfipsstart and go:textfipsend that GOFIPS140 builds emit around the
+// FIPS module (cmd/link/internal/ld/fips140.go).
 func isGoTextMarker(sym elf.Symbol) bool {
+	if sym.Name == "go:textfipsstart" || sym.Name == "go:textfipsend" {
+		return true
+	}
 	return sym.Size == 0 && goTextMarkerRe.MatchString(sym.Name)
 }
 

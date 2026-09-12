@@ -23,7 +23,7 @@ xcover run [flags]
       --include string      Regex pattern to include function symbol names
       --no-build-id-check   Skip GNU build-id verification between --path and --debug-path
   -p, --path string         Path to the ELF executable
-      --pid int             Only trace the process with this PID (-1 traces every process executing the binary) (default -1)
+      --pid int             Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary) (default -1)
       --report              Generate report (as xcover-report.json) (default true)
       --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
       --skip-preflight      Skip the preflight checks: the kernel version advisory (Linux 6.6+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)

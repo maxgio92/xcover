@@ -165,8 +165,6 @@ temporary file and prints the path. See
 These are visible from reading the code and worth knowing before you change the
 related areas:
 
-- `--pid` is parsed into `Options.pid` but never used; attach always passes
-  `-1`.
 - In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
   cannot resolve, which stops the iteration and truncates `funcs_ack`.
   `cov_by_func` uses the raw ack count, so it can disagree with

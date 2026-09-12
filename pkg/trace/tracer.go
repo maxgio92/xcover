@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -25,6 +26,13 @@ const (
 
 var (
 	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
+	// drainQuietPeriod is how long the event consumer keeps receiving after
+	// shutdown starts without any event arriving before it gives up. It
+	// covers records still in the kernel ring or an in-flight libbpf poll
+	// callback (poll timeout is probe.evtRingBufPollTimeout, 60 ms), since
+	// libbpfgo exposes no way to consume the ring synchronously. Tests
+	// shorten it.
+	drainQuietPeriod = 150 * time.Millisecond
 	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath
 	// for existing callers; internal/settings is the source of truth so
 	// cgo-free consumers (e.g. e2e tests) can reference it without pulling
@@ -45,6 +53,7 @@ type Probe interface {
 	InitEventBuf(ctx context.Context) (chan []byte, error)
 	PollEventBuf()
 	CloseEventBuf()
+	DetachLinks()
 	CloseBPFMod()
 }
 
@@ -166,7 +175,8 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	}
 	defer t.probe.CloseEventBuf()
 
-	wg := t.startPipeline(ctx, eventsCh)
+	stop := make(chan struct{})
+	wg := t.startPipeline(eventsCh, stop)
 
 	// Signal via the UDS that the tracer is ready,
 	// that is, it's consuming function events.
@@ -176,13 +186,13 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	// Print status bar.
 	go t.printStatusBar(ctx, eventsCh)
 
-	return t.waitAndReport(ctx, wg)
+	return t.waitAndReport(ctx, stop, wg)
 }
 
 // startPipeline starts polling the ring buffer and spawns the goroutine that
-// consumes events from it, tracked by the returned WaitGroup so the caller
-// can wait for it to drain on shutdown.
-func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) *sync.WaitGroup {
+// consumes events from it until stop is closed, tracked by the returned
+// WaitGroup so the caller can wait for it to drain on shutdown.
+func (t *UserTracer) startPipeline(eventsCh <-chan []byte, stop <-chan struct{}) *sync.WaitGroup {
 	// Because it is blocking, run ring_buffer__poll() in a non-locked goroutine,
 	// hence outside of InitEventBuf(), because of CGO callback from C which can make
 	// the go runtime to lock goroutine to the thread.
@@ -194,21 +204,27 @@ func (t *UserTracer) startPipeline(ctx context.Context, eventsCh <-chan []byte) 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.processEvents(ctx, eventsCh)
+		t.processEvents(eventsCh, stop)
 	}()
 
 	return &wg
 }
 
-// waitAndReport blocks until ctx is cancelled, waits for the pipeline
-// goroutines tracked by wg to drain, then writes the coverage report. The
-// health check listener is stopped by Run's deferred ShutdownListener call.
-func (t *UserTracer) waitAndReport(ctx context.Context, wg *sync.WaitGroup) error {
+// waitAndReport blocks until ctx is cancelled, detaches the uprobes so no new
+// events are produced, closes stop so the consumer drains what is still in
+// flight, waits for it, then writes the coverage report. The health check
+// listener is stopped by Run's deferred ShutdownListener call.
+func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg *sync.WaitGroup) error {
 	// Waiting for signals.
 	<-ctx.Done()
 	t.logger.Debug().Msg("received signal")
 
-	// Waiting for reader and consumer to complete.
+	// Detach before draining: the drain is bounded by a quiet period, so
+	// events must stop being produced for it to terminate and to be complete.
+	t.probe.DetachLinks()
+	close(stop)
+
+	// Waiting for the consumer to drain.
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
@@ -237,22 +253,47 @@ func (t *UserTracer) attachProbe(ctx context.Context) error {
 	return nil
 }
 
-// processEvents handles events until ctx is cancelled, then drains what is
-// already buffered in events so tail events are acked before the report is
-// written.
-func (t *UserTracer) processEvents(ctx context.Context, events <-chan []byte) {
+// processEvents handles events until stop is closed, then keeps receiving
+// until no event has arrived for drainQuietPeriod, so events still buffered
+// in the channel, in the kernel ring, or in an in-flight poll callback are
+// acked before the report is written. The caller detaches the uprobes before
+// closing stop, so the quiet period is reached once the ring is empty.
+func (t *UserTracer) processEvents(events <-chan []byte, stop <-chan struct{}) {
 	for {
 		select {
 		case data := <-events:
 			t.handleEvent(data)
-		case <-ctx.Done():
-			for {
-				select {
-				case data := <-events:
-					t.handleEvent(data)
-				default:
-					return
-				}
+		case <-stop:
+			t.drainEvents(events)
+			return
+		}
+	}
+}
+
+// drainEvents handles events until drainQuietPeriod elapses without one.
+func (t *UserTracer) drainEvents(events <-chan []byte) {
+	quiet := time.NewTimer(drainQuietPeriod)
+	defer quiet.Stop()
+
+	for {
+		select {
+		case data := <-events:
+			t.handleEvent(data)
+			// Go 1.23+ timer channels are synchronous, so Reset alone is
+			// enough: no stale tick can be delivered after it.
+			quiet.Reset(drainQuietPeriod)
+		case <-quiet.C:
+			// When the timer and the channel are both ready select picks at
+			// random, so returning here could leave events queued for
+			// RingBuffer.Stop to discard. Only return once the channel has
+			// been observed empty; an event found here renews the quiet
+			// period so a producer that wakes up late keeps its batch.
+			select {
+			case data := <-events:
+				t.handleEvent(data)
+				quiet.Reset(drainQuietPeriod)
+			default:
+				return
 			}
 		}
 	}

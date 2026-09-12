@@ -27,6 +27,7 @@ xcover run [flags]
       --report              Generate report (as xcover-report.json) (default true)
       --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
       --status              Periodically print a status of the trace (default true)
+      --userspace-bpf       Run BPF programs in userspace via bpftime (experimental)
       --verbose             Enable verbosity
 ```
 
@@ -38,5 +39,5 @@ xcover run [flags]
 
 ### SEE ALSO
 
-* [xcover](README.md)	 - xcover is a functional test coverage profiler
+* [xcover](../README.md)	 - xcover is a functional test coverage profiler
 

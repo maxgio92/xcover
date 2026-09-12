@@ -1,6 +1,6 @@
 #!/bin/bash
 # Automated xcover demo for asciinema
-# Run as: sudo bash automated-demo.sh
+# Run as: sudo bash demo.sh
 
 set -euo pipefail
 

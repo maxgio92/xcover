@@ -1,7 +1,7 @@
 #!/bin/bash
 # Automated xcover stripped binary demo for asciinema
 # Demonstrates coverage profiling on a stripped C binary via kernel uprobes.
-# Run as: sudo bash automated-demo-stripped.sh
+# Run as: sudo bash demo.sh
 
 set -euo pipefail
 

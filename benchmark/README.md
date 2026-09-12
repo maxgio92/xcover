@@ -1,6 +1,6 @@
 # xcover latency benchmark
 
-Measures the per-call overhead that xcover's uprobe-based tracing adds to a target binary, across three distinct execution paths.
+Measures the per-call overhead that xcover's uprobe-based tracing adds to a target binary, across four scenarios.
 
 ## Background
 
@@ -40,19 +40,27 @@ Each scenario has a C target binary that times its own execution using `clock_ge
 ## Running
 
 ```sh
-# Build targets and run 100 rounds
+# Build targets, run kernel and userspace modes (N=100 probes, 10 rounds each)
 make bench
 ```
 
-> Requires `sudo` (because of needed `CAP_BPF` + `CAP_PERFMON`) to load BPF programs.
+`make bench` runs both modes and writes raw output to `results/kernel.txt` and
+`results/userspace.txt`. Other targets:
 
-### Custom rounds
+| Target | Notes |
+|---|---|
+| `make bench-kernel` | Kernel uprobes. Runs `go test` under `sudo` because loading BPF needs `CAP_BPF` and `CAP_PERFMON`. |
+| `make bench-userspace` | Userspace BPF through bpftime. No `sudo`. Needs `pkg/bpftime/libs/bpftime-agent.so`, built with `make bpftime-libs` from the repository root. |
+| `make bench-compare` | Compares the two result files with `benchstat` (`go install golang.org/x/perf/cmd/benchstat@latest`). |
+
+### Custom rounds and probe count
 
 ```
-make -e COUNT=ROUNDS bench
+make -e COUNT=ROUNDS N=FUNCS bench-kernel
 ```
 
-where `ROUNDS` is a integer number that is passed to `go test -bench -count=ROUNDS`.
+`ROUNDS` is passed to `go test -bench -count=ROUNDS` (default 100). `FUNCS` is
+the number of probed functions (default 10000).
 
 ## Report
 

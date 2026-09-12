@@ -33,13 +33,15 @@ var (
 		)
 		return fmt.Sprintf(fileTemplateHeader, title)
 	}
+	// Links are written relative to docs/, where the generated pages live.
+	// The root command page is embedded into README.md at the repository
+	// root, so its links are rewritten with a docs/ prefix in main.
 	linkHandler = func(filename string) string {
 		if filename == settings.CmdName+".md" {
 			// This is the root command.
-			return "README.md"
+			return "../README.md"
 		}
-		// Otherwise prefix with docs/.
-		return path.Join("docs", filename)
+		return filename
 	}
 )
 
@@ -73,7 +75,8 @@ func main() {
 		fmt.Println("failed to read CLI doc README:", err)
 		os.Exit(1)
 	}
-	cmdDocs := string(cmdDocsBytes)
+	// Rewrite subcommand links so they resolve from the repository root.
+	cmdDocs := strings.ReplaceAll(string(cmdDocsBytes), "]("+settings.CmdName+"_", "]("+path.Join(docsDir, settings.CmdName)+"_")
 
 	// Replace the template marker
 	finalReadme := strings.Replace(readme, templateMarker, cmdDocs, 1)

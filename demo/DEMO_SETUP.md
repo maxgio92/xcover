@@ -1,59 +1,39 @@
-# xcover Asciinema Demo Setup
+# xcover demos
 
-## Overview
+Scripted terminal sessions for recording with asciinema. Each scenario is a
+`demo.sh` in its own directory and cleans up after itself.
 
-This directory contains everything needed to create an impressive asciinema demo of xcover.
+| Directory | What it shows | Binary | Needs |
+|---|---|---|---|
+| `basic/` | Kernel mode on a Go program with `--scope project` | `../../xcover` | root |
+| `stripped/` | Kernel mode on a stripped C program (function recovery) | `../../xcover` | root |
+| `debugfile/` | Kernel mode on a stripped C program with `--debug-path` | `../../xcover` | root, `objcopy`, `strip`, `readelf` |
+| `userspace/` | Userspace BPF mode on a C program with `LD_PRELOAD` | `../../xcover-userspace` | no root |
+| `userspace-stripped/` | Userspace BPF mode on a stripped C program | `../../xcover-userspace` | no root |
 
-## Files
+Shared sources live in `src/go/demo-app.go` and `src/c/demo-app.c`. All scripts
+also call `bat`, `jq`, `gcc` or `go`, and honour `SLEEP` (seconds between
+commands, default 2).
 
-- `demo-app.go` - Simple Go application with multiple functions for demonstration
-- `demo-app` - Compiled binary (used as the target for coverage profiling)
-- `automated-demo.sh` - Complete demo script (run with sudo)
-- `RECORDING_INSTRUCTIONS.md` - Detailed recording instructions
+## Run a demo
 
-## Quick Start - Record the Demo
+Build the binary the scenario needs from the repository root, then run the
+script from its directory:
 
-The fastest way to record the demo:
+```shell
+make xcover                    # or: make xcover-userspace
+cd demo/basic
+sudo bash demo.sh              # userspace scenarios run without sudo
+```
 
-```bash
-# From the repository root, go to demo directory
-cd demo
+## Record and publish
 
-# Record the demo (will prompt for sudo password)
+```shell
+cd demo/basic
 asciinema rec -t "xcover - Functional Test Coverage Profiler" \
-  --command "sudo ./automated-demo.sh" \
-  xcover-demo.cast
-
-# Upload to asciinema.org
+  --command "sudo ./demo.sh" xcover-demo.cast
 asciinema upload xcover-demo.cast
-
-# Copy the URL from output (e.g., https://asciinema.org/a/XXXXX)
 ```
 
-## Add to README
-
-After uploading, add the embed code to README.md (below line 7, after the project description):
-
-```markdown
-[![asciicast](https://asciinema.org/a/XXXXX.svg)](https://asciinema.org/a/XXXXX)
-```
-
-Replace `XXXXX` with your actual asciinema ID.
-
-## What the Demo Shows
-
-1. Starting xcover profiler in daemon mode
-2. Waiting for profiler ready state
-3. Running test scenarios (add, multiply, greet functions)
-4. Stopping profiler and viewing coverage report
-5. Clear coverage percentage output
-
-Duration: ~45 seconds (perfect for README showcase)
-
-## Why This Demo is Impactful
-
-- **Visual proof** of xcover working without code changes
-- **Cross-language** support demonstrated (Go binary)
-- **No instrumentation** - binary runs normally
-- **Clear metrics** - coverage percentage displayed
-- **Professional** - clean, narrated, easy to follow
+To change the recording embedded in the README, edit the asciicast link in
+`README.md.tpl` (not `README.md`, which is generated) and run `make docs`.

@@ -33,6 +33,15 @@ struct {
     __type(value, u8);          /* Report marker */
 } seen_funcs SEC(".maps");
 
+/* Calls not recorded because the seen_funcs insert failed (map full), one
+ * per call. Userspace reads it on exit to warn that the report undercounts. */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u64);
+} drops SEC(".maps");
+
 long ringbuffer_flags = 0;
 
 SEC("uprobe/handle_user_function")
@@ -57,9 +66,18 @@ int handle_user_function(struct pt_regs *ctx) {
 	}
 
 	/* Track which functions have been reported. Done only after a successful
-	 * reserve, so a dropped event does not permanently hide the function. */
+	 * reserve, so a dropped event does not permanently hide the function.
+	 * When the insert fails the function cannot be deduplicated, so count
+	 * the drop and discard the event instead of emitting one per call. */
 	if (bpf_map_update_elem(&seen_funcs, &cookie, &seen, BPF_ANY) < 0) {
-		xcover_debug("error tracking user function with cookie %llu as seen\n", cookie);
+		u32 zero = 0;
+		u64 *dropped = bpf_map_lookup_elem(&drops, &zero);
+		if (dropped)
+			__sync_fetch_and_add(dropped, 1);
+		bpf_ringbuf_discard(event, ringbuffer_flags);
+		xcover_debug("seen_funcs insert failed, dropping event for cookie %llu\n", cookie);
+
+		return 0;
 	}
 
 	event->cookie = cookie;

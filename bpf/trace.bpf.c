@@ -6,7 +6,7 @@
 /* Debug logging is compiled out by default to keep bpf_printk off the hot
  * path. Build with `make xcover/bpf BPF_DEBUG=1` to enable it. */
 #ifdef XCOVER_DEBUG
-#define xcover_debug(fmt, ...) xcover_debug(fmt, ##__VA_ARGS__)
+#define xcover_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
 #else
 #define xcover_debug(fmt, ...) do {} while (0)
 #endif
@@ -46,14 +46,17 @@ int handle_user_function(struct pt_regs *ctx) {
 		return 0;
 	}
 
-	/* Track which functions have been reported */
-	bpf_map_update_elem(&seen_funcs, &cookie, &seen, BPF_ANY);
-
 	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
 	if (!event) {
 		xcover_debug("error submitting event to ring buffer for user function with cookie %llu\n", cookie);
 
 		return 0;
+	}
+
+	/* Track which functions have been reported. Done only after a successful
+	 * reserve, so a dropped event does not permanently hide the function. */
+	if (bpf_map_update_elem(&seen_funcs, &cookie, &seen, BPF_ANY) < 0) {
+		xcover_debug("error tracking user function with cookie %llu as seen\n", cookie);
 	}
 
 	event->cookie = cookie;

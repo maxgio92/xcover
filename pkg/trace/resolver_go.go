@@ -4,6 +4,7 @@ import (
 	"context"
 	"debug/buildinfo"
 	"debug/elf"
+	"fmt"
 	"os"
 	"strings"
 
@@ -24,6 +25,11 @@ import (
 func GoProjectResolver(path string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
 	return func(ctx context.Context) ([]FunctionEntry, error) {
 		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// Validated before goModulePath so a bad pattern surfaces as
+		// ErrInvalidPattern even when the binary cannot be read.
+		if err := ValidateSymPatterns(include, exclude); err != nil {
 			return nil, err
 		}
 
@@ -109,13 +115,43 @@ func withProjectFallback(primary, fallback FunctionResolver, logger log.Logger) 
 // Go emits symbols for subpackages with the module path prefix
 // (e.g. "github.com/user/repo/pkg.Func"), but symbols in the executable's
 // root package are emitted as "main.Func".
+//
+// The linker escapes the last path element of a package path in symbol names
+// (see goPathToPrefix), so a module such as gopkg.in/yaml.v3 emits its root
+// package functions as "gopkg.in/yaml%2ev3.Unmarshal" while build info reports
+// "gopkg.in/yaml.v3". Both the escaped and the unescaped forms are matched.
 func filterByModulePath(entries []FunctionEntry, modPath string) []FunctionEntry {
-	prefix := modPath + "/"
+	prefixes := []string{"main.", modPath + "/", modPath + "."}
+	if escaped := goPathToPrefix(modPath); escaped != modPath {
+		prefixes = append(prefixes, escaped+"/", escaped+".")
+	}
 	var out []FunctionEntry
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name, prefix) || strings.HasPrefix(e.Name, modPath+".") || strings.HasPrefix(e.Name, "main.") {
-			out = append(out, e)
+		for _, p := range prefixes {
+			if strings.HasPrefix(e.Name, p) {
+				out = append(out, e)
+				break
+			}
 		}
 	}
 	return out
+}
+
+// goPathToPrefix mirrors cmd/internal/objabi.PathToPrefix: the symbol-name
+// prefix the Go linker derives from a package path. Dots in the last path
+// element, '%', '"', control characters, spaces and non-ASCII bytes are
+// escaped as %xx so that the '.' separating package from identifier stays
+// unambiguous.
+func goPathToPrefix(s string) string {
+	slash := strings.LastIndex(s, "/")
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c <= ' ' || (c == '.' && i > slash) || c == '%' || c == '"' || c >= 0x7F {
+			fmt.Fprintf(&b, "%%%02x", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }

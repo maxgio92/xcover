@@ -3,6 +3,7 @@
 package trace_test
 
 import (
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,8 @@ func TestSymbolTableResolver_Direct(t *testing.T) {
 	for _, e := range entries {
 		assert.NotEmpty(t, e.Name)
 		assert.NotZero(t, e.Offset)
+		// The Go linker's zero-size end-of-code marker is not a function.
+		assert.NotEqual(t, "runtime.etext", e.Name)
 	}
 }
 
@@ -93,4 +96,53 @@ int main() {
 		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)
 		assert.NotZero(t, e.Offset)
 	}
+}
+
+// TestSymbolTableResolver_PIESkipsUndefinedImports compiles a dynamically
+// linked PIE, whose first PT_LOAD has Vaddr 0, and checks that undefined
+// imports such as puts@GLIBC_2.2.5 (STT_FUNC, SHN_UNDEF, Value 0) are not
+// resolved to file offset 0 and probed as functions.
+func TestSymbolTableResolver_PIESkipsUndefinedImports(t *testing.T) {
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc not available")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.c")
+	require.NoError(t, os.WriteFile(src, []byte(`
+#include <stdio.h>
+__attribute__((noinline)) void greet(void) { puts("hello"); }
+int main(void) { greet(); return 0; }
+`), 0o644))
+
+	bin := filepath.Join(dir, "pie")
+	if out, err := exec.Command("gcc", "-O0", "-fPIE", "-pie", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("gcc failed: %v: %s", err, out)
+	}
+
+	// Collect the fixture's undefined symbols (puts@GLIBC_2.2.5 and friends)
+	// so the check does not depend on the versioned spelling.
+	f, err := elf.Open(bin)
+	require.NoError(t, err)
+	defer f.Close()
+	syms, err := f.Symbols()
+	require.NoError(t, err)
+	undefined := make(map[string]bool)
+	for _, s := range syms {
+		if s.Section == elf.SHN_UNDEF && elf.ST_TYPE(s.Info) == elf.STT_FUNC && s.Name != "" {
+			undefined[s.Name] = true
+		}
+	}
+	require.NotEmpty(t, undefined, "fixture has no undefined function imports; puts should be imported")
+
+	entries, err := trace.SymbolTableResolver(bin, testLogger, "", "", nil, nil)(t.Context())
+	require.NoError(t, err)
+
+	names := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		names[e.Name] = true
+		assert.NotZerof(t, e.Offset, "function %q resolved to file offset 0", e.Name)
+		assert.Falsef(t, undefined[e.Name], "undefined import %q leaked into the function list", e.Name)
+	}
+	assert.True(t, names["greet"], "expected defined function greet, got %v", entries)
+	assert.True(t, names["main"], "expected defined function main, got %v", entries)
 }

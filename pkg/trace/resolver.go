@@ -32,6 +32,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
+		filter, err := newSymFilter(include, exclude, bindInclude, bindExclude)
+		if err != nil {
+			return nil, err
+		}
+
 		f, err := elf.Open(path)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open binary")
@@ -42,11 +47,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
-		syms, err := funcSymsFromELF(f, include, exclude, bindInclude, bindExclude)
+		syms, err := funcSymsFromELF(f, filter)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
-				entries, err := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+				entries, err := funcEntriesFromGoPclntab(f, filter, logger)
 				if err != nil {
 					return nil, errors.Wrap(ErrNoSymbolTable, err.Error())
 				}
@@ -56,7 +61,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 		}
 		if len(syms) == 0 {
 			logger.Info().Msg("no function symbols found, attempting .gopclntab fallback")
-			entries, goPclnErr := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+			entries, goPclnErr := funcEntriesFromGoPclntab(f, filter, logger)
 			if goPclnErr != nil {
 				return nil, ErrNoFunctionSymbols
 			}
@@ -70,23 +75,65 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 }
 
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind) ([]elf.Symbol, error) {
+func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
 	}
 
+	return filterFuncSyms(syms, filter), nil
+}
+
+// goTextMarkerRe matches the zero-size STT_FUNC symbols the Go linker emits to
+// delimit code: runtime.text, runtime.text.N for split text sections, and
+// runtime.etext (cmd/link/internal/ld/symtab.go). lld's etext/_etext are
+// STT_NOTYPE and never reach this check.
+var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
+
+// filterFuncSyms keeps the STT_FUNC symbols that name code present in the file
+// and pass filter.
+//
+// Undefined imports (e.g. puts@GLIBC_2.2.5: STT_FUNC, SHN_UNDEF, Value 0) are
+// dropped: on a PIE the first PT_LOAD has Vaddr 0, so Value 0 would map to file
+// offset 0 (the ELF header) and be probed as a function that can never fire.
+// The Go linker's zero-size text markers are dropped by name. Every other
+// zero-size symbol is kept: some toolchains emit assembly functions with Size
+// 0, including ones at the very end of .text.
+func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
 	var out []elf.Symbol
 	for _, sym := range syms {
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
-		if !shouldInclude(sym, include, exclude, bindInclude, bindExclude) {
+		if !isDefinedFunc(sym) {
+			continue
+		}
+		if isGoTextMarker(sym) {
+			continue
+		}
+		if !filter.shouldInclude(sym) {
 			continue
 		}
 		out = append(out, sym)
 	}
-	return out, nil
+	return out
+}
+
+// isGoTextMarker reports whether sym is one of the Go linker's zero-size
+// text delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
+// go:textfipsstart and go:textfipsend that GOFIPS140 builds emit around the
+// FIPS module (cmd/link/internal/ld/fips140.go).
+func isGoTextMarker(sym elf.Symbol) bool {
+	if sym.Name == "go:textfipsstart" || sym.Name == "go:textfipsend" {
+		return true
+	}
+	return sym.Size == 0 && goTextMarkerRe.MatchString(sym.Name)
+}
+
+// isDefinedFunc reports whether sym refers to code present in this file rather
+// than an undefined import or a zero-address placeholder.
+func isDefinedFunc(sym elf.Symbol) bool {
+	return sym.Section != elf.SHN_UNDEF && sym.Value != 0
 }
 
 // funcEntriesFromSymbols converts a list of ELF function symbols to FunctionEntry values.
@@ -109,7 +156,7 @@ func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, er
 
 // funcEntriesFromGoPclntab extracts function entries from the .gopclntab section,
 // which is retained even in stripped Go binaries.
-func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
+func funcEntriesFromGoPclntab(f *elf.File, filter symFilter, logger log.Logger) ([]FunctionEntry, error) {
 	pclntabSection := f.Section(".gopclntab")
 	if pclntabSection == nil {
 		return nil, errors.New("no .gopclntab section found - not a Go binary or section stripped")
@@ -146,7 +193,7 @@ func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude,
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC),
 		}
-		if shouldInclude(sym, include, exclude, bindInclude, bindExclude) {
+		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}
 	}
@@ -173,28 +220,65 @@ func vaToFileOffset(f *elf.File, va uint64) (uint64, error) {
 	return 0, fmt.Errorf("VA 0x%x not covered by any loadable segment", va)
 }
 
+// symFilter holds the compiled --include/--exclude patterns and the symbol
+// binding filters. Patterns are compiled once here rather than per symbol:
+// binaries can carry tens of thousands of function symbols, and an invalid
+// pattern must surface as an error, not a panic inside the resolver.
+type symFilter struct {
+	include, exclude         *regexp.Regexp
+	bindInclude, bindExclude []elf.SymBind
+}
+
+// newSymFilter compiles include and exclude (empty means unset). An invalid
+// pattern returns an error wrapping ErrInvalidPattern.
+func newSymFilter(include, exclude string, bindInclude, bindExclude []elf.SymBind) (symFilter, error) {
+	f := symFilter{bindInclude: bindInclude, bindExclude: bindExclude}
+	var err error
+	if include != "" {
+		if f.include, err = regexp.Compile(include); err != nil {
+			return symFilter{}, errors.Wrapf(ErrInvalidPattern, "include %q: %s", include, err)
+		}
+	}
+	if exclude != "" {
+		if f.exclude, err = regexp.Compile(exclude); err != nil {
+			return symFilter{}, errors.Wrapf(ErrInvalidPattern, "exclude %q: %s", exclude, err)
+		}
+	}
+	return f, nil
+}
+
+// ValidateSymPatterns returns an error wrapping ErrInvalidPattern when include
+// or exclude is not a valid regular expression; empty means unset. It lets a
+// command reject a bad pattern up front, before any daemonization.
+func ValidateSymPatterns(include, exclude string) error {
+	_, err := newSymFilter(include, exclude, nil, nil)
+	return err
+}
+
 // shouldInclude reports whether sym passes the include/exclude filters.
-func shouldInclude(sym elf.Symbol, include, exclude string, bindInclude, bindExclude []elf.SymBind) bool {
-	if bindExclude != nil {
-		for _, b := range bindExclude {
+// Binding filters take precedence over name patterns, and exclude is checked
+// before include.
+func (f symFilter) shouldInclude(sym elf.Symbol) bool {
+	if f.bindExclude != nil {
+		for _, b := range f.bindExclude {
 			if elf.ST_BIND(sym.Info) == b {
 				return false
 			}
 		}
 	}
-	if bindInclude != nil {
-		for _, b := range bindInclude {
+	if f.bindInclude != nil {
+		for _, b := range f.bindInclude {
 			if elf.ST_BIND(sym.Info) == b {
 				return true
 			}
 		}
 		return false
 	}
-	if exclude != "" && regexp.MustCompile(exclude).MatchString(sym.Name) {
+	if f.exclude != nil && f.exclude.MatchString(sym.Name) {
 		return false
 	}
-	if include != "" {
-		return regexp.MustCompile(include).MatchString(sym.Name)
+	if f.include != nil {
+		return f.include.MatchString(sym.Name)
 	}
 	return true
 }

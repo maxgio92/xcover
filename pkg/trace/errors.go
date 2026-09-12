@@ -14,6 +14,9 @@ var (
 	ErrElfFileNil           = errors.New("elf file is nil")
 	ErrNoBuildID            = errors.New("executable or debug file has no GNU build-id")
 	ErrDebugBuildIDMismatch = errors.New("debug file build-id does not match executable")
+	// ErrInvalidPattern is returned when an --include or --exclude symbol
+	// pattern is not a valid regular expression.
+	ErrInvalidPattern = errors.New("invalid symbol pattern")
 
 	// ErrProjectScopeUnsupported is returned by GoProjectResolver when the
 	// binary does not carry the metadata required for project-scoped function

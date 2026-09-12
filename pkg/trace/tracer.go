@@ -423,6 +423,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
+		coverage.WithReportPID(t.pid),
 	)
 
 	file, err := os.Create(reportPath)

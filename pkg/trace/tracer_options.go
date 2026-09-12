@@ -9,6 +9,9 @@ import (
 type UserTracerOptions struct {
 	cookiesMapName string
 
+	// pid restricts tracing to one process; probe.PIDAll traces every process.
+	pid int
+
 	report       bool
 	status       bool
 	verbose      bool
@@ -59,5 +62,13 @@ func WithTracerTracee(tracee *UserTracee) UserTracerOpt {
 func WithTracerUserspaceBPF(enabled bool) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.userspaceBPF = enabled
+	}
+}
+
+// WithTracerPID restricts tracing to the process with the given PID. The
+// default, probe.PIDAll, traces every process running the executable.
+func WithTracerPID(pid int) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.pid = pid
 	}
 }

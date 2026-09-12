@@ -42,3 +42,15 @@ func TestWithTraceeResolver_CustomResolver(t *testing.T) {
 	assert.Contains(t, offsets, uint64(0x1000))
 	assert.Contains(t, offsets, uint64(0x2000))
 }
+
+// TestSymbolTableResolver_InvalidPattern verifies that a malformed --include
+// or --exclude regex is reported as an error from the resolver instead of
+// panicking while symbols are filtered. The pattern is checked before the
+// binary is opened, so no real file is needed.
+func TestSymbolTableResolver_InvalidPattern(t *testing.T) {
+	_, err := trace.SymbolTableResolver("dummy-path", testLogger, "(", "", nil, nil)(t.Context())
+	require.ErrorContains(t, err, "invalid include pattern")
+
+	_, err = trace.SeparateDebugResolver("dummy-path", "dummy-debug", testLogger, "", "[", nil, nil, true)(t.Context())
+	require.ErrorContains(t, err, "invalid exclude pattern")
+}

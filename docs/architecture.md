@@ -72,6 +72,8 @@ uprobes are addressed by file offset, PIE and ASLR need no special handling.
 `shouldInclude` in `resolver.go` applies, in order: symbol binding exclude,
 symbol binding include (library API only), `--exclude` regex, `--include`
 regex. Exclude wins over include. Project scope filtering runs after these.
+The regexes are compiled once when the resolver is built; an invalid pattern
+is returned as an error from the first resolver call.
 
 Functions are stored in a map keyed by file offset. The offset is also the BPF
 cookie, so two names at the same address (weak aliases, identical code folding)
@@ -85,9 +87,10 @@ since 5.11), and sets the expected attach type to `TRACE_UPROBE_MULTI`.
 
 `UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 128, the
 largest that fits the kernel's `bpf_attr` buffer, and calls
-`AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. The PID argument
-`-1` means every process that maps the file. A failed batch is logged as a
-warning and skipped; the tracer still reports readiness.
+`AttachUprobeMulti(pid, exePath, offsets, cookies)` per batch. The PID
+argument comes from `--pid`; the default `-1` (`probe.PIDAll`) means every
+process that maps the file. A failed batch aborts `Run` with an error before
+readiness is signalled, and the links already attached are destroyed.
 
 In userspace BPF mode bpftime does not implement `uprobe_multi`, so
 `attachSingleUprobes` attaches one perf-event uprobe per function instead.
@@ -102,10 +105,13 @@ The socket is removed on every exit path.
 ### 6. Events
 
 `bpf/trace.bpf.c` defines two maps: `events`, a 256 MB ring buffer, and
-`seen_funcs`, a hash map of 40960 cookies. The program reads the attach cookie,
-returns if the cookie is already in `seen_funcs`, otherwise inserts it and
-submits an 8-byte event. The program only fires on function entry; there is no
-return probe.
+`seen_funcs`, a hash map of 40960 cookies, plus `drops`, a one-element array
+counter. The program reads the attach cookie, returns if the cookie is already
+in `seen_funcs`, otherwise inserts it and submits an 8-byte event. If the
+insert fails because the map is full, the program increments `drops` and
+submits nothing; the tracer reads the counter on exit and warns when it is
+non-zero. `bpf_printk` tracing is compiled in only with `CFLAGS=-DDEBUG`. The
+program only fires on function entry; there is no return probe.
 
 Userspace polls the ring buffer every 60 ms into a channel of 4096 events, a
 second goroutine forwards them, and `handleEvent` decodes the cookie and stores
@@ -116,8 +122,10 @@ it in the `ack` map.
 On `SIGINT` or `SIGTERM` the tracer drains its goroutines, destroys the links
 (which detaches the probes) and writes `xcover-report.json` in the current
 directory when `--report` is true. `funcs_traced` is every resolved function,
-`funcs_ack` the names found for acknowledged cookies, `cov_by_func` the ratio
-of acknowledged cookies to resolved functions times 100.
+`funcs_ack` the names found for acknowledged cookies, `cov_by_func` is
+`len(funcs_ack) / len(funcs_traced) * 100`. A cookie that resolves to no
+function is skipped. A report file that cannot be created is returned as an
+error.
 
 ## Daemon mode
 
@@ -143,17 +151,4 @@ temporary file and prints the path. See
 These are visible from reading the code and worth knowing before you change the
 related areas:
 
-- `--pid` is parsed into `Options.pid` but never used; attach always passes
-  `-1`.
-- `Probe.Attach` returns `nil` after a failed `uprobe_multi` attach, so partial
-  instrumentation is silent apart from a warning.
-- In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
-  cannot resolve, which stops the iteration and truncates `funcs_ack`.
-  `cov_by_func` uses the raw ack count, so it can disagree with
-  `len(funcs_ack)`. See issue #175.
-- `bpf/trace.bpf.c` calls `bpf_printk` on every hit, including the fast path.
-- `bpf_map_update_elem` on `seen_funcs` is not checked; past 40960 entries every
-  call of an untracked function emits an event.
-- `shouldInclude` compiles the include and exclude regexes once per symbol, and
-  an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

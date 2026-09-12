@@ -27,7 +27,11 @@ type FunctionResolver func(ctx context.Context) ([]FunctionEntry, error)
 // with a .gopclntab fallback for stripped Go binaries.
 // path is the binary to open; the resolver opens and closes it itself.
 func SymbolTableResolver(path string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
+	incRe, excRe, patternErr := compileSymPatterns(include, exclude)
 	return func(ctx context.Context) ([]FunctionEntry, error) {
+		if patternErr != nil {
+			return nil, patternErr
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -42,11 +46,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
-		syms, err := funcSymsFromELF(f, include, exclude, bindInclude, bindExclude)
+		syms, err := funcSymsFromELF(f, incRe, excRe, bindInclude, bindExclude)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
-				entries, err := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+				entries, err := funcEntriesFromGoPclntab(f, incRe, excRe, bindInclude, bindExclude, logger)
 				if err != nil {
 					return nil, errors.Wrap(ErrNoSymbolTable, err.Error())
 				}
@@ -56,7 +60,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 		}
 		if len(syms) == 0 {
 			logger.Info().Msg("no function symbols found, attempting .gopclntab fallback")
-			entries, goPclnErr := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+			entries, goPclnErr := funcEntriesFromGoPclntab(f, incRe, excRe, bindInclude, bindExclude, logger)
 			if goPclnErr != nil {
 				return nil, ErrNoFunctionSymbols
 			}
@@ -69,8 +73,24 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 	}
 }
 
+// compileSymPatterns compiles the --include and --exclude patterns once per
+// resolver. An empty pattern yields a nil *regexp.Regexp, meaning no filter.
+func compileSymPatterns(include, exclude string) (incRe, excRe *regexp.Regexp, err error) {
+	if include != "" {
+		if incRe, err = regexp.Compile(include); err != nil {
+			return nil, nil, errors.Wrap(err, "invalid include pattern")
+		}
+	}
+	if exclude != "" {
+		if excRe, err = regexp.Compile(exclude); err != nil {
+			return nil, nil, errors.Wrap(err, "invalid exclude pattern")
+		}
+	}
+	return incRe, excRe, nil
+}
+
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind) ([]elf.Symbol, error) {
+func funcSymsFromELF(f *elf.File, include, exclude *regexp.Regexp, bindInclude, bindExclude []elf.SymBind) ([]elf.Symbol, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
@@ -109,7 +129,7 @@ func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, er
 
 // funcEntriesFromGoPclntab extracts function entries from the .gopclntab section,
 // which is retained even in stripped Go binaries.
-func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
+func funcEntriesFromGoPclntab(f *elf.File, include, exclude *regexp.Regexp, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
 	pclntabSection := f.Section(".gopclntab")
 	if pclntabSection == nil {
 		return nil, errors.New("no .gopclntab section found - not a Go binary or section stripped")
@@ -173,8 +193,9 @@ func vaToFileOffset(f *elf.File, va uint64) (uint64, error) {
 	return 0, fmt.Errorf("VA 0x%x not covered by any loadable segment", va)
 }
 
-// shouldInclude reports whether sym passes the include/exclude filters.
-func shouldInclude(sym elf.Symbol, include, exclude string, bindInclude, bindExclude []elf.SymBind) bool {
+// shouldInclude reports whether sym passes the include/exclude filters. A nil
+// include or exclude regex means that filter is not set.
+func shouldInclude(sym elf.Symbol, include, exclude *regexp.Regexp, bindInclude, bindExclude []elf.SymBind) bool {
 	if bindExclude != nil {
 		for _, b := range bindExclude {
 			if elf.ST_BIND(sym.Info) == b {
@@ -190,11 +211,11 @@ func shouldInclude(sym elf.Symbol, include, exclude string, bindInclude, bindExc
 		}
 		return false
 	}
-	if exclude != "" && regexp.MustCompile(exclude).MatchString(sym.Name) {
+	if exclude != nil && exclude.MatchString(sym.Name) {
 		return false
 	}
-	if include != "" {
-		return regexp.MustCompile(include).MatchString(sym.Name)
+	if include != nil {
+		return include.MatchString(sym.Name)
 	}
 	return true
 }

@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
+	"github.com/maxgio92/xcover/pkg/probe"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
@@ -39,22 +41,63 @@ func TestOptionsSetup(t *testing.T) {
 	tests := []struct {
 		name      string
 		scope     string
+		pid       int
 		wantScope trace.Scope
 		wantErr   bool
 	}{
 		{
 			name:      "binary scope",
 			scope:     string(trace.ScopeBinary),
+			pid:       probe.PIDAll,
 			wantScope: trace.ScopeBinary,
 		},
 		{
 			name:      "project scope",
 			scope:     string(trace.ScopeProject),
+			pid:       probe.PIDAll,
 			wantScope: trace.ScopeProject,
 		},
 		{
 			name:    "unknown scope",
 			scope:   "bogus",
+			pid:     probe.PIDAll,
+			wantErr: true,
+		},
+		{
+			name:      "positive pid",
+			scope:     string(trace.ScopeBinary),
+			pid:       os.Getpid(),
+			wantScope: trace.ScopeBinary,
+		},
+		{
+			// libbpf resolves pid 0 to xcover's own process, which never maps
+			// the traced executable, so it must be rejected instead of
+			// producing an empty report.
+			name:    "zero pid",
+			scope:   string(trace.ScopeBinary),
+			pid:     0,
+			wantErr: true,
+		},
+		{
+			// libbpf treats every negative pid as "all processes"; only
+			// PIDAll is documented, so other negatives are rejected.
+			name:    "negative pid other than PIDAll",
+			scope:   string(trace.ScopeBinary),
+			pid:     -7,
+			wantErr: true,
+		},
+		{
+			name:      "largest C int pid",
+			scope:     string(trace.ScopeBinary),
+			pid:       math.MaxInt32,
+			wantScope: trace.ScopeBinary,
+		},
+		{
+			// libbpfgo narrows the pid to a C int, so 4294967295 would wrap
+			// to -1 and silently trace every process.
+			name:    "pid above MaxInt32",
+			scope:   string(trace.ScopeBinary),
+			pid:     math.MaxInt32 + 1,
 			wantErr: true,
 		},
 	}
@@ -63,6 +106,7 @@ func TestOptionsSetup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			o := newTestOptions(t)
 			o.scope = tt.scope
+			o.pid = tt.pid
 
 			scope, err := o.setup()
 

@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
+	"github.com/maxgio92/xcover/pkg/probe"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
@@ -54,7 +56,7 @@ It supports programs compiled to ELF.
 	}
 
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
-	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+	cmd.Flags().IntVar(&o.pid, "pid", probe.PIDAll, "Only trace the process with this PID; -1 traces every process running the executable")
 
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
@@ -105,7 +107,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// setup performs the PID file bookkeeping and function scope parsing needed
+// setup performs the PID file bookkeeping and validates the flags needed
 // before a tracer can be built. The PID file is written unconditionally so
 // that the caller's deferred removal, armed right after this call, always
 // cleans it up regardless of the returned error. Log-level configuration is
@@ -114,6 +116,14 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 func (o *Options) setup() (trace.Scope, error) {
 	// Store PID file.
 	common.WritePID(os.Getpid())
+
+	// libbpf maps pid 0 to xcover's own process and treats every negative
+	// value as "all processes", so anything other than a real PID or PIDAll
+	// would silently trace the wrong set of processes. libbpfgo converts the
+	// value to a C int, so anything above MaxInt32 would wrap the same way.
+	if o.pid == 0 || o.pid < probe.PIDAll || o.pid > math.MaxInt32 {
+		return "", fmt.Errorf("--pid must be a positive PID up to %d or %d, got %d", math.MaxInt32, probe.PIDAll, o.pid)
+	}
 
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
@@ -145,6 +155,7 @@ func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 
 	return trace.NewUserTracer(
 		trace.WithTracerLogger(o.Logger),
+		trace.WithTracerPID(o.pid),
 		trace.WithTracerVerbose(o.verbose),
 		trace.WithTracerReport(o.report),
 		trace.WithTracerStatus(o.status),

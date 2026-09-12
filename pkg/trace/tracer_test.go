@@ -3,9 +3,14 @@ package trace
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/maxgio92/xcover/pkg/coverage"
 )
 
 const (
@@ -49,8 +54,8 @@ func TestHandleEvent_Verbose(t *testing.T) {
 }
 
 // TestHandleEvent_UnknownCookie verifies that an event carrying a cookie not
-// present in tracee.funcs is still acked, matching the pre-refactor behavior
-// of counting unresolved cookies toward the reported coverage.
+// present in tracee.funcs is still acked; writeReport is responsible for
+// leaving such cookies out of the report.
 func TestHandleEvent_UnknownCookie(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -78,4 +83,48 @@ func TestHandleEvent_UnknownCookie(t *testing.T) {
 
 	_, ok := tracer.ack.Load(cookie(2))
 	require.True(t, ok)
+}
+
+// TestWriteReport_UnknownCookie verifies that a cookie with no matching
+// function neither truncates funcs_ack nor inflates cov_by_func: the ratio is
+// derived from the names listed in funcs_ack. The old Range callback returned
+// false on the first unknown cookie, dropping every function visited after it.
+func TestWriteReport_UnknownCookie(t *testing.T) {
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = map[cookie]funcInfo{
+		1: {name: "pkg.Alpha"},
+		2: {name: "pkg.Beta"},
+		3: {name: "pkg.Gamma"},
+		4: {name: "pkg.Delta"},
+	}
+
+	tracer := NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
+	for _, ck := range []cookie{1, 2, 99, 3} {
+		tracer.ack.Store(ck, struct{}{})
+	}
+
+	reportPath := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, tracer.writeReport(reportPath))
+
+	data, err := os.ReadFile(reportPath)
+	require.NoError(t, err)
+	var report coverage.CoverageReport
+	require.NoError(t, json.Unmarshal(data, &report))
+
+	require.ElementsMatch(t, []string{"pkg.Alpha", "pkg.Beta", "pkg.Gamma"}, report.FuncsAck)
+	require.Len(t, report.FuncsTraced, 4)
+	require.InDelta(t, 75.0, report.CovByFunc, 1e-9)
+	require.Equal(t, "dummy-path", report.ExePath)
+}
+
+// TestWriteReport_CreateError verifies that a report path that cannot be
+// created is returned as an error so the run exits non-zero instead of
+// logging and reporting success.
+func TestWriteReport_CreateError(t *testing.T) {
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = map[cookie]funcInfo{1: {name: "pkg.Alpha"}}
+	tracer := NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
+
+	err := tracer.writeReport(filepath.Join(t.TempDir(), "missing-dir", "report.json"))
+	require.ErrorContains(t, err, "failed to create report file")
 }

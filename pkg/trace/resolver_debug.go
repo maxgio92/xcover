@@ -6,6 +6,7 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"encoding/binary"
+	"regexp"
 
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
@@ -35,7 +36,11 @@ const ntGNUBuildID = 3
 // recovery: when the user explicitly supplies a debug file, a problem with it
 // should be reported, not papered over with synthetic func_0x<addr> names.
 func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind, skipBuildID bool) FunctionResolver {
+	incRe, excRe, patternErr := compileSymPatterns(include, exclude)
 	return func(ctx context.Context) ([]FunctionEntry, error) {
+		if patternErr != nil {
+			return nil, patternErr
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -66,7 +71,7 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
-		syms, err := funcSymsFromELF(dbg, include, exclude, bindInclude, bindExclude)
+		syms, err := funcSymsFromELF(dbg, incRe, excRe, bindInclude, bindExclude)
 		if err == nil {
 			if syms = definedFuncs(syms); len(syms) > 0 {
 				logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
@@ -76,7 +81,7 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Fallback: DWARF subprograms. Best-effort — see funcSymsFromDWARF.
 		logger.Info().Msg("debug file has no usable .symtab; trying DWARF subprograms")
-		dwarfSyms, derr := funcSymsFromDWARF(dbg, include, exclude, logger)
+		dwarfSyms, derr := funcSymsFromDWARF(dbg, incRe, excRe, logger)
 		if derr != nil {
 			return nil, errors.Wrapf(derr, "no usable symbols in debug file %q (.symtab and DWARF both failed)", debugPath)
 		}
@@ -134,7 +139,7 @@ type dwarfSubprogram struct {
 //     these forms to raw offsets but never loads the supplementary file, so
 //     such names resolve empty and are skipped. Common on Fedora/Debian
 //     debuginfod, which dwz-process their debug files.
-func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) ([]elf.Symbol, error) {
+func funcSymsFromDWARF(f *elf.File, include, exclude *regexp.Regexp, logger log.Logger) ([]elf.Symbol, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, errors.Wrap(err, "no DWARF info")

@@ -59,7 +59,7 @@ move the submodule to the same commit in the same PR.
 | Target | What it does |
 |---|---|
 | `make xcover` | Builds libbpf from the submodule, compiles the BPF object, builds the `xcover` binary. Use this first. |
-| `make xcover/bpf` | Compiles only `bpf/trace.bpf.c` into `pkg/probe/output/trace.bpf.o`. Generates `bpf/vmlinux.h` if missing. |
+| `make xcover/bpf` | Compiles only `bpf/trace.bpf.c` into `pkg/probe/output/trace.bpf.o`. Generates `bpf/vmlinux.h` if missing. Pass `CFLAGS=-DDEBUG` to compile in the `bpf_printk` calls, readable from `/sys/kernel/debug/tracing/trace_pipe`. |
 | `make xcover/frontend` | Builds only the Go binary. Needs the BPF object and libbpf already built, because the object is embedded with `go:embed`. |
 | `make xcover-userspace` | Clones and builds pinned bpftime, applies `patches/bpftime/*.patch`, embeds the two shared libraries and builds `xcover-userspace` with `-tags userspace`. |
 | `make bpftime-libs` | Only the bpftime step above. |
@@ -114,7 +114,8 @@ Hand-written pages such as `docs/xcover_userspace_bpf.md` and
 `docs/architecture.md` are not touched by the generator.
 
 The generator does not delete pages for removed commands; delete them by hand.
-CI does not yet check that generated docs are current.
+The `build` CI job runs `make docs` and fails when `README.md` or `docs/`
+differ from the committed files.
 
 ## Commit and pull request conventions
 

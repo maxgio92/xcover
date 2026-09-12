@@ -3,9 +3,11 @@ package probe
 import (
 	"context"
 	"embed"
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
@@ -22,6 +24,11 @@ const (
 	EventsChBufSize       = 4096
 	evtRingBufBPFMapName  = "events"
 	evtRingBufPollTimeout = 60
+	dropsBPFMapName       = "drops"
+
+	// PIDAll attaches the probes to every process running the executable,
+	// following libbpf's convention where a negative pid disables the filter.
+	PIDAll = -1
 )
 
 type Probe struct {
@@ -34,6 +41,8 @@ type Probe struct {
 
 	EvtBuf *bpf.RingBuffer
 
+	// pid restricts the uprobes to one process; PIDAll traces every process.
+	pid          int
 	userspaceBPF bool
 
 	logger log.Logger
@@ -57,8 +66,17 @@ func WithUserspaceBPF() Option {
 	}
 }
 
+// WithPID restricts the uprobes to the process with the given PID. The
+// process must exist at attach time. PIDAll (the default) traces every
+// process that runs the executable.
+func WithPID(pid int) Option {
+	return func(p *Probe) {
+		p.pid = pid
+	}
+}
+
 func NewProbe(opts ...Option) *Probe {
-	p := new(Probe)
+	p := &Probe{pid: PIDAll}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -172,13 +190,31 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 		return p.attachSingleUprobes(exePath, offsets, cookies)
 	}
 
-	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
+	link, err := p.bpfProg.AttachUprobeMulti(p.pid, exePath, offsets, cookies)
 	if err != nil {
-		p.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies))
-		return nil
+		return errors.Wrapf(err, "attach uprobe_multi for functions with cookies %v", cookies)
 	}
 	p.links = append(p.links, link)
 	return nil
+}
+
+// Drops returns how many calls the BPF program could not record because the
+// seen_funcs map was full. The counter increments on every such call, so it
+// is an upper bound on the number of functions missing from the report.
+func (p *Probe) Drops() (uint64, error) {
+	m, err := p.bpfMod.GetMap(dropsBPFMapName)
+	if err != nil {
+		return 0, err
+	}
+	key := uint32(0)
+	val, err := m.GetValue(unsafe.Pointer(&key))
+	if err != nil {
+		return 0, errors.Wrapf(err, "lookup map %s", dropsBPFMapName)
+	}
+	if len(val) < 8 {
+		return 0, fmt.Errorf("map %s: value size %d, want 8", dropsBPFMapName, len(val))
+	}
+	return binary.NativeEndian.Uint64(val), nil
 }
 
 func (p *Probe) InitEventBuf(ctx context.Context) (chan []byte, error) {
@@ -234,7 +270,7 @@ func (p *Probe) CloseBPFMod() {
 func (p *Probe) attachSingleUprobes(exePath string, offsets, cookies []uint64) error {
 	for i, offset := range offsets {
 		cookie := cookies[i]
-		link, err := p.bpfProg.AttachUprobeWithOpts(-1, exePath, offset, cookie)
+		link, err := p.bpfProg.AttachUprobeWithOpts(p.pid, exePath, offset, cookie)
 		if err != nil {
 			return fmt.Errorf("attach uprobe at offset 0x%x cookie 0x%x: %w", offset, cookie, err)
 		}

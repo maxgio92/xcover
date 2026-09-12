@@ -13,13 +13,16 @@ OUTPUT := $(current_dir)/pkg/probe/output
 
 ARCH := $(subst x86_64,x86,$(shell uname -m))
 GOARCH := $(subst x86,amd64,$(subst aarch64,arm64,$(ARCH)))
+# libbpf's bpf_tracing.h checks __TARGET_ARCH_arm64, not the uname spelling.
+BPF_ARCH := $(subst aarch64,arm64,$(ARCH))
 
 # ebpf
 
 VMLINUXH := vmlinux.h
 BTFFILE := /sys/kernel/btf/vmlinux
 
-CFLAGS ?= -D__TARGET_ARCH_$(ARCH)
+# CFLAGS adds to the BPF compile, e.g. CFLAGS=-DDEBUG compiles in bpf_printk.
+BPF_CFLAGS := -D__TARGET_ARCH_$(BPF_ARCH) $(CFLAGS)
 
 # libbpf
 
@@ -95,7 +98,7 @@ docs:
 
 .PHONY: $(PROGRAM)/bpf
 $(PROGRAM)/bpf: $(OUTPUT) $(VMLINUXH)
-	clang $(CFLAGS) -g -O2 -c -target bpf \
+	clang $(BPF_CFLAGS) -g -O2 -c -target bpf \
 		-o $(OUTPUT)/trace.bpf.o bpf/trace.bpf.c
 
 .PHONY: $(foreach compile_mode,$(COMPILE_MODES),$(LIBBPFGO)-$(compile_mode))

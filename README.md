@@ -140,9 +140,16 @@ Non-Go binaries always use binary scope.
 
 ### Process filter
 
-`--pid` is accepted by the CLI but is not applied yet: probes attach to the
-executable file and fire for every process that runs it. Track progress in the
-issue tracker before relying on this flag.
+Probes attach to the executable file, so by default they fire for every
+process that runs it, including processes started after xcover. Pass `--pid`
+to record hits from one running process only:
+
+```shell
+xcover run --path EXE_PATH --pid 1234
+```
+
+The process must exist when xcover attaches, otherwise the attach fails and
+xcover exits. Hits from other processes of the same executable are ignored.
 
 ## Symbolization
 
@@ -194,7 +201,7 @@ written. State lives in fixed paths, so only one xcover daemon can run per host:
 | File | Purpose |
 |---|---|
 | `/tmp/xcover.pid` | PID of the running profiler. |
-| `/tmp/xcover.log` | stdout and stderr of the daemon. Warnings about scope fallback or failed attaches land here. |
+| `/tmp/xcover.log` | stdout and stderr of the daemon. Warnings about scope fallback and any attach error land here. |
 | `/tmp/xcover.sock` | Readiness socket used by `xcover wait`. |
 
 ```shell
@@ -229,11 +236,14 @@ type CoverageReport struct {
 Notes on the numbers:
 
 - Coverage is per function. There is no line, branch or call-count information.
-- Hits are aggregated across every process that ran the binary during the
-  session. The report does not say which process exercised a function.
-- A function whose probe failed to attach stays in `funcs_traced`, so a batch
-  attach failure lowers the reported coverage. Check `/tmp/xcover.log` for
-  warnings if the number looks too low.
+- By default hits are aggregated across every process that ran the binary
+  during the session, and the report does not say which process exercised a
+  function. Pass `--pid` to restrict tracing to one process.
+- An attach failure aborts the run before readiness is signalled and no report
+  is written, so a report always covers every function in `funcs_traced`.
+- Past 40960 distinct functions the kernel map is full and further functions
+  are not recorded; xcover warns on exit with the number of unrecorded calls.
+  See [Limitations](#limitations).
 
 Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
 to skip the file.
@@ -265,11 +275,12 @@ latency benchmarks.
 - **First hit only, per session.** The kernel map dedups per function, so the
   report answers "did it run", not "how often".
 - **At most 40960 distinct functions per session.** Beyond that the kernel map
-  is full; further functions are neither recorded nor deduped, and every call
-  emits an event. Narrow the probe set with `--scope` or `--exclude`.
+  is full and the first hit of any further function is dropped, so the report
+  undercounts. xcover counts the unrecorded calls and warns on exit. Narrow the
+  probe set with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
-- **Kernel 6.6+, Linux only.** On older kernels the attach fails; xcover logs a
-  warning and reports 0% coverage rather than aborting.
+- **Kernel 6.6+, Linux only.** On older kernels the attach fails and xcover
+  exits with an error.
 - **Project scope is Go only** and falls back silently to binary scope for other
   binaries or single-file Go builds. Watch the log.
 - **Binary must not change on disk** while a session is running, because probe

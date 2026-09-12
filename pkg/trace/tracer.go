@@ -54,7 +54,7 @@ type UserTracer struct {
 
 func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	tracer := &UserTracer{
-		UserTracerOptions: &UserTracerOptions{},
+		UserTracerOptions: &UserTracerOptions{pid: probe.PIDAll},
 	}
 	for _, opt := range opts {
 		opt(tracer)
@@ -94,7 +94,7 @@ func (t *UserTracer) Init(ctx context.Context) error {
 		return err
 	}
 
-	probeOpts := []probe.Option{probe.WithLogger(t.logger)}
+	probeOpts := []probe.Option{probe.WithLogger(t.logger), probe.WithPID(t.pid)}
 	if t.userspaceBPF {
 		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
 	}
@@ -124,14 +124,18 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Attach one uprobe per function to trace.
-	t.logger.Debug().Msg("attaching trace to selected functions")
-	t.attachProbe(ctx)
 	// Defers run LIFO: CloseBPFMod must be registered before CloseEventBuf so
 	// it runs second, after CloseEventBuf stops the ring buffer poll goroutine.
-	// Registering it right after attach also detaches the uprobes when
-	// InitEventBuf fails.
+	// Registering it before attach also detaches the links of a partially
+	// attached batch set when a later batch or InitEventBuf fails.
 	defer t.probe.CloseBPFMod()
+
+	// Attach one uprobe per function to trace. Abort before signalling
+	// readiness: a partially probed binary would report a misleading ratio.
+	t.logger.Debug().Msg("attaching trace to selected functions")
+	if err := t.attachProbe(ctx); err != nil {
+		return errors.Wrap(err, "error attaching probes")
+	}
 
 	eventsCh, err := t.probe.InitEventBuf(ctx)
 	if err != nil {
@@ -196,10 +200,27 @@ func (t *UserTracer) waitAndReport(ctx context.Context, wg *sync.WaitGroup) erro
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
+	t.warnDrops()
+
 	return t.writeReport(ReportFileName)
 }
 
-func (t *UserTracer) attachProbe(ctx context.Context) {
+// warnDrops reads the BPF drop counter and warns when calls could not be
+// recorded because seen_funcs was full: their functions are missing from
+// funcs_ack.
+func (t *UserTracer) warnDrops() {
+	drops, err := t.probe.Drops()
+	if err != nil {
+		t.logger.Warn().Err(err).Msg("failed to read dropped first hits counter")
+		return
+	}
+	if drops > 0 {
+		t.logger.Warn().Uint64("dropped", drops).
+			Msg("calls not recorded because the seen_funcs map is full; coverage is undercounted, narrow the probe set with --scope or --exclude")
+	}
+}
+
+func (t *UserTracer) attachProbe(ctx context.Context) error {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
 	offsets, cookies := t.tracee.GetFuncProbes()
@@ -211,9 +232,11 @@ func (t *UserTracer) attachProbe(ctx context.Context) {
 		}
 
 		if err := t.probe.Attach(ctx, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
-			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
+			return err
 		}
 	}
+
+	return nil
 }
 
 func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {
@@ -300,17 +323,20 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		traced = append(traced, fn.name)
 	}
 
+	// Skip cookies that do not resolve to a function instead of stopping the
+	// iteration, and derive the ratio from the names actually listed so
+	// cov_by_func always equals len(funcs_ack) / len(funcs_traced).
 	ack := make([]string, 0, utils.LenSyncMap(&t.ack))
 	t.ack.Range(func(k, v interface{}) bool {
 		fun, ok := t.tracee.funcs[k.(cookie)]
 		if !ok {
-			return false
+			return true
 		}
 		ack = append(ack, fun.name)
 		return true
 	})
 
-	covByFunc := float64(utils.LenSyncMap(&t.ack)) / float64(len(t.tracee.funcs)) * 100
+	covByFunc := float64(len(ack)) / float64(len(t.tracee.funcs)) * 100
 
 	report := coverage.NewCoverageReport(
 		coverage.WithReportFuncsAck(ack),
@@ -321,7 +347,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 
 	file, err := os.Create(reportPath)
 	if err != nil {
-		t.logger.Err(err).Msg("failed to create report file")
+		return errors.Wrap(err, "failed to create report file")
 	}
 	defer file.Close()
 

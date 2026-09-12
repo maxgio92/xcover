@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,27 +68,61 @@ func TestWithFuncCount(t *testing.T) {
 	}
 }
 
-// TestSeenFuncsMaxEntries covers the size computation only: exercising the
-// resize in Init requires loading the BPF object, which needs privileges.
-func TestSeenFuncsMaxEntries(t *testing.T) {
+// openEmbeddedModule opens the embedded BPF object without loading it. Opening
+// only parses the ELF, so it needs no privileges; map attributes can still be
+// changed at this stage.
+func openEmbeddedModule(t *testing.T) *bpf.Module {
+	t.Helper()
+	data, err := probeFS.ReadFile(filepath.Join(outputPath, ProbePath))
+	require.NoError(t, err)
+	mod, err := bpf.NewModuleFromBufferArgs(bpf.NewModuleArgs{
+		BPFObjBuff:      data,
+		BPFObjName:      ProgName,
+		SkipMemlockBump: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(mod.Close)
+	return mod
+}
+
+// TestResizeSeenFuncs asserts the pre-load resize Init applies to seen_funcs:
+// the capacity equals the traced function count exactly, and a non-positive
+// count keeps the max_entries compiled into the object.
+func TestResizeSeenFuncs(t *testing.T) {
 	tests := []struct {
 		name      string
 		funcCount int
-		want      uint32
+		want      func(compiled uint32) uint32
 	}{
-		{name: "zero keeps the object default", funcCount: 0, want: 0},
-		{name: "negative keeps the object default", funcCount: -1, want: 0},
-		{name: "count plus headroom", funcCount: 1, want: 1 + seenFuncsHeadroom},
-		{name: "above the object default", funcCount: 50000, want: 50000 + seenFuncsHeadroom},
+		{name: "zero keeps the object default", funcCount: 0, want: func(c uint32) uint32 { return c }},
+		{name: "negative keeps the object default", funcCount: -1, want: func(c uint32) uint32 { return c }},
+		{name: "exactly the function count", funcCount: 1, want: func(uint32) uint32 { return 1 }},
+		{name: "above the object default", funcCount: 50000, want: func(uint32) uint32 { return 50000 }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := seenFuncsMaxEntries(tt.funcCount); got != tt.want {
-				t.Errorf("seenFuncsMaxEntries(%d) = %d, want %d", tt.funcCount, got, tt.want)
-			}
+			mod := openEmbeddedModule(t)
+			seenFuncs, err := mod.GetMap(seenFuncsBPFMapName)
+			require.NoError(t, err)
+			compiled := seenFuncs.MaxEntries()
+			require.NotZero(t, compiled)
+
+			require.NoError(t, resizeSeenFuncs(seenFuncs, tt.funcCount))
+			require.Equal(t, tt.want(compiled), seenFuncs.MaxEntries())
 		})
 	}
+}
+
+// TestEmbeddedObjectHasDropsMap pins the drops counter layout Probe.Drops
+// reads: a one-slot array of u64.
+func TestEmbeddedObjectHasDropsMap(t *testing.T) {
+	mod := openEmbeddedModule(t)
+	drops, err := mod.GetMap(dropsBPFMapName)
+	require.NoError(t, err)
+	require.Equal(t, bpf.MapTypeArray, drops.Type())
+	require.Equal(t, uint32(1), drops.MaxEntries())
+	require.Equal(t, 8, drops.ValueSize())
 }
 
 // TestEmbeddedObjectHasNoPrintk pins that the default BPF object keeps

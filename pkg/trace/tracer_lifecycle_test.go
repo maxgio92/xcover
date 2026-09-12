@@ -26,6 +26,7 @@ type fakeProbe struct {
 	attachErr error
 	events    chan []byte
 	onDetach  func()
+	drops     uint64
 
 	attachCalls int
 	// detachCalls counts DetachLinks calls made directly, not via CloseBPFMod.
@@ -47,6 +48,7 @@ func (p *fakeProbe) InitEventBuf(context.Context) (chan []byte, error) { return 
 func (p *fakeProbe) PollEventBuf()                                     {}
 func (p *fakeProbe) CloseEventBuf()                                    {}
 func (p *fakeProbe) CloseBPFMod()                                      { p.modClosed = true }
+func (p *fakeProbe) Drops() (uint64, error)                            { return p.drops, nil }
 
 func (p *fakeProbe) DetachLinks() {
 	if p.detachCalls == 0 {

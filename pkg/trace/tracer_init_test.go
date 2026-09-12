@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,7 @@ func (f *countingProbe) InitEventBuf(context.Context) (chan []byte, error) { ret
 func (f *countingProbe) PollEventBuf()                                     {}
 func (f *countingProbe) CloseEventBuf()                                    {}
 func (f *countingProbe) CloseBPFMod()                                      {}
+func (f *countingProbe) Drops() (uint64, error)                            { return 0, nil }
 
 // TestUserTracerInit_ProbeSizedAfterTracee asserts that Init resolves the
 // tracee functions before initializing the probe, so the seen_funcs map can be
@@ -110,4 +112,33 @@ func TestDefaultProbe_CarriesFuncCount(t *testing.T) {
 	p, ok := tracer.defaultProbe(3).(*probe.Probe)
 	require.True(t, ok)
 	require.Equal(t, 3, p.FuncCount())
+}
+
+// TestWarnDrops asserts the drop counter surfaces as a Warn only when calls
+// were dropped, since the report undercounts in that case.
+func TestWarnDrops(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		drops uint64
+		warn  bool
+	}{
+		{name: "no drops stays silent", drops: 0, warn: false},
+		{name: "drops warn about undercounting", drops: 3, warn: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			tracer := NewUserTracer(
+				WithTracerLogger(zerolog.New(&out)),
+				WithTracerProbe(&fakeProbe{drops: tt.drops}),
+			)
+			tracer.warnDrops()
+			if tt.warn {
+				require.Contains(t, out.String(), `"level":"warn"`)
+				require.Contains(t, out.String(), `"dropped":3`)
+				require.Contains(t, out.String(), "undercounts")
+			} else {
+				require.Empty(t, out.String())
+			}
+		})
+	}
 }

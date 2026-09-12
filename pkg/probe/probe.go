@@ -3,9 +3,11 @@ package probe
 import (
 	"context"
 	"embed"
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
@@ -23,9 +25,7 @@ const (
 	evtRingBufBPFMapName  = "events"
 	evtRingBufPollTimeout = 60
 	seenFuncsBPFMapName   = "seen_funcs"
-	// seenFuncsHeadroom is the slack added on top of the traced function count
-	// when sizing the seen_funcs hash map.
-	seenFuncsHeadroom = 128
+	dropsBPFMapName       = "drops"
 )
 
 type Probe struct {
@@ -77,13 +77,19 @@ func (p *Probe) FuncCount() int {
 	return p.funcCount
 }
 
-// seenFuncsMaxEntries returns the seen_funcs map capacity for funcCount traced
-// functions, or 0 when the BPF object default must be kept.
-func seenFuncsMaxEntries(funcCount int) uint32 {
+// resizeSeenFuncs sets the seen_funcs map capacity to funcCount before the
+// object is loaded; max_entries is immutable afterwards. A preallocated BPF
+// hash holds exactly max_entries distinct keys and cookies are bounded by the
+// traced function count, so no headroom is needed. With funcCount <= 0 the
+// max_entries compiled into the object is kept.
+func resizeSeenFuncs(seenFuncs *bpf.BPFMap, funcCount int) error {
 	if funcCount <= 0 {
-		return 0
+		return nil
 	}
-	return uint32(funcCount + seenFuncsHeadroom)
+	if err := seenFuncs.SetMaxEntries(uint32(funcCount)); err != nil {
+		return errors.Wrapf(err, "failed to resize bpf map %s", seenFuncsBPFMapName)
+	}
+	return nil
 }
 
 func NewProbe(opts ...Option) *Probe {
@@ -141,16 +147,13 @@ func (p *Probe) Init(_ context.Context) error {
 	}
 
 	// The seen_funcs hash must hold one entry per traced function, otherwise
-	// functions beyond its capacity lose in-kernel dedup and every call emits
-	// an event. Resize it before load; max_entries is immutable afterwards.
-	if maxEntries := seenFuncsMaxEntries(p.funcCount); maxEntries > 0 {
-		seenFuncs, err := p.bpfMod.GetMap(seenFuncsBPFMapName)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get bpf map %s", seenFuncsBPFMapName)
-		}
-		if err := seenFuncs.SetMaxEntries(maxEntries); err != nil {
-			return errors.Wrapf(err, "failed to resize bpf map %s", seenFuncsBPFMapName)
-		}
+	// functions beyond its capacity lose in-kernel dedup.
+	seenFuncs, err := p.bpfMod.GetMap(seenFuncsBPFMapName)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get bpf map %s", seenFuncsBPFMapName)
+	}
+	if err := resizeSeenFuncs(seenFuncs, p.funcCount); err != nil {
+		return err
 	}
 
 	if err := p.bpfMod.BPFLoadObject(); err != nil {
@@ -220,6 +223,25 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 	}
 	p.links = append(p.links, link)
 	return nil
+}
+
+// Drops returns how many calls the BPF program could not record because the
+// seen_funcs insert failed. It counts every such call, not distinct
+// functions, so it is an upper bound on the functions missing from the report.
+func (p *Probe) Drops() (uint64, error) {
+	m, err := p.bpfMod.GetMap(dropsBPFMapName)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to get bpf map %s", dropsBPFMapName)
+	}
+	key := uint32(0)
+	val, err := m.GetValue(unsafe.Pointer(&key))
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to lookup bpf map %s", dropsBPFMapName)
+	}
+	if len(val) != 8 {
+		return 0, errors.Errorf("bpf map %s: value size %d, want 8", dropsBPFMapName, len(val))
+	}
+	return binary.LittleEndian.Uint64(val), nil
 }
 
 func (p *Probe) InitEventBuf(ctx context.Context) (chan []byte, error) {

@@ -24,8 +24,8 @@ const (
 	// uprobe_multi link. libbpf passes the offsets and cookies arrays to the
 	// kernel by pointer with a count, so bpf_attr size is not a constraint; the
 	// kernel caps a single link at MAX_UPROBE_MULTI_CNT (1<<20) entries. The
-	// batch stays well below that and bounded so a failing batch does not take
-	// down the attachment of the whole binary.
+	// batch stays well below that cap, and bounding it keeps the per-syscall
+	// arrays and the cookie list in a batch failure diagnostic manageable.
 	bpfUprobeMultiAttachMaxOffsets = 1 << 16
 )
 
@@ -60,6 +60,9 @@ type Probe interface {
 	CloseEventBuf()
 	DetachLinks()
 	CloseBPFMod()
+	// Drops returns how many calls the BPF program could not record because
+	// the seen_funcs insert failed.
+	Drops() (uint64, error)
 }
 
 type UserTracer struct {
@@ -244,7 +247,24 @@ func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg
 	wg.Wait()
 	t.logger.Info().Msg("terminating...")
 
+	t.warnDrops()
+
 	return t.writeReport(ReportFileName)
+}
+
+// warnDrops reads the BPF drop counter and warns when calls could not be
+// recorded because the seen_funcs insert failed: their functions are missing
+// from the report.
+func (t *UserTracer) warnDrops() {
+	drops, err := t.probe.Drops()
+	if err != nil {
+		t.logger.Warn().Err(err).Msg("failed to read the dropped calls counter")
+		return
+	}
+	if drops > 0 {
+		t.logger.Warn().Uint64("dropped", drops).
+			Msg("calls not recorded because the seen_funcs map rejected the insert; the report undercounts coverage, narrow the probe set with --scope or --exclude")
+	}
 }
 
 // attachProbe attaches the probe to every tracee function in uprobe_multi

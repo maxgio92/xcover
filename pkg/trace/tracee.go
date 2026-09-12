@@ -2,12 +2,18 @@ package trace
 
 import (
 	"context"
+	"debug/elf"
+	"encoding/hex"
 
 	"github.com/pkg/errors"
 )
 
 type UserTracee struct {
 	funcs map[cookie]funcInfo
+	// buildID is the GNU build-id of the executable, captured when the
+	// functions are resolved so the report names the same binary the offsets
+	// were taken from, even if the file is rebuilt or removed afterwards.
+	buildID []byte
 	*UserTraceeOptions
 }
 
@@ -71,11 +77,33 @@ func (t *UserTracee) Init(ctx context.Context) error {
 		}
 	}
 
+	t.buildID = t.readBuildID()
+
 	t.logger.Info().
 		Int("count", len(t.funcs)).
 		Msg("functions collected")
 
 	return nil
+}
+
+// readBuildID returns the GNU build-id of the executable, or nil when the
+// file cannot be opened or carries none: the report is still useful without
+// it.
+func (t *UserTracee) readBuildID() []byte {
+	f, err := elf.Open(t.exePath)
+	if err != nil {
+		t.logger.Warn().Err(err).Msg("failed to read the executable build-id")
+		return nil
+	}
+	defer f.Close()
+
+	return buildID(f)
+}
+
+// exeBuildID returns the hex GNU build-id captured by Init, or an empty
+// string when the executable has none.
+func (t *UserTracee) exeBuildID() string {
+	return hex.EncodeToString(t.buildID)
 }
 
 // defaultResolver returns the appropriate FunctionResolver for the tracee's

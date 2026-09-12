@@ -2,12 +2,9 @@ package healthcheck
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/pkg/errors"
 
@@ -17,7 +14,10 @@ import (
 const ReadyMsg = 0x01
 
 type HealthCheckServer struct {
-	ln         net.Listener
+	ln net.Listener
+	// acceptDone is closed when acceptConnections returns, so that
+	// ShutdownListener can guarantee the accept loop has stopped.
+	acceptDone chan struct{}
 	readyCh    chan struct{}
 	socketPath string
 	logger     log.Logger
@@ -41,13 +41,17 @@ func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
 	// Create UDS listener.
 	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
-		fmt.Println("failed to listen on UDS:")
+		s.logger.Error().Err(err).Msg("failed to listen on UDS")
 		return errors.Wrap(err, "failed to listen on UDS")
 	}
 	s.ln = ln
+	s.acceptDone = make(chan struct{})
 
 	// Start accepting connections.
-	go s.acceptConnections(ctx)
+	go func() {
+		defer close(s.acceptDone)
+		s.acceptConnections(ctx)
+	}()
 
 	return nil
 }
@@ -58,13 +62,15 @@ func (s *HealthCheckServer) NotifyReadiness() {
 	close(s.readyCh)
 }
 
-// ShutdownListener gracefully shuts down the listener and removes the socket.
+// ShutdownListener gracefully shuts down the listener, waits for the accept
+// loop to stop and removes the socket.
 func (s *HealthCheckServer) ShutdownListener() error {
 	// Ensure the listener is closed properly.
 	if s.ln != nil {
 		if err := s.ln.Close(); err != nil {
 			s.logger.Debug().Err(err).Msg("error closing listener")
 		}
+		<-s.acceptDone
 	}
 
 	// Remove the socket file if it exists.
@@ -111,11 +117,6 @@ func (s *HealthCheckServer) processConnection(ctx context.Context, conn net.Conn
 	select {
 	// Tracer is ready, send ready message.
 	case <-s.readyCh:
-		// Test that the connection is still open.
-		if !s.isConnectionAlive(conn) {
-			s.logger.Debug().Msg("connection is closed")
-			return
-		}
 		if err := s.safeWrite(conn, []byte{ReadyMsg}); err != nil {
 			if !errors.Is(err, syscall.EPIPE) && !errors.Is(err, syscall.ECONNRESET) {
 				s.logger.Debug().Err(err).Msg("failed to write")
@@ -126,20 +127,6 @@ func (s *HealthCheckServer) processConnection(ctx context.Context, conn net.Conn
 		s.logger.Debug().Msg("ignoring sending readiness message as context is canceled")
 		return
 	}
-}
-
-func (s *HealthCheckServer) isConnectionAlive(conn net.Conn) bool {
-	// Decrease timeout to read fast.
-	conn.SetReadDeadline(time.Now())
-	if _, err := conn.Read([]byte{}); err == io.EOF {
-		s.logger.Debug().Err(err).Msg("cannot write ready message: connection is already closed")
-		conn.Close()
-
-		return false
-	}
-
-	conn.SetReadDeadline(time.Time{})
-	return true
 }
 
 func (s *HealthCheckServer) safeWrite(conn net.Conn, data []byte) error {

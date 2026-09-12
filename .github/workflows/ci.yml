@@ -68,6 +68,17 @@ jobs:
           file xcover
           ./xcover --help
 
+      # Reuses the cgo toolchain and libbpf built by make xcover.
+      - name: Verify generated docs are current
+        run: |
+          make docs
+          if [ -n "$(git status --porcelain README.md docs/)" ]; then
+            echo "README.md or docs/ are out of date. Run 'make docs' and commit the result."
+            git status --porcelain README.md docs/
+            git diff -- README.md docs/
+            exit 1
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -177,7 +188,9 @@ jobs:
       # Runs after make test-integration so libbpfgo/output exists, and uses the
       # Makefile's CGO env so cgo type-checks against the submodule's libbpf
       # headers (the ones the binary links) rather than the system headers.
-      - name: Vet
+      # The userspace tag is excluded: pkg/bpftime go:embeds the bpftime
+      # shared libraries, so vet fails unless make bpftime-libs ran first.
+      - name: Vet (default, e2e and integration tags)
         env:
           CC: gcc
         run: |

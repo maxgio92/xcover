@@ -5,14 +5,15 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/maxgio92/xcover/pkg/healthcheck"
 	"github.com/maxgio92/xcover/pkg/trace"
 	"github.com/rs/zerolog"
 )
@@ -20,9 +21,14 @@ import (
 const (
 	reportPath = "results/bench-report-kernel.json"
 
-	// tracerWarmup is the time given to the tracer to attach uprobes
-	// before the target binary is executed.
-	tracerWarmup = 300 * time.Millisecond
+	// tracerReadyTimeout bounds how long startTracer waits for the tracer
+	// to report readiness on the health check socket, that is, for the
+	// uprobes to be attached and the ring buffer to be consumed.
+	tracerReadyTimeout = 30 * time.Second
+
+	// readyDialInterval is the retry period while the health check socket
+	// does not accept connections yet.
+	readyDialInterval = 10 * time.Millisecond
 )
 
 // Package-level sample slices accumulate ns/call values across all -count
@@ -78,8 +84,10 @@ func runTarget(binary string) (float64, error) {
 }
 
 // startTracer initialises and starts an xcover tracer in the background for
-// the given binary and symbol include pattern. The returned cancel function
-// must be called to stop the tracer.
+// the given binary and symbol include pattern, and returns once the tracer
+// reports readiness on its health check socket. The returned cancel
+// function must be called to stop the tracer; it fails the benchmark if
+// Run returned an error.
 func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 	tb.Helper()
 
@@ -103,24 +111,76 @@ func startTracer(tb testing.TB, binary, include string) context.CancelFunc {
 		tb.Fatalf("tracer init: %v", err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	runErr := make(chan error, 1)
 	go func() {
-		defer wg.Done()
-		tracer.Run(ctx) //nolint:errcheck
+		runErr <- tracer.Run(ctx)
 	}()
 
-	// Allow time for uprobes to attach before the target runs.
-	time.Sleep(tracerWarmup)
+	// Block until the uprobes are attached and events are consumed, or
+	// fail fast if Run gives up before signalling readiness.
+	ready := make(chan error, 1)
+	go func() {
+		ready <- waitTracerReady(ctx, trace.HealthCheckSockPath, tracerReadyTimeout)
+	}()
+	select {
+	case err := <-runErr:
+		cancel()
+		tb.Fatalf("tracer exited before readiness: %v", err)
+	case err := <-ready:
+		if err != nil {
+			cancel()
+			<-runErr
+			tb.Fatalf("tracer readiness: %v", err)
+		}
+	}
 
 	// Cancel the context and wait for Run() to return. Run() defers
-	// CloseBPFMod(), so by the time Wait() unblocks all BPF links have
-	// been destroyed and the kernel has detached the uprobes. No sleep
-	// needed - the next tracer only starts once the previous one is gone.
+	// CloseBPFMod(), so by the time it returns all BPF links have been
+	// destroyed and the kernel has detached the uprobes. No sleep needed:
+	// the next tracer only starts once the previous one is gone.
 	return func() {
 		cancel()
-		wg.Wait()
+		if err := <-runErr; err != nil {
+			tb.Errorf("tracer run: %v", err)
+		}
 	}
+}
+
+// waitTracerReady connects to the tracer health check socket and blocks
+// until the server writes healthcheck.ReadyMsg, which it does only once the
+// tracer is consuming function events.
+func waitTracerReady(ctx context.Context, sockPath string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+
+	var conn net.Conn
+	for {
+		var err error
+		conn, err = net.DialTimeout("unix", sockPath, readyDialInterval)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("dialing %s: %w", sockPath, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(readyDialInterval):
+		}
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return err
+	}
+	buf := make([]byte, 1)
+	if _, err := conn.Read(buf); err != nil {
+		return fmt.Errorf("reading readiness from %s: %w", sockPath, err)
+	}
+	if buf[0] != healthcheck.ReadyMsg {
+		return fmt.Errorf("unexpected readiness byte %#x from %s", buf[0], sockPath)
+	}
+	return nil
 }
 
 // BenchmarkBaseline measures plain function-call overhead with no probes

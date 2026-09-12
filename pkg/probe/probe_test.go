@@ -57,6 +57,39 @@ func TestIsNoisyAttachFailure(t *testing.T) {
 	}
 }
 
+func TestWithFuncCount(t *testing.T) {
+	p := NewProbe(WithFuncCount(50000))
+	if p.funcCount != 50000 {
+		t.Errorf("funcCount = %d, want 50000", p.funcCount)
+	}
+	if p := NewProbe(); p.funcCount != 0 {
+		t.Errorf("default funcCount = %d, want 0", p.funcCount)
+	}
+}
+
+// TestSeenFuncsMaxEntries covers the size computation only: exercising the
+// resize in Init requires loading the BPF object, which needs privileges.
+func TestSeenFuncsMaxEntries(t *testing.T) {
+	tests := []struct {
+		name      string
+		funcCount int
+		want      uint32
+	}{
+		{name: "zero keeps the object default", funcCount: 0, want: 0},
+		{name: "negative keeps the object default", funcCount: -1, want: 0},
+		{name: "count plus headroom", funcCount: 1, want: 1 + seenFuncsHeadroom},
+		{name: "above the object default", funcCount: 50000, want: 50000 + seenFuncsHeadroom},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := seenFuncsMaxEntries(tt.funcCount); got != tt.want {
+				t.Errorf("seenFuncsMaxEntries(%d) = %d, want %d", tt.funcCount, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestEmbeddedObjectHasNoPrintk pins that the default BPF object keeps
 // bpf_printk off the hot path: no `call 6` (BPF_FUNC_trace_printk) in the
 // uprobe program. Build with BPF_DEBUG=1 to opt in.

@@ -22,6 +22,10 @@ const (
 	EventsChBufSize       = 4096
 	evtRingBufBPFMapName  = "events"
 	evtRingBufPollTimeout = 60
+	seenFuncsBPFMapName   = "seen_funcs"
+	// seenFuncsHeadroom is the slack added on top of the traced function count
+	// when sizing the seen_funcs hash map.
+	seenFuncsHeadroom = 128
 )
 
 type Probe struct {
@@ -35,6 +39,7 @@ type Probe struct {
 	EvtBuf *bpf.RingBuffer
 
 	userspaceBPF bool
+	funcCount    int
 
 	logger log.Logger
 }
@@ -55,6 +60,30 @@ func WithUserspaceBPF() Option {
 	return func(p *Probe) {
 		p.userspaceBPF = true
 	}
+}
+
+// WithFuncCount sets the number of functions the probe will trace, used to
+// size the seen_funcs map before the BPF object is loaded. With 0 (the
+// default) the max_entries compiled into the BPF object is kept.
+func WithFuncCount(n int) Option {
+	return func(p *Probe) {
+		p.funcCount = n
+	}
+}
+
+// FuncCount returns the number of functions the probe was configured to
+// trace with WithFuncCount (0 when unset).
+func (p *Probe) FuncCount() int {
+	return p.funcCount
+}
+
+// seenFuncsMaxEntries returns the seen_funcs map capacity for funcCount traced
+// functions, or 0 when the BPF object default must be kept.
+func seenFuncsMaxEntries(funcCount int) uint32 {
+	if funcCount <= 0 {
+		return 0
+	}
+	return uint32(funcCount + seenFuncsHeadroom)
 }
 
 func NewProbe(opts ...Option) *Probe {
@@ -108,6 +137,19 @@ func (p *Probe) Init(_ context.Context) error {
 	if !p.userspaceBPF {
 		if err := p.bpfProg.SetExpectedAttachType(bpf.BPFAttachTypeTraceUprobeMulti); err != nil {
 			return errors.Wrapf(err, "failed to set expected attach type %s", bpf.BPFAttachTypeTraceUprobeMulti)
+		}
+	}
+
+	// The seen_funcs hash must hold one entry per traced function, otherwise
+	// functions beyond its capacity lose in-kernel dedup and every call emits
+	// an event. Resize it before load; max_entries is immutable afterwards.
+	if maxEntries := seenFuncsMaxEntries(p.funcCount); maxEntries > 0 {
+		seenFuncs, err := p.bpfMod.GetMap(seenFuncsBPFMapName)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get bpf map %s", seenFuncsBPFMapName)
+		}
+		if err := seenFuncs.SetMaxEntries(maxEntries); err != nil {
+			return errors.Wrapf(err, "failed to resize bpf map %s", seenFuncsBPFMapName)
 		}
 	}
 

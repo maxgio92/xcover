@@ -56,7 +56,7 @@ It supports programs compiled to ELF.
 	}
 
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
-	cmd.Flags().IntVar(&o.pid, "pid", probe.PIDAll, "Only trace the process with this PID; -1 traces every process running the executable")
+	cmd.Flags().IntVar(&o.pid, "pid", probe.PIDAll, "Only trace the process with this PID (kernel mode only); -1 traces every process running the executable")
 
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
@@ -123,6 +123,13 @@ func (o *Options) setup() (trace.Scope, error) {
 	// value to a C int, so anything above MaxInt32 would wrap the same way.
 	if o.pid == 0 || o.pid < probe.PIDAll || o.pid > math.MaxInt32 {
 		return "", fmt.Errorf("--pid must be a positive PID up to %d or %d, got %d", math.MaxInt32, probe.PIDAll, o.pid)
+	}
+
+	// bpftime at the pinned commit stores the uprobe pid but never checks it,
+	// so a positive --pid would silently record hits from every process that
+	// loaded the agent.
+	if o.userspaceBPF && o.pid != probe.PIDAll {
+		return "", errors.New("--pid is not enforced by bpftime; drop it or run without --userspace-bpf")
 	}
 
 	scope, err := trace.ParseScope(o.scope)

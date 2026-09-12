@@ -39,11 +39,12 @@ func TestOptionsSetup(t *testing.T) {
 	t.Cleanup(func() { settings.PidFile = origPidFile })
 
 	tests := []struct {
-		name      string
-		scope     string
-		pid       int
-		wantScope trace.Scope
-		wantErr   bool
+		name         string
+		scope        string
+		pid          int
+		userspaceBPF bool
+		wantScope    trace.Scope
+		wantErr      bool
 	}{
 		{
 			name:      "binary scope",
@@ -100,6 +101,22 @@ func TestOptionsSetup(t *testing.T) {
 			pid:     math.MaxInt32 + 1,
 			wantErr: true,
 		},
+		{
+			// bpftime stores the pid but never enforces it, so the filter
+			// would silently trace every agent-loaded process.
+			name:         "positive pid with userspace BPF",
+			scope:        string(trace.ScopeBinary),
+			pid:          os.Getpid(),
+			userspaceBPF: true,
+			wantErr:      true,
+		},
+		{
+			name:         "PIDAll with userspace BPF",
+			scope:        string(trace.ScopeBinary),
+			pid:          probe.PIDAll,
+			userspaceBPF: true,
+			wantScope:    trace.ScopeBinary,
+		},
 	}
 
 	for _, tt := range tests {
@@ -107,6 +124,7 @@ func TestOptionsSetup(t *testing.T) {
 			o := newTestOptions(t)
 			o.scope = tt.scope
 			o.pid = tt.pid
+			o.userspaceBPF = tt.userspaceBPF
 
 			scope, err := o.setup()
 

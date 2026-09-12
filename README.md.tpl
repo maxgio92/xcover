@@ -150,6 +150,8 @@ xcover run --path EXE_PATH --pid 1234
 
 The process must exist when xcover attaches, otherwise the attach fails and
 xcover exits. Hits from other processes of the same executable are ignored.
+`--pid` is rejected together with `--userspace-bpf`, because bpftime does not
+enforce the filter; see [docs/userspace-bpf.md](docs/userspace-bpf.md#limitations).
 
 ## Symbolization
 
@@ -238,7 +240,7 @@ Notes on the numbers:
 - Coverage is per function. There is no line, branch or call-count information.
 - By default hits are aggregated across every process that ran the binary
   during the session, and the report does not say which process exercised a
-  function. Pass `--pid` to restrict tracing to one process.
+  function. Pass `--pid` (kernel mode only) to restrict tracing to one process.
 - An attach failure aborts the run before readiness is signalled and no report
   is written, so a report always covers every function in `funcs_traced`.
 - Past 40960 distinct functions the kernel map is full and further functions

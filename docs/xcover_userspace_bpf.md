@@ -100,6 +100,11 @@ control, and for which we want the most transparent UX possible.
   startup; it cannot be used to inject into an already-running process.
 - **Dynamically linked binaries only.** See Requirements and the Binary
   support section.
+- **`--pid` is rejected.** bpftime at the pinned commit stores the PID filter
+  but never enforces it, so a positive `--pid` would silently record hits from
+  every process that loaded the agent. xcover refuses the combination at
+  startup with `--pid is not enforced by bpftime; drop it or run without
+  --userspace-bpf`.
 - **Self re-exec on first invocation.** The `--userspace-bpf` flag causes
   xcover to re-exec itself with the syscall-server preloaded and
   `XCOVER_BPFTIME_LOADED=1` set. Transparent in normal usage but may interact

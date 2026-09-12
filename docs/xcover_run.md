@@ -26,8 +26,9 @@ xcover run [flags]
       --pid int             Filter the process by PID (default -1)
       --report              Generate report (as xcover-report.json) (default true)
       --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
+      --skip-preflight      Skip the preflight checks: the kernel version advisory (Linux 6.6+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)
       --status              Periodically print a status of the trace (default true)
-      --userspace-bpf       Run BPF programs in userspace via bpftime (experimental)
+      --userspace-bpf       Run BPF programs in userspace via bpftime (experimental, implies --skip-preflight)
       --verbose             Enable verbosity
 ```
 

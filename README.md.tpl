@@ -40,8 +40,8 @@ More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 | Requirement | Detail |
 |---|---|
 | OS and architecture | Linux on x86_64 or arm64. |
-| Kernel | 6.6 or newer. xcover attaches probes with `uprobe_multi` links, which landed in Linux 6.6. Attach also relies on BPF cookies (5.15) and memcg-based BPF memory accounting (5.11). |
-| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental). |
+| Kernel | 6.6 or newer upstream, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 does on 5.14). Attach also relies on BPF cookies (5.15) and memcg-based BPF memory accounting (5.11). `xcover run` warns at start when the release looks older than 6.6; pass `--skip-preflight` to silence the check (it also skips the capability check). |
+| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental). `xcover run` checks the effective capability set at start and fails naming what is missing; the check cannot see user-namespace confinement (rootless containers): it may pass there and the BPF load fails instead. |
 | Target binary | An ELF executable with function symbols (`.symtab`), a Go `.gopclntab` section, or a separate debug file passed with `--debug-path`. Static or dynamic linking both work. |
 
 A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
@@ -342,8 +342,8 @@ latency benchmarks.
   and every call emits an event. No warning is printed. Narrow the probe set
   with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
-- **Kernel 6.6+, Linux only.** On older kernels the attach fails; xcover logs a
-  warning, still reports ready and writes 0% coverage rather than aborting.
+- **Linux only, kernel 6.6 or a backport.** `uprobe_multi` landed upstream in
+  6.6; some distribution kernels backport it. Without it the attach fails.
 - **Project scope is Go only.** For other binaries and single-file Go builds
   xcover logs `project scope unavailable, falling back to binary scope` and
   traces everything. In `--detach` mode the warning is only in

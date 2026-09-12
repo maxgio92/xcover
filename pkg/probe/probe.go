@@ -219,7 +219,7 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 
 	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
 	if err != nil {
-		return errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies)
+		return errors.Wrapf(err, "error attaching uprobe_multi link for %d functions (cookies 0x%x..0x%x)", len(cookies), cookies[0], cookies[len(cookies)-1])
 	}
 	p.links = append(p.links, link)
 	return nil

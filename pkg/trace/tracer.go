@@ -24,8 +24,8 @@ const (
 	// uprobe_multi link. libbpf passes the offsets and cookies arrays to the
 	// kernel by pointer with a count, so bpf_attr size is not a constraint; the
 	// kernel caps a single link at MAX_UPROBE_MULTI_CNT (1<<20) entries. The
-	// batch stays well below that cap, and bounding it keeps the per-syscall
-	// arrays and the cookie list in a batch failure diagnostic manageable.
+	// batch stays well below that cap while keeping the per-syscall arrays
+	// bounded.
 	bpfUprobeMultiAttachMaxOffsets = 1 << 16
 )
 

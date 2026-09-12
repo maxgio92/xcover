@@ -1,6 +1,14 @@
 package probe
 
-import "testing"
+import (
+	"bytes"
+	"debug/elf"
+	"encoding/binary"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIsNoisyAttachFailure(t *testing.T) {
 	tests := []struct {
@@ -46,5 +54,29 @@ func TestIsNoisyAttachFailure(t *testing.T) {
 				t.Errorf("isNoisyAttachFailure(%q) = %v, want %v", tt.msg, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestEmbeddedObjectHasNoPrintk pins that the default BPF object keeps
+// bpf_printk off the hot path: no `call 6` (BPF_FUNC_trace_printk) in the
+// uprobe program. Build with BPF_DEBUG=1 to opt in.
+func TestEmbeddedObjectHasNoPrintk(t *testing.T) {
+	data, err := probeFS.ReadFile(filepath.Join(outputPath, ProbePath))
+	require.NoError(t, err)
+
+	f, err := elf.NewFile(bytes.NewReader(data))
+	require.NoError(t, err)
+	defer f.Close()
+
+	sec := f.Section("uprobe/" + ProgName)
+	require.NotNil(t, sec, "program section not found")
+	code, err := sec.Data()
+	require.NoError(t, err)
+
+	const bpfCall, tracePrintk = 0x85, 6
+	for i := 0; i+8 <= len(code); i += 8 {
+		if code[i] == bpfCall && binary.LittleEndian.Uint32(code[i+4:i+8]) == tracePrintk {
+			t.Fatalf("default BPF object calls trace_printk at insn %d", i/8)
+		}
 	}
 }

@@ -20,6 +20,10 @@ VMLINUXH := vmlinux.h
 BTFFILE := /sys/kernel/btf/vmlinux
 
 CFLAGS ?= -D__TARGET_ARCH_$(ARCH)
+# BPF_DEBUG=1 compiles in the bpf_printk debug tracing of the BPF program.
+ifdef BPF_DEBUG
+override CFLAGS += -DXCOVER_DEBUG
+endif
 
 # libbpf
 

@@ -106,6 +106,7 @@ func TestForwardedFlagArgs(t *testing.T) {
 		fs.Bool("status", true, "")
 		fs.String("scope", "binary", "")
 		fs.Bool("userspace-bpf", false, "")
+		fs.Bool("skip-preflight", false, "")
 		fs.String("log-level", "info", "")
 
 		return fs
@@ -137,8 +138,9 @@ func TestForwardedFlagArgs(t *testing.T) {
 				require.NoError(t, fs.Set("path", "/bin/true"))
 				require.NoError(t, fs.Set("report", "false"))
 				require.NoError(t, fs.Set("no-build-id-check", "true"))
+				require.NoError(t, fs.Set("skip-preflight", "true"))
 			},
-			want: []string{"--no-build-id-check=true", "--path=/bin/true", "--report=false"},
+			want: []string{"--no-build-id-check=true", "--path=/bin/true", "--report=false", "--skip-preflight=true"},
 		},
 		{
 			name: "pid and log-level are forwarded like any other flag",

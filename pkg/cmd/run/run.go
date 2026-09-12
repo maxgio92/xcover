@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/maxgio92/xcover/internal/preflight"
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
@@ -30,11 +31,12 @@ type Options struct {
 	debugPath      string
 	noBuildIDCheck bool
 
-	detach       bool
-	verbose      bool
-	report       bool
-	status       bool
-	userspaceBPF bool
+	detach        bool
+	skipPreflight bool
+	verbose       bool
+	report        bool
+	status        bool
+	userspaceBPF  bool
 
 	*options.Options
 }
@@ -67,7 +69,8 @@ It supports programs compiled to ELF.
 	cmd.Flags().BoolVar(&o.report, "report", true, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
 	cmd.Flags().BoolVar(&o.status, "status", true, "Periodically print a status of the trace")
 	cmd.Flags().StringVar(&o.scope, "scope", string(trace.ScopeBinary), `Function scope: "binary" (all functions) or "project" (project module only, Go binaries)`)
-	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental)")
+	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental, implies --"+preflight.SkipFlag+")")
+	cmd.Flags().BoolVar(&o.skipPreflight, preflight.SkipFlag, false, fmt.Sprintf("Skip the kernel (Linux %s+) and capability (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN) preflight checks", preflight.MinKernel))
 
 	if err := cmd.MarkFlagRequired("path"); err != nil {
 		panic(err)
@@ -84,6 +87,10 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	scope, err := o.setup()
 	defer common.RemovePID()
 	if err != nil {
+		return err
+	}
+
+	if err := o.preflight(); err != nil {
 		return err
 	}
 
@@ -121,6 +128,15 @@ func (o *Options) setup() (trace.Scope, error) {
 	}
 
 	return scope, nil
+}
+
+// preflight validates kernel and privileges before any BPF object is loaded.
+func (o *Options) preflight() error {
+	return preflight.Run(
+		preflight.WithSkip(o.skipPreflight),
+		preflight.WithUserspaceBPF(o.userspaceBPF),
+		preflight.WithLogger(o.Logger),
+	)
 }
 
 // buildTracer constructs the tracee to trace and the tracer that drives it,
@@ -182,6 +198,12 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	if common.IsDaemonRunning() {
 		fmt.Println("Daemon already running")
 		return nil
+	}
+
+	// Fail fast in the foreground: the daemon would only report this in its
+	// log file.
+	if err := o.preflight(); err != nil {
+		return err
 	}
 
 	// Start the daemon process, forwarding every flag the user set.

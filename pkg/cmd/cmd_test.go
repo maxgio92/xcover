@@ -70,7 +70,7 @@ func TestCommandSubcommands(t *testing.T) {
 	opts := options.NewOptions(options.WithContext(ctx), options.WithLogger(logger))
 	cmd := NewCommand(opts)
 
-	expectedSubcommands := []string{"run", "status", "stop", "wait"}
+	expectedSubcommands := []string{"merge", "run", "status", "stop", "wait"}
 	actualSubcommands := make([]string, 0)
 
 	for _, subCmd := range cmd.Commands() {
@@ -103,6 +103,7 @@ func TestCommandHelp(t *testing.T) {
 	require.Contains(t, helpOutput, "status")
 	require.Contains(t, helpOutput, "stop")
 	require.Contains(t, helpOutput, "wait")
+	require.Contains(t, helpOutput, "merge")
 }
 
 func TestCommandInvalidFlag(t *testing.T) {
@@ -281,4 +282,5 @@ func TestCommandStructure(t *testing.T) {
 	require.Contains(t, subcommands, "status")
 	require.Contains(t, subcommands, "stop")
 	require.Contains(t, subcommands, "wait")
+	require.Contains(t, subcommands, "merge")
 }

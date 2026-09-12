@@ -25,6 +25,8 @@ func TestSymbolTableResolver_Direct(t *testing.T) {
 	for _, e := range entries {
 		assert.NotEmpty(t, e.Name)
 		assert.NotZero(t, e.Offset)
+		// The Go linker's zero-size end-of-code marker is not a function.
+		assert.NotEqual(t, "runtime.etext", e.Name)
 	}
 }
 
@@ -93,4 +95,35 @@ int main() {
 		assert.Regexp(t, `^func_0x[0-9a-f]+$`, e.Name)
 		assert.NotZero(t, e.Offset)
 	}
+}
+
+// TestSymbolTableResolver_PIESkipsUndefinedImports compiles a dynamically
+// linked PIE, whose first PT_LOAD has Vaddr 0, and checks that undefined
+// imports such as puts@GLIBC_2.2.5 (STT_FUNC, SHN_UNDEF, Value 0) are not
+// resolved to file offset 0 and probed as functions.
+func TestSymbolTableResolver_PIESkipsUndefinedImports(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.c")
+	require.NoError(t, os.WriteFile(src, []byte(`
+#include <stdio.h>
+__attribute__((noinline)) void greet(void) { puts("hello"); }
+int main(void) { greet(); return 0; }
+`), 0o644))
+
+	bin := filepath.Join(dir, "pie")
+	if out, err := exec.Command("gcc", "-O0", "-fPIE", "-pie", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Skipf("gcc unavailable or failed: %v: %s", err, out)
+	}
+
+	entries, err := trace.SymbolTableResolver(bin, testLogger, "", "", nil, nil)(t.Context())
+	require.NoError(t, err)
+
+	names := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		names[e.Name] = true
+		assert.NotZerof(t, e.Offset, "function %q resolved to file offset 0", e.Name)
+		assert.NotEqualf(t, "puts", e.Name, "undefined import %q leaked into the function list", e.Name)
+	}
+	assert.True(t, names["greet"], "expected defined function greet, got %v", entries)
+	assert.True(t, names["main"], "expected defined function main, got %v", entries)
 }

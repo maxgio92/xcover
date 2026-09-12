@@ -71,12 +71,11 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
+		// funcSymsFromELF already drops undefined and zero-address symbols.
 		syms, err := funcSymsFromELF(dbg, filter)
-		if err == nil {
-			if syms = definedFuncs(syms); len(syms) > 0 {
-				logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
-				return funcEntriesFromSymbols(syms, toOffset, logger)
-			}
+		if err == nil && len(syms) > 0 {
+			logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
+			return funcEntriesFromSymbols(syms, toOffset, logger)
 		}
 
 		// Fallback: DWARF subprograms. Best-effort — see funcSymsFromDWARF.
@@ -93,14 +92,11 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 	}
 }
 
-// definedFuncs drops undefined and zero-address symbols. Imported functions
-// (e.g. printf) appear in .symtab as STT_FUNC with SHN_UNDEF and Value==0; on a
-// PIE the first PT_LOAD has Vaddr 0, so VA 0 maps to file offset 0 (the ELF
-// header) instead of being rejected, which would attach a bogus probe.
+// definedFuncs drops undefined and zero-address symbols (see isDefinedFunc).
 func definedFuncs(syms []elf.Symbol) []elf.Symbol {
 	out := make([]elf.Symbol, 0, len(syms))
 	for _, s := range syms {
-		if s.Section == elf.SHN_UNDEF || s.Value == 0 {
+		if !isDefinedFunc(s) {
 			continue
 		}
 		out = append(out, s)

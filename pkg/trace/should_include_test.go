@@ -63,6 +63,53 @@ func TestNewSymFilter_InvalidPattern(t *testing.T) {
 	require.NoError(t, ValidateSymPatterns(`^main\.`, `^runtime\.`))
 }
 
+// TestFilterFuncSyms exercises the per-symbol filtering behind funcSymsFromELF
+// with synthetic symbols: undefined imports, zero-address placeholders and the
+// .text end marker are dropped, other zero-size functions are kept.
+func TestFilterFuncSyms(t *testing.T) {
+	const textEnd = 0x5000
+	funcInfo := elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC)
+	syms := []elf.Symbol{
+		{Name: "main.main", Info: funcInfo, Section: 1, Value: 0x1000, Size: 0x20},
+		{Name: "puts@GLIBC_2.2.5", Info: funcInfo, Section: elf.SHN_UNDEF, Value: 0, Size: 0},
+		{Name: "undef_with_value", Info: funcInfo, Section: elf.SHN_UNDEF, Value: 0x2000, Size: 0x10},
+		{Name: "zero_value", Info: funcInfo, Section: 1, Value: 0, Size: 0x10},
+		// runtime.etext sits MinLC bytes before the section end: 1 on amd64,
+		// 4 on arm64. An exact-end marker is covered too.
+		{Name: "runtime.etext", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0},
+		{Name: "runtime.etext.arm64", Info: funcInfo, Section: 1, Value: textEnd - 4, Size: 0},
+		{Name: "etext_exact", Info: funcInfo, Section: 1, Value: textEnd, Size: 0},
+		{Name: "asm_no_size", Info: funcInfo, Section: 1, Value: 0x3000, Size: 0},
+		{Name: "asm_no_size_near_end", Info: funcInfo, Section: 1, Value: textEnd - 5, Size: 0},
+		{Name: "sized_at_text_end", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0x1},
+		{Name: "fini_zero_size", Info: funcInfo, Section: 3, Value: textEnd + 0x10, Size: 0},
+		{Name: "data_object", Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_OBJECT), Section: 2, Value: 0x4000, Size: 0x8},
+	}
+	kept := []string{"main.main", "asm_no_size", "asm_no_size_near_end", "sized_at_text_end", "fini_zero_size"}
+
+	got := filterFuncSyms(syms, textEnd, mustSymFilter(t, "", "", nil, nil))
+
+	var names []string
+	for _, s := range got {
+		names = append(names, s.Name)
+	}
+	require.ElementsMatch(t, kept, names)
+
+	// With an unknown .text end (0) the marker check is disabled but the
+	// undefined/zero-address checks still apply.
+	got = filterFuncSyms(syms, 0, mustSymFilter(t, "", "", nil, nil))
+	names = names[:0]
+	for _, s := range got {
+		names = append(names, s.Name)
+	}
+	require.ElementsMatch(t, append(kept, "runtime.etext", "runtime.etext.arm64", "etext_exact"), names)
+
+	// Name patterns are applied after the structural checks.
+	got = filterFuncSyms(syms, textEnd, mustSymFilter(t, "^main", "", nil, nil))
+	require.Len(t, got, 1)
+	require.Equal(t, "main.main", got[0].Name)
+}
+
 func TestSymbolTableResolver_InvalidPattern(t *testing.T) {
 	for name, patterns := range map[string][2]string{
 		"include": {"(", ""},

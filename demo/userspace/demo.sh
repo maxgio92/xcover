@@ -10,7 +10,11 @@ DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover-userspace"
 SLEEP="${SLEEP:-2}"
 
+# shellcheck source=../lib/log-pane.sh
+source "${SCRIPT_DIR}/../lib/log-pane.sh"
+
 function cleanup() {
+    teardown_log_pane
     ${XCOVER} stop 2>/dev/null || true
     pkill -f "${XCOVER} run" 2>/dev/null || true
     rm -f /dev/shm/bpftime_*
@@ -24,6 +28,7 @@ function cleanup() {
 trap cleanup EXIT
 
 function main() {
+	setup_log_pane userspace
 	clear
 	runCmd "# === xcover: Userspace BPF mode (powered by bpftime) ==="
 	runCmd "# Same coverage profiling. Zero kernel traps!"
@@ -69,4 +74,4 @@ function runCmd() {
 	sleep "${SLEEP}"
 }
 
-main $@
+main "$@"

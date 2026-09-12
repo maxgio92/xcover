@@ -64,7 +64,7 @@ the number of probed functions (default 10000).
 
 ## Report
 
-Results are written to `bench-report.json`. Summaries are computed across all `-count` rounds.
+Each mode writes its own report: `results/bench-report-kernel.json` for kernel uprobes and `results/bench-report-userspace.json` for userspace BPF. Summaries are computed across all `-count` rounds.
 
 ```json
 {

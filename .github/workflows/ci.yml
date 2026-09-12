@@ -174,6 +174,17 @@ jobs:
       - name: Run tests
         run: make test-integration
 
+      # Runs after make test-integration so libbpfgo/output exists, and uses the
+      # Makefile's CGO env so cgo type-checks against the submodule's libbpf
+      # headers (the ones the binary links) rather than the system headers.
+      - name: Vet
+        env:
+          CC: gcc
+        run: |
+          export CGO_CFLAGS="-I $PWD/libbpfgo/output"
+          export CGO_LDFLAGS="-lelf -lz $PWD/libbpfgo/output/libbpf/libbpf.a"
+          go vet ./... && go vet -tags e2e ./e2e/ && go vet -tags integration ./pkg/trace/
+
   e2e:
     name: E2E
     runs-on: ubuntu-latest

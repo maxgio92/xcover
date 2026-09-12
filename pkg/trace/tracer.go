@@ -37,9 +37,21 @@ type Event struct {
 	Cookie cookie
 }
 
+// Probe is the set of BPF probe operations UserTracer drives. It is
+// satisfied by *probe.Probe and exists so tests can inject a fake through
+// WithTracerProbe without a BPF-capable kernel.
+type Probe interface {
+	Init(ctx context.Context) error
+	Attach(ctx context.Context, exePath string, offsets, cookies []uint64) error
+	InitEventBuf(ctx context.Context) (chan []byte, error)
+	PollEventBuf()
+	CloseEventBuf()
+	CloseBPFMod()
+}
+
 type UserTracer struct {
 	// Tracer objects.
-	probe *probe.Probe
+	probe Probe
 	// Tracee objects.
 	tracee *UserTracee
 	// User functions being acknowledged.
@@ -94,11 +106,13 @@ func (t *UserTracer) Init(ctx context.Context) error {
 		return err
 	}
 
-	probeOpts := []probe.Option{probe.WithLogger(t.logger)}
-	if t.userspaceBPF {
-		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+	if t.probe == nil {
+		probeOpts := []probe.Option{probe.WithLogger(t.logger)}
+		if t.userspaceBPF {
+			probeOpts = append(probeOpts, probe.WithUserspaceBPF())
+		}
+		t.probe = probe.NewProbe(probeOpts...)
 	}
-	t.probe = probe.NewProbe(probeOpts...)
 	if err := t.probe.Init(ctx); err != nil {
 		return errors.Wrap(err, "error initializing BPF probe")
 	}
@@ -124,14 +138,18 @@ func (t *UserTracer) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Attach one uprobe per function to trace.
-	t.logger.Debug().Msg("attaching trace to selected functions")
-	t.attachProbe(ctx)
 	// Defers run LIFO: CloseBPFMod must be registered before CloseEventBuf so
 	// it runs second, after CloseEventBuf stops the ring buffer poll goroutine.
-	// Registering it right after attach also detaches the uprobes when
-	// InitEventBuf fails.
+	// Registering it before attach also detaches the links created by the
+	// batches that succeeded when a later batch or InitEventBuf fails.
 	defer t.probe.CloseBPFMod()
+
+	// Attach one uprobe per function to trace. Fail before signalling
+	// readiness so `wait` never reports ready for a tracer with no probes.
+	t.logger.Debug().Msg("attaching trace to selected functions")
+	if err := t.attachProbe(ctx); err != nil {
+		return err
+	}
 
 	eventsCh, err := t.probe.InitEventBuf(ctx)
 	if err != nil {
@@ -199,7 +217,10 @@ func (t *UserTracer) waitAndReport(ctx context.Context, wg *sync.WaitGroup) erro
 	return t.writeReport(ReportFileName)
 }
 
-func (t *UserTracer) attachProbe(ctx context.Context) {
+// attachProbe attaches the probe to every tracee function in uprobe_multi
+// sized batches and returns the first batch failure; links created by earlier
+// batches are left for CloseBPFMod to destroy.
+func (t *UserTracer) attachProbe(ctx context.Context) error {
 	batchSize := bpfUprobeMultiAttachMaxOffsets
 
 	offsets, cookies := t.tracee.GetFuncProbes()
@@ -211,9 +232,11 @@ func (t *UserTracer) attachProbe(ctx context.Context) {
 		}
 
 		if err := t.probe.Attach(ctx, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
-			t.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies[i:end]))
+			return errors.Wrap(err, "error attaching probe")
 		}
 	}
+
+	return nil
 }
 
 func (t *UserTracer) ingestEvents(ctx context.Context, events <-chan []byte, feed chan<- []byte) {

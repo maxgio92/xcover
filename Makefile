@@ -82,11 +82,17 @@ test-integration: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 		GOARCH=$(GOARCH) \
 		go test -tags integration -ldflags=${LDFLAGS} -v $(TEST_PATH)
 
+# test-e2e: black-box tests against the built ./xcover binary. Mirrors the CI
+# e2e job: compile the test binary as the current user, then run it as root
+# (BPF loading needs CAP_BPF and CAP_PERFMON). Prompts for sudo.
+E2E_TEST_BIN := /tmp/xcover-e2e.test
+
 .PHONY: test-e2e
 test-e2e: TEST_PATH ?= ./e2e
 test-e2e:
-	XCOVER_E2E_BIN=$(current_dir)/$(PROGRAM) \
-		go test -count=1 -tags e2e -v $(TEST_PATH)
+	go test -c -tags e2e -o $(E2E_TEST_BIN) $(TEST_PATH)
+	sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
+	sudo env XCOVER_E2E_BIN=$(current_dir)/$(PROGRAM) $(E2E_TEST_BIN) -test.v -test.count=1
 
 .PHONY: docs
 docs:

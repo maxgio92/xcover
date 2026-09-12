@@ -65,9 +65,9 @@ It supports programs compiled to ELF.
 	cmd.Flags().BoolVar(&o.noBuildIDCheck, "no-build-id-check", false, "Skip GNU build-id verification between --path and --debug-path")
 
 	cmd.Flags().BoolVarP(&o.detach, "detach", "d", false, fmt.Sprintf("Run %s as daemon", settings.CmdName))
-	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
+	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Print the name of each function the first time it runs")
 	cmd.Flags().BoolVar(&o.report, "report", true, fmt.Sprintf("Generate report (as %s)", trace.ReportFileName))
-	cmd.Flags().BoolVar(&o.status, "status", true, "Periodically print a status of the trace")
+	cmd.Flags().BoolVar(&o.status, "status", true, "Print a status bar on stderr once per second with coverage so far, events per second and buffer usage")
 	cmd.Flags().StringVar(&o.scope, "scope", string(trace.ScopeBinary), `Function scope: "binary" (all functions) or "project" (project module only, Go binaries)`)
 	cmd.Flags().BoolVar(&o.userspaceBPF, "userspace-bpf", false, "Run BPF programs in userspace via bpftime (experimental)")
 

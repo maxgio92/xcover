@@ -113,7 +113,7 @@ submits nothing; the tracer reads the counter on exit and warns when it is
 non-zero. `bpf_printk` tracing is compiled in only with `CFLAGS=-DDEBUG`. The
 program only fires on function entry; there is no return probe.
 
-Userspace polls the ring buffer every 60 ms into a channel of 4096 events, a
+Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096 events, a
 second goroutine forwards them, and `handleEvent` decodes the cookie and stores
 it in the `ack` map.
 
@@ -144,7 +144,7 @@ and `bpftime-agent.so` from `pkg/bpftime/libs`. When `--userspace-bpf` is set,
 xcover. The re-executed process handles BPF syscalls in userspace. The tracee
 must load the agent through `LD_PRELOAD`; `xcover agent extract` writes it to a
 temporary file and prints the path. See
-[xcover_userspace_bpf.md](xcover_userspace_bpf.md).
+[userspace-bpf.md](userspace-bpf.md).
 
 ## Known issues in the code
 

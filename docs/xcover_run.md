@@ -26,9 +26,9 @@ xcover run [flags]
       --pid int             Only trace the process with this PID (kernel mode only); -1 traces every process running the executable (default -1)
       --report              Generate report (as xcover-report.json) (default true)
       --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
-      --status              Periodically print a status of the trace (default true)
+      --status              Print a status bar on stderr once per second with coverage so far, events per second and buffer usage (default true)
       --userspace-bpf       Run BPF programs in userspace via bpftime (experimental)
-      --verbose             Enable verbosity
+      --verbose             Print the name of each function the first time it runs
 ```
 
 ### Options inherited from parent commands

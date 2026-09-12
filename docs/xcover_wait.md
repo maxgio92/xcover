@@ -11,7 +11,7 @@ xcover wait [flags]
 ```
   -h, --help                 help for wait
   -s, --socket-path string   Path to the xcover socket file (default "/tmp/xcover.sock")
-      --timeout duration     Timeout (default 2m0s)
+      --timeout duration     Give up after this duration (default 2m0s)
 ```
 
 ### Options inherited from parent commands

@@ -42,7 +42,7 @@ func NewCommand(opts *options.Options) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&o.socketPath, "socket-path", "s", trace.HealthCheckSockPath, fmt.Sprintf("Path to the %s socket file", settings.CmdName))
-	cmd.Flags().DurationVar(&o.timeout, "timeout", time.Second*120, "Timeout")
+	cmd.Flags().DurationVar(&o.timeout, "timeout", time.Second*120, "Give up after this duration")
 
 	return cmd
 }

@@ -18,15 +18,10 @@
 //
 // # Build note
 //
-// The .so files under libs/ are placeholders. Replace them with libraries
-// built from the bpftime source tree before use:
-//
-//	git clone https://github.com/eunomia-bpf/bpftime
-//	cd bpftime && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-//	cp build/runtime/syscall-server/libbpftime-syscall-server.so \
-//	   <xcover>/pkg/bpftime/libs/bpftime-syscall-server.so
-//	cp build/runtime/agent/libbpftime-agent.so \
-//	   <xcover>/pkg/bpftime/libs/bpftime-agent.so
+// The .so files under libs/ are produced by `make bpftime-libs`, which clones
+// the pinned bpftime commit, applies patches/bpftime/*.patch, builds the two
+// runtime libraries and copies them here. See patches/bpftime/README.md for
+// the patches and the pinned commit.
 package bpftime
 
 import (

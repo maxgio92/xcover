@@ -23,12 +23,17 @@ language-specific tool such as [Go cover](https://go.dev/doc/build-cover) or
 - [Filtering functions](#filtering-functions)
 - [Symbolization](#symbolization)
 - [Daemon mode](#daemon-mode)
+- [Output and logging](#output-and-logging)
 - [Report](#report)
+- [Use in CI](#use-in-ci)
 - [Overhead](#overhead)
 - [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
 - [Userspace BPF mode (experimental)](#userspace-bpf-mode-experimental)
 - [CLI reference](#cli-reference)
 - [Development](#development)
+
+More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 
 ## Requirements
 
@@ -41,17 +46,24 @@ language-specific tool such as [Go cover](https://go.dev/doc/build-cover) or
 
 A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
 
+What xcover does with its privileges:
+
+- Needs root, or `CAP_BPF` plus `CAP_PERFMON`, to load one BPF program and attach uprobes.
+- Loads exactly one BPF program; its source is [`bpf/trace.bpf.c`](bpf/trace.bpf.c).
+- Writes only `xcover-report.json` in the current directory and `/tmp/xcover.{pid,log,sock}`.
+- Makes no network calls.
+
 ## Install
 
-Release archives named `xcover_<version>_linux_x86_64.tar.gz` and
-`xcover_<version>_linux_arm64.tar.gz` are the intended distribution channel on
-[GitHub Releases](https://github.com/maxgio92/xcover/releases). At the time of
-writing no release carries archives, so build from source:
+Check [GitHub Releases](https://github.com/maxgio92/xcover/releases) for
+archives named `xcover_<version>_linux_x86_64.tar.gz` and
+`xcover_<version>_linux_arm64.tar.gz`. If the release you need has none,
+build from source:
 
 ```shell
 git clone --recurse-submodules https://github.com/maxgio92/xcover.git
 cd xcover
-make xcover            # needs clang, bpftool, gcc, libelf and zlib headers
+make xcover            # needs clang, bpftool, gcc, libbpf, libelf and zlib headers
 sudo install -m 0755 xcover /usr/local/bin/xcover
 ```
 
@@ -220,6 +232,21 @@ xcover stopped (PID 1234)
 sends `SIGTERM`, waits up to 5 seconds for the daemon to write the report, then
 sends `SIGKILL`. A daemon killed with `SIGKILL` writes no report.
 
+If `/tmp/xcover.pid` names a live process, `run --detach` prints
+`Daemon already running`, exits 0 and starts nothing. Run `xcover status` to
+see the PID and `xcover stop` to end that session before starting a new one.
+
+## Output and logging
+
+- `--verbose` prints the name of each function the first time it runs.
+- `--status` (on by default) redraws a status bar on stderr once per second
+  with coverage so far, events per second and buffer usage. Pass
+  `--status=false` when stderr is a file.
+- `--log-level` sets the logger level (`trace`, `debug`, `info`, `warn`,
+  `error`, `fatal`, `panic`; default `info`). It applies to every subcommand.
+- With `--detach`, all of the above goes to `/tmp/xcover.log`. Read it when a
+  session does not behave as expected.
+
 ## Report
 
 By default (`--report`) xcover writes `xcover-report.json` to the working
@@ -250,16 +277,55 @@ Notes on the numbers:
 Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
 to skip the file.
 
+## Use in CI
+
+xcover fits a job that already runs your functional tests. The job needs root
+(GitHub-hosted runners allow `sudo`) and a kernel of 6.6 or newer, which
+`ubuntu-latest` provides. This example assumes `xcover` is already installed on
+the runner (see [Install](#install)), traces the tests and fails when fewer
+than 80% of the functions ran:
+
+```yaml
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the binary under test
+        run: make build           # produces ./bin/app
+      - name: Function coverage
+        run: |
+          set -e
+          sudo xcover run --detach --path ./bin/app --scope project
+          sudo xcover wait --timeout 5m
+          ./bin/app test1
+          ./bin/app test2
+          sudo xcover stop
+          jq -e '.cov_by_func >= 80' xcover-report.json
+```
+
+`set -e` makes the step fail on the first error, including a `wait` timeout.
+`xcover stop` writes `xcover-report.json` in the directory where `run` was
+executed, so keep both commands in the same working directory. `jq -e` exits
+1 when the expression is false, which fails the job. Upload
+`/tmp/xcover.log` as an artefact when you need to debug a failed run.
+
 ## Overhead
 
 Every probed call traps into the kernel. The [benchmark](benchmark/README.md)
-measures the cost per call on one machine (AMD Ryzen 7 7840U, 100 probes):
+measures the cost per call on one machine:
 
 | Path | Kernel uprobes | Userspace BPF |
 |---|---|---|
 | Plain call, no probes | 1.2 ns | 1.2 ns |
 | Already-seen function | 1230 ns | 426 ns |
 | First hit of a function | 2911 ns | 1084 ns |
+
+Numbers from the speaker notes of
+[docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
+AMD Ryzen 7 7840U, N=100 probes, `benchstat` over 10 rounds. Reproduce with
+`make -C benchmark bench && make -C benchmark bench-compare`; expect different
+absolute values on other hardware.
 
 That is roughly a thousand times slower per probed call. Programs that call
 many small functions in tight loops slow down noticeably; a sub-second command
@@ -283,14 +349,27 @@ latency benchmarks.
 - **One daemon per host.** State files are fixed under `/tmp`.
 - **Kernel 6.6+, Linux only.** On older kernels the attach fails and xcover
   exits with an error.
-- **Project scope is Go only** and falls back silently to binary scope for other
-  binaries or single-file Go builds. Watch the log.
+- **Project scope is Go only.** For other binaries and single-file Go builds
+  xcover logs `project scope unavailable, falling back to binary scope` and
+  traces everything. In `--detach` mode the warning is only in
+  `/tmp/xcover.log`; the report does not record which scope was used.
 - **Binary must not change on disk** while a session is running, because probe
   offsets are computed once at start.
 - **No merge of multiple reports yet.** Each run writes a fresh file.
 
 Open feature requests and known gaps are tracked in
 [GitHub issues](https://github.com/maxgio92/xcover/issues).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `timeout waiting for profiler readiness` from `xcover wait` | The daemon is still attaching probes, or exited before it was ready. | Raise `--timeout`, narrow the probe set with `--scope` or `--exclude`, and read `/tmp/xcover.log`. |
+| `Daemon already running` from `xcover run --detach` (exit 0, nothing started) | `/tmp/xcover.pid` names a live process. | `sudo xcover status`, then `sudo xcover stop`, then start again. |
+| `permission denied` or `operation not permitted` while loading or attaching | xcover lacks root or `CAP_BPF` plus `CAP_PERFMON`. | Run with `sudo` or grant the two capabilities. |
+
+Every other message xcover prints is covered in
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Userspace BPF mode (experimental)
 
@@ -313,8 +392,8 @@ $ ./xcover-userspace stop
 The tracee must be dynamically linked against glibc and must start after the
 profiler. Statically linked programs, pure Go programs built with
 `CGO_ENABLED=0`, musl programs and setuid programs are not supported. Read
-[the userspace BPF guide](docs/xcover_userspace_bpf.md) for the mechanism,
-requirements and full list of limitations.
+[the userspace BPF guide](docs/userspace-bpf.md) for the requirements and
+the full list of limitations.
 
 ## CLI reference
 
@@ -350,7 +429,7 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 
 The `agent extract` subcommand exists only in the userspace build and is not
-listed above; see [docs/xcover_userspace_bpf.md](docs/xcover_userspace_bpf.md).
+listed above; see [docs/userspace-bpf.md](docs/userspace-bpf.md).
 
 ## Development
 
@@ -364,7 +443,7 @@ Common targets:
 ```shell
 make xcover             # build libbpf (submodule), the BPF object and the binary
 make test-integration   # unit and integration tests (what CI runs)
-make test-e2e           # end-to-end tests, needs root (see CONTRIBUTING.md)
+make test-e2e           # end-to-end tests against ./xcover; prompts for sudo
 make docs               # regenerate docs/xcover*.md and README.md from README.md.tpl
 ```
 

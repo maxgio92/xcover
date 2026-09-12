@@ -3,9 +3,11 @@
 // Build with the e2e tag. The tests read the binary path from the
 // XCOVER_E2E_BIN environment variable and skip when it is unset, when stale
 // /tmp/xcover.{pid,sock} files exist, or when the environment denies BPF
-// loading. They must run as root (or with CAP_BPF and CAP_PERFMON), so run the
-// compiled test binary under sudo rather than `sudo go test`:
+// loading. They must run as root (or with CAP_BPF and CAP_PERFMON), so the
+// compiled test binary runs under sudo rather than `sudo go test`. Build
+// ./xcover first, then run the target that CI also mirrors (it prompts for
+// sudo):
 //
-//	go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
-//	sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v
+//	make xcover
+//	make test-e2e
 package e2e

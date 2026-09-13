@@ -96,9 +96,10 @@ script this flow; see [demo/README.md](../demo/README.md).
 - **One uprobe per function.** bpftime does not implement `uprobe_multi`, so
   xcover attaches one perf-event uprobe per function. Attaching thousands of
   functions is slower than in kernel mode and consumes bpftime handler slots;
-  the benchmark raises `BPFTIME_MAX_FD_COUNT` for this reason. A failed
-  attach skips the rest of its batch of 128 functions, is logged as a warning
-  and does not stop the session.
+  the benchmark raises `BPFTIME_MAX_FD_COUNT` for this reason. The first
+  failed attach (`attachSingleUprobes` in `pkg/probe/probe.go`) returns an
+  error that aborts `xcover run` before readiness is signalled; the uprobes
+  already attached are detached on close.
 
 ## Binary support
 

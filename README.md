@@ -103,7 +103,7 @@ The report `xcover-report.json` is written in the directory where you ran
 1. **Resolve functions.** xcover reads the target ELF, lists its functions and
    turns each function address into a file offset. See [Symbolization](#symbolization).
 2. **Attach probes.** It loads one small BPF program and attaches it to every
-   resolved offset through `uprobe_multi` links, in batches of 128 functions.
+   resolved offset through `uprobe_multi` links, up to 65536 offsets per link.
    Probes are keyed by the executable's inode, so every current or future
    process running that file is traced.
 3. **Record first hits.** When a probed function runs, the BPF program checks a
@@ -329,6 +329,11 @@ tracing 15k functions can take close to a minute. Use `--scope project` or
 `--exclude` to keep the probe set small. xcover suits functional test runs, not
 latency benchmarks.
 
+The BPF handler's debug logging (`bpf_printk`) is compiled out by default so
+it does not add to the per-call cost. `make xcover BPF_DEBUG=1` rebuilds the
+BPF object with debug logging and embeds it in the binary, turning it back on
+for `trace_pipe` inspection.
+
 ## Limitations
 
 - **Inlined functions are invisible.** A uprobe needs an entry point in the
@@ -338,10 +343,12 @@ latency benchmarks.
   returns, arguments or call counts.
 - **First hit only, per session.** The kernel map dedups per function, so the
   report answers "did it run", not "how often".
-- **At most 40960 distinct functions per session.** Beyond that the kernel map
-  is full; the insert is not checked, so further functions are not deduped
-  and every call emits an event. No warning is printed. Narrow the probe set
-  with `--scope` or `--exclude`.
+- **Map sizing.** The kernel `seen_funcs` map is sized to the number of traced
+  functions. If the kernel still rejects an insert, the function cannot be
+  recorded in `seen_funcs`, so every call of it discards its event and
+  increments the `drops` counter. `xcover run` warns on exit with that count,
+  which is the number of discarded calls and can exceed the number of missing
+  functions; narrow the probe set with `--scope` or `--exclude` in that case.
 - **One daemon per host.** State files are fixed under `/tmp`.
 - **Kernel 6.6+, Linux only.** On older kernels the attach fails and
   `xcover run` exits with an error before signalling readiness.

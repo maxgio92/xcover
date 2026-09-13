@@ -161,7 +161,7 @@ func TestMerge(t *testing.T) {
 				report("abc", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: false}}),
 				report("", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}),
 			},
-			opts: []coverage.MergeOption{coverage.WithAllowMismatchedBuildID()},
+			opts: []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
 			want: coverage.NewCoverageReport(
 				coverage.WithReportExePath("/bin/app"),
 				coverage.WithReportKernel("6.1.0"),
@@ -174,22 +174,23 @@ func TestMerge(t *testing.T) {
 			),
 		},
 		{
-			name: "different build_id allowed with override, output build_id empty",
+			name: "different build_id is an error even with override",
 			reports: []*coverage.CoverageReport{
 				report("abc", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: false}}),
 				report("def", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}),
 			},
-			opts: []coverage.MergeOption{coverage.WithAllowMismatchedBuildID()},
-			want: coverage.NewCoverageReport(
-				coverage.WithReportExePath("/bin/app"),
-				coverage.WithReportKernel("6.1.0"),
-				coverage.WithReportXcoverVersion(settings.Version),
-				coverage.WithReportGeneratedAt("2026-03-04T05:06:07Z"),
-				coverage.WithReportFuncsTraced([]string{"foo"}),
-				coverage.WithReportFuncsAck([]string{"foo"}),
-				coverage.WithReportFuncsCov(100),
-				coverage.WithReportFunctions([]coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}),
-			),
+			opts:    []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
+			wantErr: coverage.ErrBuildIDMismatch,
+		},
+		{
+			name: "different build_id with an empty one between is an error even with override",
+			reports: []*coverage.CoverageReport{
+				report("abc", []coverage.FunctionCoverage{}),
+				report("", []coverage.FunctionCoverage{}),
+				report("def", []coverage.FunctionCoverage{}),
+			},
+			opts:    []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
+			wantErr: coverage.ErrBuildIDMismatch,
 		},
 		{
 			name: "matching build_id with override keeps it",
@@ -197,7 +198,7 @@ func TestMerge(t *testing.T) {
 				report("abc", []coverage.FunctionCoverage{}),
 				report("abc", []coverage.FunctionCoverage{}),
 			},
-			opts: []coverage.MergeOption{coverage.WithAllowMismatchedBuildID()},
+			opts: []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
 			want: coverage.NewCoverageReport(
 				coverage.WithReportBuildID("abc"),
 				coverage.WithReportExePath("/bin/app"),
@@ -210,11 +211,30 @@ func TestMerge(t *testing.T) {
 			),
 		},
 		{
-			name: "name conflict at one offset across inputs",
+			name: "aliased names at one offset with a verified build_id keep the smallest name",
 			reports: []*coverage.CoverageReport{
-				report("abc", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}),
+				report("abc", []coverage.FunctionCoverage{{Name: "runtime.text", Offset: 1, Hit: false}}),
+				report("abc", []coverage.FunctionCoverage{{Name: "internal/cpu.Initialize", Offset: 1, Hit: true}}),
+			},
+			want: coverage.NewCoverageReport(
+				coverage.WithReportBuildID("abc"),
+				coverage.WithReportExePath("/bin/app"),
+				coverage.WithReportKernel("6.1.0"),
+				coverage.WithReportXcoverVersion(settings.Version),
+				coverage.WithReportGeneratedAt("2026-03-04T05:06:07Z"),
+				coverage.WithReportFuncsTraced([]string{"internal/cpu.Initialize"}),
+				coverage.WithReportFuncsAck([]string{"internal/cpu.Initialize"}),
+				coverage.WithReportFuncsCov(100),
+				coverage.WithReportFunctions([]coverage.FunctionCoverage{{Name: "internal/cpu.Initialize", Offset: 1, Hit: true}}),
+			),
+		},
+		{
+			name: "name conflict at one offset without a verified build_id is an error",
+			reports: []*coverage.CoverageReport{
+				report("", []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}),
 				report("abc", []coverage.FunctionCoverage{{Name: "bar", Offset: 1, Hit: true}}),
 			},
+			opts:   []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
 			errMsg: "offset 1 is \"foo\" in one report and \"bar\" in another",
 		},
 	}
@@ -261,7 +281,7 @@ func TestMergeStagedEqualsFlat(t *testing.T) {
 		{
 			name:    "empty build_id with override stays empty across stages",
 			reports: []*coverage.CoverageReport{a, report("", b.Functions, coverage.WithReportKernel("6.2.0")), c},
-			opts:    []coverage.MergeOption{coverage.WithAllowMismatchedBuildID()},
+			opts:    []coverage.MergeOption{coverage.WithAllowMissingBuildID()},
 		},
 	}
 

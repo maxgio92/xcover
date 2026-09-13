@@ -288,6 +288,22 @@ Notes on the numbers:
 Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
 to skip the file.
 
+### Merging reports
+
+`xcover merge` combines reports from separate runs of the same binary, for
+example test shards or retries, into one report:
+
+```shell
+$ xcover merge -o merged.json shard-1.json shard-2.json
+```
+
+Functions are matched by `build_id` and file offset, a function counts as hit
+when any input hit it, and `cov_by_func` is recomputed over the union. Inputs
+with different `build_id` values are refused; a report without a `build_id`
+cannot be verified and is refused unless `--allow-mismatched-build-id` is
+passed, in which case the merged report carries no `build_id` either. Pass `-`
+to read one report from stdin.
+
 ## Use in CI
 
 xcover fits a job that already runs your functional tests. The job needs root

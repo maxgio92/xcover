@@ -9,6 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
+# Show sources with bat when installed, plain cat otherwise.
+SRC_VIEWER="cat"
+if command -v bat >/dev/null 2>&1; then
+    SRC_VIEWER="bat --paging=never"
+fi
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -31,7 +36,7 @@ function main() {
 	runCmd "# No source instrumentation. No debug info. Just the binary."
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat ../src/c/demo-app.c"
+	runCmd "${SRC_VIEWER} ../src/c/demo-app.c"
 	sleep "${SLEEP}"
 	clear
 	runCmd "gcc -O0 -o demo-app ../src/c/demo-app.c"

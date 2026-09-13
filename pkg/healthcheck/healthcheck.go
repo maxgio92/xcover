@@ -41,7 +41,7 @@ func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
 	// Create UDS listener.
 	ln, err := net.Listen("unix", s.socketPath)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("failed to listen on UDS")
+		// Returned, not logged: the caller wraps and reports it once.
 		return errors.Wrap(err, "failed to listen on UDS")
 	}
 	s.ln = ln

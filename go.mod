@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483
+	github.com/ianlancetaylor/demangle v0.0.0-20260724033716-83e58baca724
 	github.com/maxgio92/resurgo v0.4.2
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.35.1

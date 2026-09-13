@@ -14,8 +14,9 @@ type UserTracee struct {
 type cookie uint64
 
 type funcInfo struct {
-	name   string
-	offset uint64
+	name      string
+	demangled string
+	offset    uint64
 }
 
 func NewUserTracee(opts ...UserTraceeOption) *UserTracee {
@@ -64,10 +65,19 @@ func (t *UserTracee) Init(ctx context.Context) error {
 	// and name-keying would silently drop all but one of them. Functions that
 	// share an offset (weak aliases, identical-code folding) are genuinely the
 	// same code and collapse to a single entry.
+	//
+	// The raw name stays the key and the report entry; the demangled name is
+	// display-only. A resolver that leaves Demangled empty (custom resolvers
+	// injected with WithTraceeResolver) means the name is not mangled.
 	for _, e := range entries {
+		demangled := e.Demangled
+		if demangled == "" {
+			demangled = e.Name
+		}
 		t.funcs[cookie(e.Offset)] = funcInfo{
-			name:   e.Name,
-			offset: e.Offset,
+			name:      e.Name,
+			demangled: demangled,
+			offset:    e.Offset,
 		}
 	}
 

@@ -176,6 +176,28 @@ int main(){ Widget w; volatile int s = ns::helper(1)+w.method(2)+foo(3)+(int)foo
 	}
 }
 
+// TestSeparateDebugResolver_CppDemangled verifies that resolving the stripped
+// C++ sample through its --only-keep-debug file yields the same raw and
+// demangled names as the unstripped binary via the debug file's .symtab.
+func TestSeparateDebugResolver_CppDemangled(t *testing.T) {
+	dir := t.TempDir()
+	exe := buildCppFixture(t, dir)
+
+	dbg := exe + ".debug"
+	out, err := exec.Command("objcopy", "--only-keep-debug", exe, dbg).CombinedOutput()
+	require.NoErrorf(t, err, "objcopy --only-keep-debug: %s", out)
+	stripped := exe + ".stripped"
+	require.NoError(t, debugCopyFile(stripped, exe))
+	out, err = exec.Command("strip", "--strip-all", stripped).CombinedOutput()
+	require.NoErrorf(t, err, "strip: %s", out)
+
+	want := demangledNames(t, trace.SymbolTableResolver(exe, testLogger, "app::net::", "", nil, nil))
+	require.Equal(t, allCppNetFuncs(), want)
+
+	got := demangledNames(t, trace.SeparateDebugResolver(stripped, dbg, testLogger, "app::net::", "", nil, nil, false))
+	require.Equal(t, want, got)
+}
+
 func keysOf(m map[string]uint64) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

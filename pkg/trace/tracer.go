@@ -278,13 +278,13 @@ func (t *UserTracer) lookupFunc(ck cookie) (funcInfo, bool) {
 	return fun, ok
 }
 
-// ackFunc records the first observation of fun and prints its name when
-// verbose output is enabled. Subsequent events for the same cookie are
+// ackFunc records the first observation of fun and prints its demangled name
+// when verbose output is enabled. Subsequent events for the same cookie are
 // no-ops.
 func (t *UserTracer) ackFunc(ck cookie, fun funcInfo) {
 	if _, ok := t.ack.Load(ck); !ok {
 		if t.verbose && t.writer != nil {
-			fmt.Fprintln(t.writer, fun.name)
+			fmt.Fprintln(t.writer, fun.demangled)
 		}
 		t.ack.Store(ck, struct{}{})
 	}
@@ -295,9 +295,15 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return nil
 	}
 
+	// funcs_traced and funcs_ack keep the raw names; symbols maps the raw name
+	// to its demangled form for the C++ and Rust entries where the two differ.
 	traced := make([]string, 0, len(t.tracee.funcs))
+	symbols := make(map[string]string)
 	for _, fn := range t.tracee.funcs {
 		traced = append(traced, fn.name)
+		if fn.demangled != fn.name {
+			symbols[fn.name] = fn.demangled
+		}
 	}
 
 	ack := make([]string, 0, utils.LenSyncMap(&t.ack))
@@ -317,6 +323,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
+		coverage.WithReportSymbols(symbols),
 	)
 
 	file, err := os.Create(reportPath)

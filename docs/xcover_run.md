@@ -18,9 +18,9 @@ xcover run [flags]
 ```
       --debug-path string   Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary
   -d, --detach              Run xcover as daemon
-      --exclude string      Regex pattern to exclude function symbol names
+      --exclude string      Regex pattern to exclude function symbol names, matched against the raw and the demangled name
   -h, --help                help for run
-      --include string      Regex pattern to include function symbol names
+      --include string      Regex pattern to include function symbol names, matched against the raw and the demangled name
       --no-build-id-check   Skip GNU build-id verification between --path and --debug-path
   -p, --path string         Path to the ELF executable
       --pid int             Filter the process by PID (default -1)

@@ -135,7 +135,14 @@ filtered out gives `no functions found for module "..."` instead.
 
 **Fix.** Check the patterns against `nm --defined-only ./app | grep ' T '` or
 `go tool nm ./app`. Patterns are Go (RE2) regular expressions matched against
-the full symbol name, for example `^github.com/org/app/`.
+the full symbol name, for example `^github.com/org/app/`. For C++ binaries a
+pattern also matches the demangled name shown by `nm -C`, for example
+`^app::net::`; template instantiations start with their return type, so leave
+such a pattern unanchored, or anchor on the raw name (`^_ZN[KVRO]*3app3net`)
+to keep functions from other namespaces out. Rust binaries match their
+demangled name too, as `nm -C` shows it; `c++filt` additionally prints the
+legacy hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate disambiguator
+(`[3c1c0]`), so leave both out of the pattern.
 
 ## `cannot verify the debug file belongs to the executable` and other build-id errors
 

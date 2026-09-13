@@ -10,7 +10,7 @@ should start with the [README](../README.md).
 | `main.go` | Entry point, calls `pkg/cmd.Execute`. |
 | `bpf/trace.bpf.c` | The single BPF program attached to every function. `bpf/vmlinux.h` is generated at build time. |
 | `pkg/cmd` | Cobra commands: `run`, `wait`, `status`, `stop`; `agent` under the `userspace` build tag. `pkg/cmd/common` holds PID-file helpers, `pkg/cmd/options` the shared logger plumbing. |
-| `pkg/trace` | Core: function resolvers, scope filtering, the tracee model, the tracer event loop, report assembly. |
+| `pkg/trace` | Core: function resolvers, C++ and Rust demangling, scope filtering, the tracee model, the tracer event loop, report assembly. |
 | `pkg/probe` | libbpfgo wrapper: loads the embedded BPF object, attaches uprobes, polls the ring buffer. `pkg/probe/output` receives the compiled object. |
 | `pkg/coverage` | The `CoverageReport` type and its JSON encoding. |
 | `pkg/healthcheck` | Unix-socket readiness server and client behind `xcover wait`. |
@@ -31,7 +31,7 @@ should start with the [README](../README.md).
 ```
 xcover run --path BIN
    │
-   ├─ 1. resolve      ELF → []function{name, file offset}        pkg/trace/resolver*.go
+   ├─ 1. resolve      ELF → []function{name, demangled, offset}  pkg/trace/resolver*.go, demangle.go
    ├─ 2. filter       exclude, include, scope                     pkg/trace/resolver.go, resolver_go.go, scope.go
    ├─ 3. load         embedded trace.bpf.o → BPF module           pkg/probe/probe.go
    ├─ 4. attach       uprobe_multi links, 65536 offsets per link  pkg/trace/tracer.go, pkg/probe/probe.go
@@ -67,6 +67,17 @@ xcover run --path BIN
 Virtual addresses become file offsets by walking `PT_LOAD` segments. Because
 uprobes are addressed by file offset, PIE and ASLR need no special handling.
 
+Every symbol read from `.symtab` or DWARF is wrapped in a `funcSym` by
+`newFuncSym`, which demangles the name once with
+`github.com/ianlancetaylor/demangle` (`demangleName` in `demangle.go`). No
+format option is passed, so overloads and template instantiations stay
+distinct; the only option caps the output at 64 KiB, and input over 16 KiB
+passes through unchanged, because symbol names are untrusted input. Names from
+`.gopclntab` are Go names and skip the demangler. The filters
+and `funcEntriesFromSymbols` share that value, and the latter copies it into
+`FunctionEntry.Demangled`. Names without mangling, including the synthetic
+recovery names, demangle to themselves. The raw name remains the report key.
+
 ### 2. Filter
 
 `newSymFilter` in `resolver.go` compiles the `--include` and `--exclude`
@@ -77,7 +88,8 @@ patterns once into a `symFilter` and returns an error wrapping
 `run` also validates them with `ValidateSymPatterns` before the tracer is built
 (see Daemon mode). The filter's `shouldInclude` applies, in order: symbol
 binding exclude, symbol binding include (library API only), `--exclude` regex,
-`--include` regex. Exclude wins over include. Project scope filtering runs
+`--include` regex. A name pattern matches when it matches the raw or
+the demangled name. Exclude wins over include. Project scope filtering runs
 after these.
 
 Functions are stored in a map keyed by file offset. The offset is also the BPF
@@ -151,7 +163,8 @@ resolved function), `funcs_ack` (the names of acknowledged cookies that still
 resolve to a function), `cov_by_func` (`len(funcs_ack) / len(funcs_traced) *
 100`) and `functions[]` with `name`, `offset` and `hit` per function. Lists are
 sorted, and `functions` is ordered by offset, so two reports of the same
-session differ only in `generated_at`.
+session differ only in `generated_at`. Verbose output prints the demangled
+name.
 
 ## Daemon mode
 

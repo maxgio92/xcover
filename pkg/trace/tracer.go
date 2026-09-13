@@ -443,13 +443,13 @@ func (t *UserTracer) lookupFunc(ck cookie) (funcInfo, bool) {
 	return fun, ok
 }
 
-// ackFunc records the first observation of fun and prints its name when
-// verbose output is enabled. Subsequent events for the same cookie are
+// ackFunc records the first observation of fun and prints its demangled name
+// when verbose output is enabled. Subsequent events for the same cookie are
 // no-ops.
 func (t *UserTracer) ackFunc(ck cookie, fun funcInfo) {
 	if _, ok := t.ack.Load(ck); !ok {
 		if t.verbose && t.writer != nil {
-			fmt.Fprintln(t.writer, fun.name)
+			fmt.Fprintln(t.writer, fun.demangled)
 		}
 		t.ack.Store(ck, struct{}{})
 	}

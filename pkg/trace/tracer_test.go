@@ -28,7 +28,7 @@ func TestHandleEvent_Verbose(t *testing.T) {
 		WithTraceeExePath("testdata/gotest"),
 		WithTraceeSymPatternExclude(testExcludedSyms),
 	)
-	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction"}}
+	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction", demangled: "main.fooFunction"}}
 	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 
@@ -253,4 +253,29 @@ func TestWriteReport_Disabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.json")
 	require.NoError(t, tracer.writeReport(path))
 	require.NoFileExists(t, path)
+}
+
+// cppFuncs is a function map as Init would build it from a C++ binary: one
+// mangled symbol with a distinct demangled form and one plain C symbol.
+var cppFuncs = map[cookie]funcInfo{
+	1: {name: "_ZN3app3net5parseEi", demangled: "app::net::parse(int)", offset: 1},
+	2: {name: "c_entry", demangled: "c_entry", offset: 2},
+}
+
+// TestHandleEvent_VerbosePrintsDemangled checks that verbose output shows the
+// demangled name while the raw name stays out of it.
+func TestHandleEvent_VerbosePrintsDemangled(t *testing.T) {
+	var buf bytes.Buffer
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = cppFuncs
+	tracer := NewUserTracer(
+		WithTracerVerbose(true),
+		WithTracerWriter(&buf),
+		WithTracerTracee(tracee),
+	)
+
+	tracer.handleEvent(encodeEvent(t, 1))
+	tracer.handleEvent(encodeEvent(t, 2))
+
+	require.Equal(t, "app::net::parse(int)\nc_entry\n", buf.String())
 }

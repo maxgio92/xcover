@@ -22,6 +22,7 @@ At the end of your tests, the profiler can be stopped and a report being collect
 
 ### SEE ALSO
 
+* [xcover merge](xcover_merge.md)	 - Merge coverage reports of the same binary into one
 * [xcover run](xcover_run.md)	 - Run the coverage profiling for a program
 * [xcover status](xcover_status.md)	 - Check the xcover profiler status
 * [xcover stop](xcover_stop.md)	 - Stop the xcover profiler daemon

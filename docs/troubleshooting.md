@@ -21,8 +21,9 @@ list was empty.
 
 ## `xcover exited before becoming ready`
 
-Printed by `xcover wait` as soon as the daemon is no longer running
-(`pkg/cmd/wait/wait.go`).
+Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) when the daemon dies while
+`wait` is already polling for readiness. If the daemon is already gone when
+`wait` starts, it prints `xcover is not running` instead.
 
 **Cause.** The daemon failed after start-up: symbol resolution, BPF load or
 uprobe attach returned an error, so it exited instead of signalling readiness.
@@ -67,9 +68,9 @@ removed it, or it was never started. A PID file with unparsable content gives
 **Fix.** Nothing to stop. If you expected a running daemon, read
 `/tmp/xcover.log` to learn why it exited. Delete a corrupt PID file by hand.
 
-## `xcover force killed (PID n), the coverage report may be missing`
+## `xcover did not stop within the timeout and was force killed`
 
-Printed by `xcover stop` (`pkg/cmd/stop/stop.go`), which then exits with a
+Returned by `xcover stop` (`pkg/cmd/stop/stop.go`), which exits with a
 non-zero status.
 
 **Cause.** The daemon did not exit within the grace period (`--timeout`,
@@ -182,7 +183,9 @@ neither; see [userspace-bpf.md](userspace-bpf.md).
 
 Returned by `xcover run` when `uprobe_multi` refuses a batch of functions
 (`pkg/probe/probe.go`). The run exits before signalling readiness and writes
-no report; `xcover wait` returns `xcover exited before becoming ready`.
+no report; `xcover wait` returns `xcover exited before becoming ready` if it
+was already polling, or `xcover is not running` if the daemon was gone before
+`wait` started.
 
 **Cause.** The kernel rejected the `uprobe_multi` link. The most common
 reason is a kernel older than 6.6 without a distribution backport. The wrapped

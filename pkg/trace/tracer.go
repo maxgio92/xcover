@@ -27,10 +27,16 @@ const (
 var (
 	ReportFileName = fmt.Sprintf("%s-report.json", settings.CmdName)
 	// drainQuietPeriod is how long the event consumer keeps receiving after
-	// shutdown starts without any event arriving before it gives up. It
-	// covers records still in the kernel ring or an in-flight libbpf poll
-	// callback (poll timeout is probe.evtRingBufPollTimeout, 60 ms), since
-	// libbpfgo exposes no way to consume the ring synchronously. Tests
+	// shutdown starts without any event arriving before it gives up.
+	//
+	// This is a heuristic, not a completion signal. An empty event channel
+	// for that long does not prove the ring or an in-flight poll callback has
+	// been drained: ring_buffer__poll returning on its epoll timeout
+	// (probe.evtRingBufPollTimeout, 60 ms) consumes nothing, and a poller
+	// descheduled past the quiet period loses its batch to RingBuffer.Stop.
+	// The uprobes are detached first, so the ring is quiescent; the
+	// deterministic fix is one ring_buffer__consume after the poll goroutine
+	// has stopped, which the pinned libbpfgo does not expose yet. Tests
 	// shorten it.
 	drainQuietPeriod = 150 * time.Millisecond
 	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath
@@ -255,9 +261,10 @@ func (t *UserTracer) attachProbe(ctx context.Context) error {
 
 // processEvents handles events until stop is closed, then keeps receiving
 // until no event has arrived for drainQuietPeriod, so events still buffered
-// in the channel, in the kernel ring, or in an in-flight poll callback are
-// acked before the report is written. The caller detaches the uprobes before
-// closing stop, so the quiet period is reached once the ring is empty.
+// in the channel or surfaced by a poll callback are acked before the report
+// is written. The caller detaches the uprobes before closing stop, so no new
+// records are committed during the drain. A poll callback delayed past the
+// quiet period can still lose its batch; see drainQuietPeriod.
 func (t *UserTracer) processEvents(events <-chan []byte, stop <-chan struct{}) {
 	for {
 		select {
@@ -270,7 +277,9 @@ func (t *UserTracer) processEvents(events <-chan []byte, stop <-chan struct{}) {
 	}
 }
 
-// drainEvents handles events until drainQuietPeriod elapses without one.
+// drainEvents handles events until drainQuietPeriod elapses without one. An
+// empty channel for that long is taken as the ring being empty; it is not a
+// guarantee (see drainQuietPeriod).
 func (t *UserTracer) drainEvents(events <-chan []byte) {
 	quiet := time.NewTimer(drainQuietPeriod)
 	defer quiet.Stop()

@@ -241,7 +241,8 @@ func shouldSkipForRuntimeEnvironment(output string) bool {
 	return strings.Contains(output, "operation not permitted") ||
 		strings.Contains(output, "permission denied") ||
 		strings.Contains(output, "failed to load bpf object") ||
-		strings.Contains(output, "error initializing bpf probe")
+		strings.Contains(output, "error initializing bpf probe") ||
+		strings.Contains(output, "missing capabilities")
 }
 
 func readReport(t *testing.T, path string) coverage.CoverageReport {

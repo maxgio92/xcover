@@ -91,26 +91,28 @@ func TestOptionsBuildTracer(t *testing.T) {
 	require.NotNil(t, tracer)
 }
 
+// newRunFlagSet mirrors the run command flags for forwarding tests.
+func newRunFlagSet() *pflag.FlagSet {
+	fs := pflag.NewFlagSet("run", pflag.ContinueOnError)
+	fs.String("path", "", "")
+	fs.Int("pid", -1, "")
+	fs.String("exclude", "", "")
+	fs.String("include", "", "")
+	fs.String("debug-path", "", "")
+	fs.Bool("no-build-id-check", false, "")
+	fs.Bool("detach", false, "")
+	fs.Bool("verbose", false, "")
+	fs.Bool("report", true, "")
+	fs.Bool("status", true, "")
+	fs.String("scope", "binary", "")
+	fs.Bool("userspace-bpf", false, "")
+	fs.Bool("skip-preflight", false, "")
+	fs.String("log-level", "info", "")
+
+	return fs
+}
+
 func TestForwardedFlagArgs(t *testing.T) {
-	newFlagSet := func() *pflag.FlagSet {
-		fs := pflag.NewFlagSet("run", pflag.ContinueOnError)
-		fs.String("path", "", "")
-		fs.Int("pid", -1, "")
-		fs.String("exclude", "", "")
-		fs.String("include", "", "")
-		fs.String("debug-path", "", "")
-		fs.Bool("no-build-id-check", false, "")
-		fs.Bool("detach", false, "")
-		fs.Bool("verbose", false, "")
-		fs.Bool("report", true, "")
-		fs.Bool("status", true, "")
-		fs.String("scope", "binary", "")
-		fs.Bool("userspace-bpf", false, "")
-		fs.String("log-level", "info", "")
-
-		return fs
-	}
-
 	tests := []struct {
 		name string
 		set  func(fs *pflag.FlagSet)
@@ -137,8 +139,9 @@ func TestForwardedFlagArgs(t *testing.T) {
 				require.NoError(t, fs.Set("path", "/bin/true"))
 				require.NoError(t, fs.Set("report", "false"))
 				require.NoError(t, fs.Set("no-build-id-check", "true"))
+				require.NoError(t, fs.Set("skip-preflight", "true"))
 			},
-			want: []string{"--no-build-id-check=true", "--path=/bin/true", "--report=false"},
+			want: []string{"--no-build-id-check=true", "--path=/bin/true", "--report=false", "--skip-preflight=true"},
 		},
 		{
 			name: "pid and log-level are forwarded like any other flag",
@@ -158,11 +161,44 @@ func TestForwardedFlagArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fs := newFlagSet()
+			fs := newRunFlagSet()
 			tt.set(fs)
 
 			got := forwardedFlagArgs(fs, daemonizeSkipFlags)
 			require.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
+
+func TestDaemonArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		set  map[string]string
+		want []string
+	}{
+		{
+			name: "skip-preflight unset is forced on for the child",
+			set:  map[string]string{"path": "/bin/true", "detach": "true"},
+			want: []string{"--path=/bin/true", "--skip-preflight=true"},
+		},
+		{
+			name: "explicit true is forwarded once",
+			set:  map[string]string{"skip-preflight": "true"},
+			want: []string{"--skip-preflight=true"},
+		},
+		{
+			name: "explicit false is respected",
+			set:  map[string]string{"skip-preflight": "false"},
+			want: []string{"--skip-preflight=false"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newRunFlagSet()
+			for k, v := range tt.set {
+				require.NoError(t, fs.Set(k, v))
+			}
+			require.ElementsMatch(t, tt.want, daemonArgs(fs))
 		})
 	}
 }

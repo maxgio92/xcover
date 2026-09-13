@@ -16,19 +16,25 @@ BPF object compiled with clang. You need:
 | clang, llvm | compile `bpf/trace.bpf.c` to BPF bytecode | Ubuntu default |
 | bpftool | dump `bpf/vmlinux.h` from the running kernel's BTF | v7.3.0, built from source |
 | libelf-dev, zlib1g-dev | link-time dependencies of libbpf | Ubuntu default |
+| libbpf-dev | `bpf/bpf_helpers.h` and `bpf/bpf_core_read.h`, included by `bpf/trace.bpf.c` | Ubuntu default, then overridden (see below) |
 | linux-headers | BPF helper headers | matching `uname -r` |
 | A kernel with BTF | `/sys/kernel/btf/vmlinux` must exist to generate `vmlinux.h` | GitHub `ubuntu-latest` |
 
 On Debian or Ubuntu:
 
 ```shell
-sudo apt-get install clang llvm gcc make pkg-config libelf-dev zlib1g-dev linux-headers-$(uname -r)
+sudo apt-get install clang llvm gcc make pkg-config libelf-dev zlib1g-dev libbpf-dev linux-headers-$(uname -r)
 ```
 
-Most distributions ship a `bpftool` package. To build the same version CI uses:
+Most distributions ship a `bpftool` package. CI builds bpftool v7.3.0 from
+source and, before that, installs the libbpf bundled in the same tree so the
+BPF compile sees newer headers than the distribution's `libbpf-dev` (see
+`.github/workflows/ci.yml`). Do the same when `bpf/bpf_helpers.h` is missing
+or too old for `bpf/trace.bpf.c`:
 
 ```shell
 git clone --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git
+sudo make -C bpftool/libbpf/src install && sudo ldconfig
 make -C bpftool/src && sudo make -C bpftool/src install
 ```
 
@@ -75,22 +81,27 @@ set by the Makefile and the embedded BPF object.
 |---|---|---|---|
 | Unit | `make test` | no | `go test ./...` |
 | Integration | `make test-integration` | no | Adds files tagged `integration` under `pkg/trace`. This is what CI runs. |
-| End to end | see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary. |
+| End to end | `make test-e2e` or see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary, so run `make xcover` first. |
 | Benchmark | `make -C benchmark bench` | yes for kernel mode | See [benchmark/README.md](benchmark/README.md). |
 
-Run the end-to-end tests the way CI does, so the test binary runs as root while
-`go` stays your user's:
+`make test-e2e` runs `go test -count=1 -tags e2e ./e2e` as the current user
+with `XCOVER_E2E_BIN` pointing at `./xcover`. It does not escalate
+privileges, so as a normal user the tests skip when BPF loading is denied.
+Either run the whole target as root, or do what the CI `e2e` job does:
+compile the test binary as your user and run only that binary under `sudo`,
+so `go` and its cache stay yours:
 
 ```shell
 make xcover
 go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
 sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
-sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v
+sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v -test.count=1
 ```
 
 The e2e harness skips, rather than fails, when `XCOVER_E2E_BIN` is unset, when
-stale `/tmp/xcover.*` files exist, or when BPF loading is denied. A green run
-without root therefore proves little; check for `SKIP` lines.
+stale `/tmp/xcover.*` files exist, when `/tmp/xcover.log` is not writable, or
+when BPF loading is denied. A green run without root therefore proves little;
+check for `SKIP` lines.
 
 Limit any Go target to a package with `TEST_PATH`, for example
 `make test-integration TEST_PATH=./pkg/trace`.
@@ -101,17 +112,19 @@ CI runs `gofmt -l .` and `go mod verify`. Run `gofmt -w .` before pushing.
 
 ## Documentation
 
-`README.md` and `docs/xcover*.md` are generated:
+`README.md` and every `docs/xcover*.md` page are generated:
 
-- `docs/docs.go` renders one Markdown page per cobra command into `docs/`.
+- `docs/docs.go` renders one Markdown page per cobra command into `docs/`,
+  named `xcover.md`, `xcover_run.md` and so on.
 - It then substitutes the root command page into `README.md.tpl` at the
   `{{ .CLI_REFERENCE }}` marker and writes `README.md`.
 
 Edit `README.md.tpl`, never `README.md`, and run `make docs` (or
 `make xcover-container` followed by the same target inside the container).
 Also run it after changing any command `Short`, `Long` or flag help text.
-Hand-written pages such as `docs/xcover_userspace_bpf.md` and
-`docs/architecture.md` are not touched by the generator.
+Every other page under `docs/` is hand-written and the generator does not
+touch it. When you add a page, link it from [docs/README.md](docs/README.md),
+which is the index by reader intent.
 
 The generator does not delete pages for removed commands; delete them by hand.
 CI does not yet check that generated docs are current.
@@ -137,6 +150,11 @@ example `0.6.0`. The `release` workflow cross-builds linux amd64 and arm64
 archives with GoReleaser and publishes them with a `checksums.txt`. A PR that
 touches only `.github/workflows/release.yml` or `.goreleaser.yml` runs a
 snapshot build without publishing.
+
+When tagging, check the release page. If archives now publish, update the
+Install section of `README.md.tpl` and the status line of
+`docs/userspace-bpf.md` so neither still tells readers to build from source
+or wait for a release.
 
 ## Reporting bugs and asking questions
 

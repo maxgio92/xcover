@@ -33,7 +33,7 @@ function main() {
 	runCmd "# Strip the binary for production. Keep the debug file for profiling."
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat ../src/c/demo-app.c"
+	runCmd "showSrc ../src/c/demo-app.c"
 	sleep "${SLEEP}"
 	clear
 	runCmd "gcc -O0 -g -o demo-app ../src/c/demo-app.c"
@@ -64,6 +64,14 @@ function main() {
 	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"
 	runCmd "cat xcover-report.json | jq"
 	runCmd "# Stripped binary, named coverage — debug file does the heavy lifting!"
+}
+
+function showSrc() {
+	if command -v bat >/dev/null 2>&1; then
+		bat "$1"
+	else
+		cat "$1"
+	fi
 }
 
 function runCmd() {

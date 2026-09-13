@@ -30,7 +30,7 @@ function main() {
 	runCmd "# Profile coverage without instrumenting your binaries!"
 	echo
 	runCmd "# Let's test a demo Go application"
-	runCmd "bat ../src/go/demo-app.go"
+	runCmd "showSrc ../src/go/demo-app.go"
 	sleep "${SLEEP}"
 	clear
 	runCmd "go build -o demo-app ../src/go/"
@@ -53,6 +53,14 @@ function main() {
 	runCmd "cat xcover-report.json | jq '.funcs_ack | length'"
 	runCmd "cat xcover-report.json | jq"
 	runCmd "# Coverage profiled without source code changes or recompilation!"
+}
+
+function showSrc() {
+	if command -v bat >/dev/null 2>&1; then
+		bat "$1"
+	else
+		cat "$1"
+	fi
 }
 
 function runCmd() {

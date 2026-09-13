@@ -22,6 +22,7 @@ const CmdName = "wait"
 
 var (
 	ErrNotRunning = errors.Errorf("%s is not running", settings.CmdName)
+	ErrExited     = errors.Errorf("%s exited before becoming ready", settings.CmdName)
 )
 
 type Options struct {
@@ -61,6 +62,12 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	for {
 		if time.Since(start) >= o.timeout {
 			return errors.New("timeout waiting for profiler readiness")
+		}
+
+		// The daemon may fail after start-up (e.g. probe attach failure);
+		// fail fast instead of polling a socket that will never become ready.
+		if !common.IsDaemonRunning() {
+			return ErrExited
 		}
 
 		// Check if socket exists.

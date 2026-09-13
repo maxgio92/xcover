@@ -262,9 +262,10 @@ Notes on the numbers:
 - Coverage is per function. There is no line, branch or call-count information.
 - Hits are aggregated across every process that ran the binary during the
   session. The report does not say which process exercised a function.
-- A function whose probe failed to attach stays in `funcs_traced`, so a batch
-  attach failure lowers the reported coverage. Check `/tmp/xcover.log` for
-  warnings if the number looks too low.
+- If any probe fails to attach, `xcover run` exits with an error before
+  signalling readiness and writes no report, so a low number never hides an
+  attach failure. `xcover wait` returns an error in that case; check
+  `/tmp/xcover.log` for the cause.
 - `cov_by_func` is computed from the count of acknowledged functions, not
   from the length of `funcs_ack`. The two can differ when a recorded cookie
   cannot be mapped back to a name.
@@ -342,8 +343,8 @@ latency benchmarks.
   and every call emits an event. No warning is printed. Narrow the probe set
   with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
-- **Kernel 6.6+, Linux only.** On older kernels the attach fails; xcover logs a
-  warning, still reports ready and writes 0% coverage rather than aborting.
+- **Kernel 6.6+, Linux only.** On older kernels the attach fails and
+  `xcover run` exits with an error before signalling readiness.
 - **Project scope is Go only.** For other binaries and single-file Go builds
   xcover logs `project scope unavailable, falling back to binary scope` and
   traces everything. In `--detach` mode the warning is only in

@@ -32,6 +32,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
+		filter, err := newSymFilter(include, exclude, bindInclude, bindExclude)
+		if err != nil {
+			return nil, err
+		}
+
 		f, err := elf.Open(path)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open binary")
@@ -42,11 +47,11 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
-		syms, err := funcSymsFromELF(f, include, exclude, bindInclude, bindExclude)
+		syms, err := funcSymsFromELF(f, filter)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
-				entries, err := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+				entries, err := funcEntriesFromGoPclntab(f, filter, logger)
 				if err != nil {
 					return nil, errors.Wrap(ErrNoSymbolTable, err.Error())
 				}
@@ -56,7 +61,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 		}
 		if len(syms) == 0 {
 			logger.Info().Msg("no function symbols found, attempting .gopclntab fallback")
-			entries, goPclnErr := funcEntriesFromGoPclntab(f, include, exclude, bindInclude, bindExclude, logger)
+			entries, goPclnErr := funcEntriesFromGoPclntab(f, filter, logger)
 			if goPclnErr != nil {
 				return nil, ErrNoFunctionSymbols
 			}
@@ -70,7 +75,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 }
 
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind) ([]elf.Symbol, error) {
+func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
@@ -81,7 +86,7 @@ func funcSymsFromELF(f *elf.File, include, exclude string, bindInclude, bindExcl
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
-		if !shouldInclude(sym, include, exclude, bindInclude, bindExclude) {
+		if !filter.shouldInclude(sym) {
 			continue
 		}
 		out = append(out, sym)
@@ -109,7 +114,7 @@ func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, er
 
 // funcEntriesFromGoPclntab extracts function entries from the .gopclntab section,
 // which is retained even in stripped Go binaries.
-func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude, bindExclude []elf.SymBind, logger log.Logger) ([]FunctionEntry, error) {
+func funcEntriesFromGoPclntab(f *elf.File, filter symFilter, logger log.Logger) ([]FunctionEntry, error) {
 	pclntabSection := f.Section(".gopclntab")
 	if pclntabSection == nil {
 		return nil, errors.New("no .gopclntab section found - not a Go binary or section stripped")
@@ -146,7 +151,7 @@ func funcEntriesFromGoPclntab(f *elf.File, include, exclude string, bindInclude,
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC),
 		}
-		if shouldInclude(sym, include, exclude, bindInclude, bindExclude) {
+		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}
 	}
@@ -173,28 +178,54 @@ func vaToFileOffset(f *elf.File, va uint64) (uint64, error) {
 	return 0, fmt.Errorf("VA 0x%x not covered by any loadable segment", va)
 }
 
-// shouldInclude reports whether sym passes the include/exclude filters.
-func shouldInclude(sym elf.Symbol, include, exclude string, bindInclude, bindExclude []elf.SymBind) bool {
-	if bindExclude != nil {
-		for _, b := range bindExclude {
-			if elf.ST_BIND(sym.Info) == b {
-				return false
-			}
+// symFilter holds the symbol filters of one resolver run. The name patterns
+// are compiled once here instead of once per symbol.
+type symFilter struct {
+	include, exclude         *regexp.Regexp
+	bindInclude, bindExclude []elf.SymBind
+}
+
+// newSymFilter compiles the include and exclude patterns; an empty pattern
+// disables that filter. An invalid pattern is reported as an error so the
+// resolver fails before any binary is opened.
+func newSymFilter(include, exclude string, bindInclude, bindExclude []elf.SymBind) (symFilter, error) {
+	f := symFilter{bindInclude: bindInclude, bindExclude: bindExclude}
+	var err error
+	if include != "" {
+		if f.include, err = regexp.Compile(include); err != nil {
+			return symFilter{}, errors.Wrap(err, "invalid include pattern")
 		}
 	}
-	if bindInclude != nil {
-		for _, b := range bindInclude {
+	if exclude != "" {
+		if f.exclude, err = regexp.Compile(exclude); err != nil {
+			return symFilter{}, errors.Wrap(err, "invalid exclude pattern")
+		}
+	}
+	return f, nil
+}
+
+// shouldInclude reports whether sym passes the filters. Binding filters run
+// first, then the exclude pattern, then the include pattern. Exclude wins
+// over include.
+func (f symFilter) shouldInclude(sym elf.Symbol) bool {
+	for _, b := range f.bindExclude {
+		if elf.ST_BIND(sym.Info) == b {
+			return false
+		}
+	}
+	if f.bindInclude != nil {
+		for _, b := range f.bindInclude {
 			if elf.ST_BIND(sym.Info) == b {
 				return true
 			}
 		}
 		return false
 	}
-	if exclude != "" && regexp.MustCompile(exclude).MatchString(sym.Name) {
+	if f.exclude != nil && f.exclude.MatchString(sym.Name) {
 		return false
 	}
-	if include != "" {
-		return regexp.MustCompile(include).MatchString(sym.Name)
+	if f.include != nil {
+		return f.include.MatchString(sym.Name)
 	}
 	return true
 }

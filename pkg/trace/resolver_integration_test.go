@@ -94,3 +94,10 @@ int main() {
 		assert.NotZero(t, e.Offset)
 	}
 }
+
+// TestSymbolTableResolver_InvalidPattern checks that a malformed pattern is
+// reported as an error instead of a panic.
+func TestSymbolTableResolver_InvalidPattern(t *testing.T) {
+	_, err := trace.SymbolTableResolver(testBinary, testLogger, "(", "", nil, nil)(t.Context())
+	require.ErrorContains(t, err, "invalid include pattern")
+}

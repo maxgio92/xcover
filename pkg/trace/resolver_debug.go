@@ -40,6 +40,11 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 			return nil, err
 		}
 
+		filter, err := newSymFilter(include, exclude, bindInclude, bindExclude)
+		if err != nil {
+			return nil, err
+		}
+
 		exe, err := elf.Open(exePath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open executable")
@@ -66,7 +71,7 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
-		syms, err := funcSymsFromELF(dbg, include, exclude, bindInclude, bindExclude)
+		syms, err := funcSymsFromELF(dbg, filter)
 		if err == nil {
 			if syms = definedFuncs(syms); len(syms) > 0 {
 				logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
@@ -76,7 +81,7 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Fallback: DWARF subprograms. Best-effort — see funcSymsFromDWARF.
 		logger.Info().Msg("debug file has no usable .symtab; trying DWARF subprograms")
-		dwarfSyms, derr := funcSymsFromDWARF(dbg, include, exclude, logger)
+		dwarfSyms, derr := funcSymsFromDWARF(dbg, filter, logger)
 		if derr != nil {
 			return nil, errors.Wrapf(derr, "no usable symbols in debug file %q (.symtab and DWARF both failed)", debugPath)
 		}
@@ -134,11 +139,13 @@ type dwarfSubprogram struct {
 //     these forms to raw offsets but never loads the supplementary file, so
 //     such names resolve empty and are skipped. Common on Fedora/Debian
 //     debuginfod, which dwz-process their debug files.
-func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) ([]elf.Symbol, error) {
+func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.Symbol, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, errors.Wrap(err, "no DWARF info")
 	}
+	// DWARF subprograms carry no symbol binding, so only the name filters apply.
+	filter.bindInclude, filter.bindExclude = nil, nil
 	if f.Section(".gnu_debugaltlink") != nil {
 		logger.Warn().Msg("debug file uses a dwz supplementary file (.gnu_debugaltlink); names referenced via DW_FORM_GNU_ref_alt cannot be resolved and will be skipped")
 	}
@@ -226,7 +233,7 @@ func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) 
 			continue
 		}
 		sym := elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)}
-		if shouldInclude(sym, include, exclude, nil, nil) {
+		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}
 	}

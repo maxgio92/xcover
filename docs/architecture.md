@@ -69,9 +69,12 @@ uprobes are addressed by file offset, PIE and ASLR need no special handling.
 
 ### 2. Filter
 
-`shouldInclude` in `resolver.go` applies, in order: symbol binding exclude,
-symbol binding include (library API only), `--exclude` regex, `--include`
-regex. Exclude wins over include. Project scope filtering runs after these.
+`newSymFilter` in `resolver.go` compiles the `--include` and `--exclude`
+patterns once per resolver run and returns an error for an invalid pattern
+before any binary is opened. Its `shouldInclude` applies, in order: symbol
+binding exclude, symbol binding include (library API only), `--exclude` regex,
+`--include` regex. Exclude wins over include. Project scope filtering runs after
+these.
 
 Functions are stored in a map keyed by file offset. The offset is also the BPF
 cookie, so two names at the same address (weak aliases, identical code folding)
@@ -154,6 +157,4 @@ related areas:
 - `bpf/trace.bpf.c` calls `bpf_printk` on every hit, including the fast path.
 - `bpf_map_update_elem` on `seen_funcs` is not checked; past 40960 entries every
   call of an untracked function emits an event.
-- `shouldInclude` compiles the include and exclude regexes once per symbol, and
-  an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

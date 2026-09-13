@@ -88,16 +88,25 @@ sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
 sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v
 ```
 
-The e2e harness skips, rather than fails, when `XCOVER_E2E_BIN` is unset, when
-stale `/tmp/xcover.*` files exist, or when BPF loading is denied. A green run
-without root therefore proves little; check for `SKIP` lines.
+The e2e harness skips when `XCOVER_E2E_BIN` is unset, when stale
+`/tmp/xcover.*` files exist, or when it is not running as root. Set
+`XCOVER_E2E_REQUIRE=1` to turn those skips into failures, as CI does:
+
+```shell
+sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v
+```
+
+Any xcover error past the preconditions, including a denied BPF load, fails
+the test. A green run without root and without the variable proves little;
+check for `SKIP` lines.
 
 Limit any Go target to a package with `TEST_PATH`, for example
 `make test-integration TEST_PATH=./pkg/trace`.
 
 ## Lint
 
-CI runs `gofmt -l .` and `go mod verify`. Run `gofmt -w .` before pushing.
+CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,
+`integration` and `docs` build tags. Run `gofmt -w .` before pushing.
 
 ## Documentation
 
@@ -114,7 +123,7 @@ Hand-written pages such as `docs/xcover_userspace_bpf.md` and
 `docs/architecture.md` are not touched by the generator.
 
 The generator does not delete pages for removed commands; delete them by hand.
-CI does not yet check that generated docs are current.
+CI runs `make docs` and fails when the generated files differ from the commit.
 
 ## Commit and pull request conventions
 

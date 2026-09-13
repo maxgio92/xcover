@@ -115,9 +115,14 @@ it in the `ack` map.
 
 On `SIGINT` or `SIGTERM` the tracer drains its goroutines, destroys the links
 (which detaches the probes) and writes `xcover-report.json` in the current
-directory when `--report` is true. `funcs_traced` is every resolved function,
-`funcs_ack` the names found for acknowledged cookies, `cov_by_func` the ratio
-of acknowledged cookies to resolved functions times 100.
+directory when `--report` is true. The report carries `schema_version`,
+`xcover_version`, `generated_at`, `kernel`, `exe_path` and `build_id` (the GNU
+build-id captured when the functions were resolved), then `funcs_traced` (every
+resolved function), `funcs_ack` (the names of acknowledged cookies that still
+resolve to a function), `cov_by_func` (`len(funcs_ack) / len(funcs_traced) *
+100`) and `functions[]` with `name`, `offset` and `hit` per function. Lists are
+sorted, and `functions` is ordered by offset, so two reports of the same
+session differ only in `generated_at`.
 
 ## Daemon mode
 
@@ -147,10 +152,6 @@ related areas:
   `-1`.
 - `Probe.Attach` returns `nil` after a failed `uprobe_multi` attach, so partial
   instrumentation is silent apart from a warning.
-- In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
-  cannot resolve, which stops the iteration and truncates `funcs_ack`.
-  `cov_by_func` uses the raw ack count, so it can disagree with
-  `len(funcs_ack)`. See issue #175.
 - `bpf/trace.bpf.c` calls `bpf_printk` on every hit, including the fast path.
 - `bpf_map_update_elem` on `seen_funcs` is not checked; past 40960 entries every
   call of an untracked function emits an event.

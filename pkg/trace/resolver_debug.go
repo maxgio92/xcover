@@ -261,8 +261,11 @@ func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error 
 }
 
 // buildID returns the GNU build-id from the first PT_NOTE segment that contains
-// one, or nil if absent. Reading from the program header (not the section)
-// means it survives section-table stripping.
+// one, or nil if absent. Go's internal linker maps .note.gnu.build-id into its
+// PT_NOTE segment (one on Linux); with external linking the host ld creates
+// the PT_NOTE segments instead, one of them covering the GNU note. Reading
+// from the program headers (not the section table) survives section-table
+// stripping either way.
 func buildID(f *elf.File) []byte {
 	for _, p := range f.Progs {
 		if p.Type != elf.PT_NOTE {

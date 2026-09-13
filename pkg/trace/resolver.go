@@ -121,8 +121,11 @@ func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
 
 // isGoTextMarker reports whether sym is one of the Go linker's zero-size
 // text delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
-// go:textfipsstart and go:textfipsend that GOFIPS140 builds emit around the
-// FIPS module (cmd/link/internal/ld/fips140.go).
+// go:textfipsstart and go:textfipsend that the linker emits around the crypto
+// FIPS module on every supported ELF target, whether or not GOFIPS140 is set
+// (cmd/link/internal/ld/fips140.go). The FIPS pair is matched
+// by name alone: gosym derives a function's size from the next entry, so the
+// .gopclntab path reports go:textfipsstart with a size larger than one.
 func isGoTextMarker(sym elf.Symbol) bool {
 	if sym.Name == "go:textfipsstart" || sym.Name == "go:textfipsend" {
 		return true
@@ -193,9 +196,10 @@ func funcEntriesFromGoPclntab(f *elf.File, filter symFilter, logger log.Logger) 
 			Size:  fn.End - fn.Entry,
 			Info:  byte(elf.STT_FUNC),
 		}
-		if filter.shouldInclude(sym) {
-			syms = append(syms, sym)
+		if isGoTextMarker(sym) || !filter.shouldInclude(sym) {
+			continue
 		}
+		syms = append(syms, sym)
 	}
 	if len(syms) == 0 {
 		return nil, ErrNoFunctionSymbols

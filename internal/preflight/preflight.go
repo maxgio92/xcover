@@ -111,8 +111,8 @@ func checkRelease(release string) (Version, string, error) {
 	if v.Before(MinKernel) {
 		return v, fmt.Sprintf(
 			"kernel %s is older than %s; uprobe_multi needs a distribution backport "+
-				"(RHEL 9.4 on 5.14 has one), attach will fail otherwise; pass --%s to silence this (it also skips the capability check)",
-			release, MinKernel, SkipFlag), nil
+				"(RHEL 9.4 on 5.14 has one), attach will fail if the backport is missing",
+			release, MinKernel), nil
 	}
 
 	return v, "", nil
@@ -170,8 +170,9 @@ func CheckCapabilities() error {
 	}
 
 	return errors.Wrapf(ErrMissingCapabilities,
-		"%s not in the effective set; run with sudo or grant them with "+
-			"`setcap cap_bpf,cap_perfmon+ep`",
+		"%s not in the effective set; run with sudo, or grant them to the binary with "+
+			"`setcap cap_bpf,cap_perfmon+ep /path/to/xcover` "+
+			"(file capabilities do not apply under go run or on nosuid mounts)",
 		strings.Join(missing, " and "))
 }
 

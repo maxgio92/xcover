@@ -228,7 +228,7 @@ func TestCheckRelease(t *testing.T) {
 	require.Contains(t, advisory, "5.14.0-427.13.1.el9_4.x86_64")
 	require.Contains(t, advisory, MinKernel.String())
 	require.Contains(t, advisory, "backport")
-	require.Contains(t, advisory, "--"+SkipFlag)
+	require.NotContains(t, advisory, SkipFlag)
 
 	v, advisory, err = checkRelease("6.6.0")
 	require.NoError(t, err)

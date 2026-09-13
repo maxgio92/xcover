@@ -9,27 +9,33 @@
 #
 #   Call teardown_log_pane in your cleanup() function.
 #
-# Both functions are no-ops outside tmux. sudo drops TMUX from the
-# environment by default, so the kernel demos must run as
-# `sudo --preserve-env=TMUX bash demo.sh` (or inside a tmux server started as
-# root) for the pane to open.
+# Both functions are no-ops outside tmux. sudo drops TMUX and TMUX_PANE from
+# the environment by default, so the kernel demos must run as
+# `sudo --preserve-env=TMUX,TMUX_PANE bash demo.sh` (or inside a tmux server
+# started as root) for the pane to open. TMUX_PANE is required as well as TMUX:
+# without an explicit target tmux resolves the pane from the client tty and
+# falls back to the most recently active session, so the split could land in
+# another session's window.
 #
 # Kernel mode tails /tmp/xcover.log by default, the file `xcover run --detach`
 # writes to (settings.LogFile). Set XCOVER_DEMO_TRACE_PIPE=1 to tail the kernel
-# trace pipe instead, which shows bpf_printk output. That output is only
-# present when xcover was built with `make xcover/bpf BPF_DEBUG=1` and then
-# rebuilt. The pane command is forked by the tmux server, not by this (root)
-# process, so the trace pipe is only readable when the tmux server itself runs
-# as root; the pane script therefore picks its source with its own
-# credentials. tracefs (/sys/kernel/tracing) is preferred, with a fallback to
-# debugfs (/sys/kernel/debug/tracing). If neither is readable the pane falls
-# back to the daemon log and says so.
+# trace pipe instead, which shows the BPF program's bpf_printk output when the
+# embedded object was compiled with it. The pane command is forked by the tmux
+# server, not by this (root) process, so the trace pipe is only readable when
+# the tmux server itself runs as root; the pane script therefore picks its
+# source with its own credentials. tracefs (/sys/kernel/tracing) is preferred,
+# with a fallback to debugfs (/sys/kernel/debug/tracing). If neither is
+# readable the pane falls back to the daemon log and says so.
 
-# Preserve an open pane if this file is sourced twice.
-LOG_PANE="${LOG_PANE:-}"
+# Only ever tear down a pane this process created.
+LOG_PANE=""
 
 function setup_log_pane() {
     [ -z "${TMUX:-}" ] && return 0
+    if [ -z "${TMUX_PANE:-}" ]; then
+        echo "log pane: TMUX_PANE not set (use sudo --preserve-env=TMUX,TMUX_PANE), continuing without pane" >&2
+        return 0
+    fi
     local mode="${1:-kernel}"
     local log_file="/tmp/xcover.log"
     local pane_cmd
@@ -43,6 +49,8 @@ function setup_log_pane() {
     # Create the file up front so tail -F has something to open; -F keeps
     # following when the demo cleanup removes and xcover recreates it.
     touch "${log_file}" 2>/dev/null || true
+    # A restrictive umask (077) would leave the root-owned log unreadable by the pane user.
+    chmod a+r "${log_file}" 2>/dev/null || true
     # The readability test must run inside the pane: tmux forks the pane
     # command with the server's credentials, not this script's. $1 is the log
     # file, passed as a positional argument and expanded by the pane's bash.
@@ -56,7 +64,7 @@ function setup_log_pane() {
     # -l 40% rather than -p 40: tmux 3.4 (Ubuntu 24.04) mis-parses -p and
     # fails with "size missing"; -l with a percentage works on 3.1 and later.
     # -d keeps focus on the demo pane, so no select-pane is needed.
-    if ! LOG_PANE="$(tmux split-window -d -h -l 40% -P -F '#{pane_id}' bash -c "${pane_cmd}" _ "${log_file}")"; then
+    if ! LOG_PANE="$(tmux split-window -d -h -l 40% -t "${TMUX_PANE}" -P -F '#{pane_id}' bash -c "${pane_cmd}" _ "${log_file}")"; then
         LOG_PANE=""
         echo "log pane: tmux split-window failed, continuing without pane" >&2
     fi

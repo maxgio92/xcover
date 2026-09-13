@@ -2,7 +2,7 @@
 # Automated xcover debug file demo for asciinema
 # Demonstrates coverage profiling on a stripped C binary using a separate
 # debug file to resolve function names.
-# Run as: sudo --preserve-env=TMUX bash demo.sh   (TMUX is needed for the log pane)
+# Run as: sudo --preserve-env=TMUX,TMUX_PANE bash demo.sh   (TMUX and TMUX_PANE are needed for the log pane)
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ trap cleanup EXIT
 function main() {
 	# Check if running as root
 	if [ "$EUID" -ne 0 ]; then
-	    echo "Please run as root: sudo bash $0"
+	    echo "Please run as root: sudo --preserve-env=TMUX,TMUX_PANE bash $0"
 	    exit 1
 	fi
 

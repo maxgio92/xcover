@@ -22,6 +22,7 @@ const (
 	reportB = `{"schema_version":1,"build_id":"abc","exe_path":"/bin/app","funcs_traced":["bar","foo"],"funcs_ack":["bar"],"cov_by_func":50,
 "functions":[{"name":"foo","offset":1,"hit":false},{"name":"bar","offset":2,"hit":true}]}`
 	reportOtherBuild = `{"schema_version":1,"build_id":"def","functions":[{"name":"foo","offset":1,"hit":true}]}`
+	reportNoBuild    = `{"schema_version":1,"functions":[{"name":"foo","offset":1,"hit":true}]}`
 )
 
 func writeTemp(t *testing.T, dir, name, content string) string {
@@ -55,6 +56,7 @@ func TestMergeCommand(t *testing.T) {
 	a := writeTemp(t, dir, "a.json", reportA)
 	b := writeTemp(t, dir, "b.json", reportB)
 	other := writeTemp(t, dir, "other.json", reportOtherBuild)
+	noBuild := writeTemp(t, dir, "nobuild.json", reportNoBuild)
 
 	tests := []struct {
 		name      string
@@ -85,8 +87,18 @@ func TestMergeCommand(t *testing.T) {
 			wantErr: "build_id mismatch",
 		},
 		{
-			name:      "mismatched build_id with override",
-			args:      []string{"--allow-mismatched-build-id", a, other},
+			name:    "mismatched build_id with override",
+			args:    []string{"--allow-missing-build-id", a, other},
+			wantErr: "build_id mismatch",
+		},
+		{
+			name:    "missing build_id",
+			args:    []string{a, noBuild},
+			wantErr: "build_id missing",
+		},
+		{
+			name:      "missing build_id with override",
+			args:      []string{"--allow-missing-build-id", a, noBuild},
 			wantAck:   []string{"foo"},
 			wantBuild: "",
 		},
@@ -154,7 +166,11 @@ func TestMergeCommandOutputFile(t *testing.T) {
 
 	info, err := os.Stat(target)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "merged report must be world-readable like xcover run's")
+	// The inputs were written with mode 0644 under the same umask, so
+	// comparing against one of them keeps the check umask independent.
+	inputInfo, err := os.Stat(a)
+	require.NoError(t, err)
+	require.Equal(t, inputInfo.Mode().Perm(), info.Mode().Perm(), "merged report must be as readable as its inputs")
 }
 
 func TestMergeCommandOutputFilePreservedOnFailure(t *testing.T) {

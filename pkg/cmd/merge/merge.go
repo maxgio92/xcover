@@ -3,8 +3,10 @@ package merge
 import (
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -19,8 +21,8 @@ const CmdName = "merge"
 const stdinPath = "-"
 
 type Options struct {
-	output                 string
-	allowMismatchedBuildID bool
+	output              string
+	allowMissingBuildID bool
 	*options.Options
 }
 
@@ -35,10 +37,10 @@ distributed E2E, retries) into a single aggregate report.
 
 Functions are identified by their offset within the binary named by build_id:
 a function counts as covered if it was hit in any input, and cov_by_func is
-recomputed over the merged set. Every input must carry the same build_id;
-reports with a different or empty build_id are refused unless
---allow-mismatched-build-id is set, in which case the merged report has an
-empty build_id.
+recomputed over the merged set. Inputs with different build_id values are
+refused. A report without a build_id cannot be verified and is refused unless
+--allow-missing-build-id is set, in which case the merged report has an empty
+build_id.
 
 Pass '%s' as a path to read one report from standard input. The merged report is
 written to standard output unless --output is set.`, CmdName, stdinPath),
@@ -49,7 +51,7 @@ written to standard output unless --output is set.`, CmdName, stdinPath),
 	}
 
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", "Write the merged report to this file instead of stdout")
-	cmd.Flags().BoolVar(&o.allowMismatchedBuildID, "allow-mismatched-build-id", false, "Merge reports whose build_id differs or is empty; the result has an empty build_id")
+	cmd.Flags().BoolVar(&o.allowMissingBuildID, "allow-missing-build-id", false, "Merge reports even when one has an empty build_id; the result has an empty build_id")
 
 	return cmd
 }
@@ -67,8 +69,8 @@ func (o *Options) Run(cmd *cobra.Command, args []string) error {
 	}
 
 	var mergeOpts []coverage.MergeOption
-	if o.allowMismatchedBuildID {
-		mergeOpts = append(mergeOpts, coverage.WithAllowMismatchedBuildID())
+	if o.allowMissingBuildID {
+		mergeOpts = append(mergeOpts, coverage.WithAllowMissingBuildID())
 	}
 
 	merged, err := coverage.Merge(reports, mergeOpts...)
@@ -111,9 +113,11 @@ func (o *Options) readReport(stdin io.Reader, path string) (*coverage.CoverageRe
 
 // writeFile writes the report through a temporary file in the target
 // directory and renames it into place, so an existing file at path is left
-// untouched if writing fails.
+// untouched if writing fails. The file is created with mode 0644 before
+// umask so that, like the report xcover run writes, a later unprivileged
+// step can read a merge written as root.
 func writeFile(path string, report *coverage.CoverageReport) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	tmp, err := os.OpenFile(tempName(path), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return errors.Wrap(err, "failed to create temporary file")
 	}
@@ -123,15 +127,14 @@ func writeFile(path string, report *coverage.CoverageReport) error {
 		tmp.Close()
 		return err
 	}
-	// CreateTemp opens the file 0600; match the mode xcover run uses for its
-	// report so a later unprivileged step can read a merge written as root.
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return errors.Wrap(err, "failed to set temporary file mode")
-	}
 	if err := tmp.Close(); err != nil {
 		return errors.Wrap(err, "failed to close temporary file")
 	}
 
 	return errors.Wrap(os.Rename(tmp.Name(), path), "failed to rename temporary file")
+}
+
+// tempName returns a hidden sibling of path with a random suffix.
+func tempName(path string) string {
+	return filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+strconv.FormatUint(rand.Uint64(), 36))
 }

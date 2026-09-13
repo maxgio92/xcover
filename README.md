@@ -324,9 +324,9 @@ $ xcover merge -o merged.json shard-1.json shard-2.json
 Functions are matched by `build_id` and file offset, a function counts as hit
 when any input hit it, and `cov_by_func` is recomputed over the union. Inputs
 with different `build_id` values are refused; a report without a `build_id`
-cannot be verified and is refused unless `--allow-mismatched-build-id` is
-passed, in which case the merged report carries no `build_id` either. Pass `-`
-to read one report from stdin.
+cannot be verified and is refused unless `--allow-missing-build-id` is set, in
+which case the merged `build_id` is empty. Pass `-` to read one report from
+stdin.
 
 ## Use in CI
 

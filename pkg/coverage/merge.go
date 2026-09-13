@@ -14,7 +14,8 @@ var (
 	ErrNoReports = errors.New("no reports to merge")
 	// ErrNilReport is returned when one of the reports passed to Merge is nil.
 	ErrNilReport = errors.New("nil report")
-	// ErrBuildIDMismatch is returned when the inputs do not share a build_id.
+	// ErrBuildIDMismatch is returned when two inputs carry different non-empty
+	// build_id values: they measured different binaries and cannot be merged.
 	ErrBuildIDMismatch = errors.New("build_id mismatch")
 	// ErrBuildIDMissing is returned when an input has no build_id, so the
 	// merge cannot verify that every report measured the same binary.
@@ -22,23 +23,25 @@ var (
 )
 
 type mergeConfig struct {
-	allowMismatchedBuildID bool
-	now                    func() time.Time
+	allowMissingBuildID bool
+	now                 func() time.Time
 }
 
 // MergeOption configures Merge.
 type MergeOption func(*mergeConfig)
 
-// WithAllowMismatchedBuildID lets Merge combine reports whose build_id
-// values differ or are empty. The merged report carries an empty build_id,
-// which stays empty across further merges since it can no longer be verified.
-func WithAllowMismatchedBuildID() MergeOption {
+// WithAllowMissingBuildID lets Merge combine reports when one of them has an
+// empty build_id. The merged report carries an empty build_id, which stays
+// empty across further merges since it can no longer be verified. Reports
+// with different non-empty build_id values are still refused.
+func WithAllowMissingBuildID() MergeOption {
 	return func(c *mergeConfig) {
-		c.allowMismatchedBuildID = true
+		c.allowMissingBuildID = true
 	}
 }
 
-// WithClock overrides the time source used for generated_at.
+// WithClock overrides the time source used for generated_at. It is exported
+// for the package tests, which live in package coverage_test.
 func WithClock(now func() time.Time) MergeOption {
 	return func(c *mergeConfig) {
 		c.now = now
@@ -51,8 +54,10 @@ func WithClock(now func() time.Time) MergeOption {
 // from the merged functions list, so duplicate names at different offsets are
 // preserved. exe_path and kernel are kept only when every input agrees.
 //
-// Merge is associative apart from generated_at: Merge(Merge(A,B),C) equals
-// Merge(A,B,C).
+// Merge is associative apart from generated_at when every input carries the
+// same non-empty build_id: Merge(Merge(A,B),C) equals Merge(A,B,C). Once a
+// missing build_id is allowed in, grouping can change whether a merge
+// succeeds, because an alias conflict is only tolerated under a verified id.
 func Merge(reports []*CoverageReport, opts ...MergeOption) (*CoverageReport, error) {
 	cfg := mergeConfig{now: time.Now}
 	for _, opt := range opts {
@@ -68,19 +73,28 @@ func Merge(reports []*CoverageReport, opts ...MergeOption) (*CoverageReport, err
 		}
 	}
 
-	buildID, err := mergeBuildID(reports, cfg.allowMismatchedBuildID)
+	buildID, err := mergeBuildID(reports, cfg.allowMissingBuildID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Symbol aliases share an offset and the tracer keeps whichever name its
+	// include pattern retained, so shards of the same verified binary can
+	// legitimately disagree on the name at one offset: pick the smallest.
+	// Without a verified build_id a name conflict is the only evidence that
+	// the inputs measured different binaries, so it stays an error.
 	byOffset := make(map[uint64]FunctionCoverage)
 	for _, r := range reports {
 		for _, fn := range r.Functions {
 			prev, ok := byOffset[fn.Offset]
+			name := fn.Name
 			if ok && prev.Name != fn.Name {
-				return nil, errors.Errorf("offset %d is %q in one report and %q in another", fn.Offset, prev.Name, fn.Name)
+				if buildID == "" {
+					return nil, errors.Errorf("offset %d is %q in one report and %q in another", fn.Offset, prev.Name, fn.Name)
+				}
+				name = min(prev.Name, fn.Name)
 			}
-			byOffset[fn.Offset] = FunctionCoverage{Name: fn.Name, Offset: fn.Offset, Hit: prev.Hit || fn.Hit}
+			byOffset[fn.Offset] = FunctionCoverage{Name: name, Offset: fn.Offset, Hit: prev.Hit || fn.Hit}
 		}
 	}
 
@@ -121,23 +135,27 @@ func Merge(reports []*CoverageReport, opts ...MergeOption) (*CoverageReport, err
 	), nil
 }
 
-// mergeBuildID returns the build_id shared by every report. Without
-// allowMismatch, an empty or differing build_id is an error; with it, the
-// result is empty unless all inputs agree on a non-empty value.
-func mergeBuildID(reports []*CoverageReport, allowMismatch bool) (string, error) {
+// mergeBuildID returns the build_id shared by every report. Two different
+// non-empty values are always an error. An empty value is an error unless
+// allowMissing is set, in which case the result is empty.
+func mergeBuildID(reports []*CoverageReport, allowMissing bool) (string, error) {
+	var common string
+	missing := false
 	for _, r := range reports {
-		if r.BuildID != "" {
-			continue
+		switch {
+		case r.BuildID == "":
+			if !allowMissing {
+				return "", errors.Wrap(ErrBuildIDMissing, "cannot verify the reports measure the same binary")
+			}
+			missing = true
+		case common == "":
+			common = r.BuildID
+		case r.BuildID != common:
+			return "", errors.Wrapf(ErrBuildIDMismatch, "%q vs %q", common, r.BuildID)
 		}
-		if !allowMismatch {
-			return "", errors.Wrap(ErrBuildIDMissing, "cannot verify the reports measure the same binary")
-		}
-		return "", nil
 	}
-
-	common := commonValue(reports, func(r *CoverageReport) string { return r.BuildID })
-	if common == "" && !allowMismatch {
-		return "", errors.Wrapf(ErrBuildIDMismatch, "%q vs %q", reports[0].BuildID, firstDifferent(reports, reports[0].BuildID))
+	if missing {
+		return "", nil
 	}
 
 	return common, nil
@@ -154,14 +172,4 @@ func commonValue(reports []*CoverageReport, get func(*CoverageReport) string) st
 	}
 
 	return first
-}
-
-func firstDifferent(reports []*CoverageReport, buildID string) string {
-	for _, r := range reports {
-		if r.BuildID != buildID {
-			return r.BuildID
-		}
-	}
-
-	return ""
 }

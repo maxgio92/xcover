@@ -245,8 +245,10 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
   probe never fires.
 - The kernel rejected a `seen_funcs` insert. The map is sized to the traced
   function count, so this is rare; when it happens `xcover run` logs a warning
-  on exit with the number of dropped first hits (`bpf/trace.bpf.c`,
-  `drops` map).
+  on exit with the `drops` counter (`bpf/trace.bpf.c`). The counter is the
+  number of calls whose event was discarded because the function could not be
+  recorded in `seen_funcs`, so it can exceed the number of functions missing
+  from the report.
 - `--pid` was set. The flag is parsed but not applied
   (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`), so hits from every process
   running the binary are counted and the report does not describe a single

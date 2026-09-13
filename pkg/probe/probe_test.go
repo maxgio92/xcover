@@ -126,8 +126,10 @@ func TestEmbeddedObjectHasDropsMap(t *testing.T) {
 }
 
 // TestEmbeddedObjectHasNoPrintk pins that the default BPF object keeps
-// bpf_printk off the hot path: no `call 6` (BPF_FUNC_trace_printk) in the
-// uprobe program. Build with BPF_DEBUG=1 to opt in.
+// bpf_printk off the hot path: no helper call to BPF_FUNC_trace_printk (6) or
+// BPF_FUNC_trace_vprintk (177) in the uprobe program. Only insns with
+// src_reg 0 are helper calls; src_reg 1 marks a BPF-to-BPF pseudo call.
+// Build with BPF_DEBUG=1 to opt in.
 func TestEmbeddedObjectHasNoPrintk(t *testing.T) {
 	data, err := probeFS.ReadFile(filepath.Join(outputPath, ProbePath))
 	require.NoError(t, err)
@@ -141,10 +143,14 @@ func TestEmbeddedObjectHasNoPrintk(t *testing.T) {
 	code, err := sec.Data()
 	require.NoError(t, err)
 
-	const bpfCall, tracePrintk = 0x85, 6
+	const bpfCall, tracePrintk, traceVprintk = 0x85, 6, 177
 	for i := 0; i+8 <= len(code); i += 8 {
-		if code[i] == bpfCall && binary.LittleEndian.Uint32(code[i+4:i+8]) == tracePrintk {
-			t.Fatalf("default BPF object calls trace_printk at insn %d", i/8)
+		if code[i] != bpfCall || code[i+1]>>4 != 0 {
+			continue
+		}
+		switch helper := binary.LittleEndian.Uint32(code[i+4 : i+8]); helper {
+		case tracePrintk, traceVprintk:
+			t.Fatalf("default BPF object calls printk helper %d at insn %d", helper, i/8)
 		}
 	}
 }

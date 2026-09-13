@@ -39,13 +39,37 @@ func TestOptionsSetup(t *testing.T) {
 	tests := []struct {
 		name      string
 		scope     string
+		include   string
+		exclude   string
 		wantScope trace.Scope
 		wantErr   bool
+		wantErrIs error
 	}{
 		{
 			name:      "binary scope",
 			scope:     string(trace.ScopeBinary),
 			wantScope: trace.ScopeBinary,
+		},
+		{
+			name:      "valid patterns",
+			scope:     string(trace.ScopeBinary),
+			include:   `^main\.`,
+			exclude:   `^runtime\.`,
+			wantScope: trace.ScopeBinary,
+		},
+		{
+			name:      "invalid include pattern",
+			scope:     string(trace.ScopeBinary),
+			include:   "(",
+			wantErr:   true,
+			wantErrIs: trace.ErrInvalidPattern,
+		},
+		{
+			name:      "invalid exclude pattern",
+			scope:     string(trace.ScopeBinary),
+			exclude:   "[",
+			wantErr:   true,
+			wantErrIs: trace.ErrInvalidPattern,
 		},
 		{
 			name:      "project scope",
@@ -63,6 +87,8 @@ func TestOptionsSetup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			o := newTestOptions(t)
 			o.scope = tt.scope
+			o.symIncludePattern = tt.include
+			o.symExcludePattern = tt.exclude
 
 			scope, err := o.setup()
 
@@ -74,6 +100,9 @@ func TestOptionsSetup(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
 				return
 			}
 			require.NoError(t, err)

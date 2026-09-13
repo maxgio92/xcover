@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -452,5 +453,35 @@ func main() { fmt.Println(add(1, 2)); greet("world") }
 			"%s: offset should be >= .text file offset", fn.name)
 		assert.Less(t, fn.offset, textSec.Offset+textSec.Size,
 			"%s: offset should be within .text section", fn.name)
+	}
+}
+
+// TestSymbolTableResolver_LinkerStrippedDropsGoTextMarkers builds with
+// -ldflags=-s so the Go linker itself omits .symtab and the resolver takes the
+// .gopclntab path, which must not return the go:textfips* padding symbols or
+// the runtime.text/etext delimiters.
+func TestSymbolTableResolver_LinkerStrippedDropsGoTextMarkers(t *testing.T) {
+	tmpDir := t.TempDir()
+	src := filepath.Join(tmpDir, "main.go")
+	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc main() { println(\"hi\") }\n"), 0o644))
+
+	bin := filepath.Join(tmpDir, "prog")
+	out, err := exec.Command("go", "build", "-ldflags=-s", "-o", bin, src).CombinedOutput()
+	require.NoError(t, err, "go build: %s", out)
+
+	f, err := elf.Open(bin)
+	require.NoError(t, err)
+	_, err = f.Symbols()
+	f.Close()
+	require.ErrorIs(t, err, elf.ErrNoSymbols, "-ldflags=-s should drop .symtab")
+
+	entries, err := SymbolTableResolver(bin, zerolog.Nop(), "", "", nil, nil)(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+
+	for _, e := range entries {
+		require.False(t, strings.HasPrefix(e.Name, "go:textfips"), "pclntab path leaked %q", e.Name)
+		// Defensive only: the text delimiters are absent from pclntab.
+		require.False(t, goTextMarkerRe.MatchString(e.Name), "pclntab path leaked %q", e.Name)
 	}
 }

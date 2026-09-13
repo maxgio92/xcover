@@ -98,7 +98,6 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		return errors.Wrapf(err, "failed to force kill %s (PID %d)", settings.CmdName, pid)
 	}
 	common.RemovePID()
-	fmt.Printf("%s force killed (PID %d), the coverage report may be missing\n", settings.CmdName, pid)
 
 	return ErrForceKilled
 }

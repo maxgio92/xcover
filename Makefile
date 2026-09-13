@@ -13,7 +13,8 @@ OUTPUT := $(current_dir)/pkg/probe/output
 
 ARCH := $(subst x86_64,x86,$(shell uname -m))
 GOARCH := $(subst x86,amd64,$(subst aarch64,arm64,$(ARCH)))
-# libbpf's bpf_tracing.h checks __TARGET_ARCH_arm64, not the uname spelling.
+# libbpf headers expect __TARGET_ARCH_arm64, not the uname spelling, so the
+# define stays correct if bpf_tracing.h is included later.
 BPF_ARCH := $(subst aarch64,arm64,$(ARCH))
 
 # ebpf

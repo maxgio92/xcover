@@ -4,7 +4,7 @@
 #include <bpf/bpf_core_read.h>
 
 /* Debug logging is compiled out by default to keep bpf_printk off the hot
- * path. Build with `make xcover/bpf BPF_DEBUG=1` to enable it. */
+ * path. Build with `make xcover BPF_DEBUG=1` to enable it. */
 #ifdef XCOVER_DEBUG
 #define xcover_debug(fmt, ...) bpf_printk(fmt, ##__VA_ARGS__)
 #else
@@ -58,6 +58,11 @@ int handle_user_function(struct pt_regs *ctx) {
 		return 0;
 	}
 
+	/* A failed reserve is not counted. The 256 MiB ring holds about 16M
+	 * 16-byte records (header plus payload) and userspace drains it
+	 * continuously, so exhaustion needs millions of undrained records,
+	 * submitted or discarded, per drain. The kernel exposes no lost-record
+	 * counter for ring buffers to reconcile against. */
 	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
 	if (!event) {
 		xcover_debug("error submitting event to ring buffer for user function with cookie %llu\n", cookie);

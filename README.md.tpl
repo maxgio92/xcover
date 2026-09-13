@@ -305,9 +305,9 @@ Notes on the numbers:
   cookie that cannot be mapped back to a function is dropped and never counts.
 - Lists are sorted and `functions` is ordered by offset, so two reports of the
   same session differ only in `generated_at` and diff cleanly.
-- `build_id` identifies the exact binary measured. It is captured when the
-  functions are resolved, so rebuilding the binary during a session cannot
-  produce a report whose identity does not match its data.
+- `build_id` identifies the exact binary measured. It is captured at start-up,
+  when the functions are resolved, rather than at exit, so a binary rebuilt or
+  removed during the session is still reported under the id it was probed with.
 
 Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
 to skip the file.

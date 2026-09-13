@@ -132,12 +132,19 @@ probes so no new events are produced. It then keeps consuming the event channel
 until no event has arrived for 150 ms (`drainQuietPeriod`) and writes
 `xcover-report.json` in the current directory when `--report` is true. The quiet
 period is a heuristic, not a completion signal; the comment on
-`drainQuietPeriod` in `tracer.go` states what it does not guarantee. After the drain, `warnDrops` reads the `drops` counter through `Probe.Drops`
-and logs a warning when it is not zero, whether or not `--report` is set: those calls were not recorded, so the
-report undercounts coverage.
-`funcs_traced` is every resolved function, `funcs_ack` the names found for
-acknowledged cookies, `cov_by_func` the ratio of acknowledged cookies to
-resolved functions times 100.
+`drainQuietPeriod` in `tracer.go` states what it does not guarantee. After the
+drain, `warnDrops` reads the `drops` counter through `Probe.Drops` and logs a
+warning when it is not zero, whether or not `--report` is set: those calls were
+not recorded, so the report undercounts coverage.
+
+The report carries `schema_version`, `xcover_version`, `generated_at`, `kernel`,
+`exe_path`, `pid` (when `--pid` restricted the trace) and `build_id` (the GNU
+build-id captured when the functions were resolved), then `funcs_traced` (every
+resolved function), `funcs_ack` (the names of acknowledged cookies that still
+resolve to a function), `cov_by_func` (`len(funcs_ack) / len(funcs_traced) *
+100`) and `functions[]` with `name`, `offset` and `hit` per function. Lists are
+sorted, and `functions` is ordered by offset, so two reports of the same
+session differ only in `generated_at`.
 
 ## Daemon mode
 
@@ -165,10 +172,6 @@ temporary file and prints the path. See
 These are visible from reading the code and worth knowing before you change the
 related areas:
 
-- In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
-  cannot resolve, which stops the iteration and truncates `funcs_ack`.
-  `cov_by_func` uses the raw ack count, so it can disagree with
-  `len(funcs_ack)`. See issue #175.
 - `shouldInclude` compiles the include and exclude regexes once per symbol, and
   an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

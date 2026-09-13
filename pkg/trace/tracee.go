@@ -10,9 +10,10 @@ import (
 
 type UserTracee struct {
 	funcs map[cookie]funcInfo
-	// buildID is the GNU build-id of the executable, captured when the
-	// functions are resolved so the report names the same binary the offsets
-	// were taken from, even if the file is rebuilt or removed afterwards.
+	// buildID is the GNU build-id of the executable, captured at start-up,
+	// when the functions are resolved, rather than at exit, so a binary
+	// rebuilt or removed during the session is still reported under the id
+	// it was probed with.
 	buildID []byte
 	*UserTraceeOptions
 }

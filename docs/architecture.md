@@ -34,7 +34,7 @@ xcover run --path BIN
    ├─ 1. resolve      ELF → []function{name, file offset}        pkg/trace/resolver*.go
    ├─ 2. filter       exclude, include, scope                     pkg/trace/resolver.go, resolver_go.go, scope.go
    ├─ 3. load         embedded trace.bpf.o → BPF module           pkg/probe/probe.go
-   ├─ 4. attach       uprobe_multi links, 128 offsets per link    pkg/trace/tracer.go, pkg/probe/probe.go
+   ├─ 4. attach       uprobe_multi links, 65536 offsets per link  pkg/trace/tracer.go, pkg/probe/probe.go
    ├─ 5. ready        close readiness channel, serve /tmp/xcover.sock   pkg/healthcheck
    ├─ 6. events       ring buffer → channel → ack map             pkg/probe/probe.go, pkg/trace/tracer.go
    └─ 7. report       on SIGINT/SIGTERM write xcover-report.json  pkg/trace/tracer.go, pkg/coverage
@@ -83,11 +83,15 @@ collapse into one entry.
 libbpfgo with `SkipMemlockBump` (the kernel accounts BPF memory to the memcg
 since 5.11), and sets the expected attach type to `TRACE_UPROBE_MULTI`.
 
-`UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 128, the
-largest that fits the kernel's `bpf_attr` buffer, and calls
-`AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. The PID argument
-`-1` means every process that maps the file. A failed batch is logged as a
-warning and skipped; the tracer still reports readiness.
+`UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 65536
+(`bpfUprobeMultiAttachMaxOffsets`) and calls
+`AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. libbpf passes the
+offset and cookie arrays to the kernel by pointer, so the batch is bounded only
+by the kernel cap `MAX_UPROBE_MULTI_CNT` (1<<20) per link; 65536 keeps the
+per-syscall arrays small while staying well below it. The PID argument `-1`
+means every process that maps the file. The first failed batch aborts
+`Run` with an error before readiness is signalled; links from earlier batches
+are destroyed on close.
 
 In userspace BPF mode bpftime does not implement `uprobe_multi`, so
 `attachSingleUprobes` attaches one perf-event uprobe per function instead.
@@ -101,11 +105,16 @@ The socket is removed on every exit path.
 
 ### 6. Events
 
-`bpf/trace.bpf.c` defines two maps: `events`, a 256 MB ring buffer, and
-`seen_funcs`, a hash map of 40960 cookies. The program reads the attach cookie,
-returns if the cookie is already in `seen_funcs`, otherwise inserts it and
-submits an 8-byte event. The program only fires on function entry; there is no
-return probe.
+`bpf/trace.bpf.c` defines three maps: `events`, a 256 MB ring buffer;
+`seen_funcs`, a hash map whose `max_entries` is set to the traced function
+count before load by `resizeSeenFuncs` (the compiled default of 40960 applies
+only when the count is unknown); and `drops`, a one-slot array counter. The program reads the attach cookie, returns
+if the cookie is already in `seen_funcs`, otherwise reserves an 8-byte event,
+inserts the cookie and submits the event. A rejected insert discards the
+event and increments `drops`, which `Probe.Drops` reads on exit.
+`bpf_printk` is compiled out unless the object is built with `XCOVER_DEBUG`
+(`make xcover BPF_DEBUG=1`). The program only fires on function entry; there
+is no return probe.
 
 Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096 events, a
 second goroutine forwards them, and `handleEvent` decodes the cookie and stores
@@ -145,15 +154,10 @@ related areas:
 
 - `--pid` is parsed into `Options.pid` but never used; attach always passes
   `-1`.
-- `Probe.Attach` returns `nil` after a failed `uprobe_multi` attach, so partial
-  instrumentation is silent apart from a warning.
 - In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
   cannot resolve, which stops the iteration and truncates `funcs_ack`.
   `cov_by_func` uses the raw ack count, so it can disagree with
   `len(funcs_ack)`. See issue #175.
-- `bpf/trace.bpf.c` calls `bpf_printk` on every hit, including the fast path.
-- `bpf_map_update_elem` on `seen_funcs` is not checked; past 40960 entries every
-  call of an untracked function emits an event.
 - `shouldInclude` compiles the include and exclude regexes once per symbol, and
   an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

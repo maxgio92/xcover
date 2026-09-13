@@ -194,6 +194,19 @@ func forwardedFlagArgs(fs *pflag.FlagSet, skip map[string]bool) []string {
 	return args
 }
 
+// daemonArgs forwards the user's flags and turns preflight off in the child
+// unless the user set --skip-preflight explicitly: daemonize has already run
+// (or skipped) preflight in the parent, so the child repeating it would only
+// duplicate the kernel advisory in the log file.
+func daemonArgs(fs *pflag.FlagSet) []string {
+	args := forwardedFlagArgs(fs, daemonizeSkipFlags)
+	if f := fs.Lookup(preflight.SkipFlag); f != nil && !f.Changed {
+		args = append(args, "--"+preflight.SkipFlag+"=true")
+	}
+
+	return args
+}
+
 func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Check if already running.
 	if common.IsDaemonRunning() {
@@ -208,7 +221,7 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	}
 
 	// Start the daemon process, forwarding every flag the user set.
-	args := append([]string{"run"}, forwardedFlagArgs(cmd.Flags(), daemonizeSkipFlags)...)
+	args := append([]string{"run"}, daemonArgs(cmd.Flags())...)
 
 	daemonCmd := exec.Command(os.Args[0], args...)
 	daemonCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

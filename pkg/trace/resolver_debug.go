@@ -6,6 +6,7 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"encoding/binary"
+	"io"
 
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
@@ -286,7 +287,10 @@ func buildID(f *elf.File) []byte {
 }
 
 // parseBuildIDNote scans a PT_NOTE payload for an NT_GNU_BUILD_ID note and
-// returns its descriptor (the build-id bytes), or nil.
+// returns its descriptor (the build-id bytes), or nil. The payload comes from
+// the traced binary, so the note sizes are bounded against the remaining
+// data before anything is allocated or read: a malformed note yields nil
+// (no build-id) rather than a panic or an invented id.
 func parseBuildIDNote(data []byte, bo binary.ByteOrder) []byte {
 	r := bytes.NewReader(data)
 	for r.Len() >= 12 {
@@ -300,20 +304,32 @@ func parseBuildIDNote(data []byte, bo binary.ByteOrder) []byte {
 		if err := binary.Read(r, bo, &ntype); err != nil {
 			return nil
 		}
-		name := make([]byte, align4(namesz))
-		if _, err := r.Read(name); err != nil {
+		// The last descriptor may be unpadded (GNU ld emits a 19-byte
+		// .note.gnu.build-id for a 3-byte id), so only the name padding and
+		// the raw descriptor are required; descriptor padding is consumed
+		// only when more data follows.
+		nameLen, descLen := align4(namesz), align4(descsz)
+		if nameLen+uint64(descsz) > uint64(r.Len()) {
 			return nil
 		}
-		desc := make([]byte, align4(descsz))
-		if _, err := r.Read(desc); err != nil {
+		name := make([]byte, nameLen)
+		if _, err := io.ReadFull(r, name); err != nil {
 			return nil
 		}
-		if ntype == ntGNUBuildID && namesz >= 3 && string(name[:3]) == "GNU" {
-			return desc[:descsz]
+		desc := make([]byte, descsz)
+		if _, err := io.ReadFull(r, desc); err != nil {
+			return nil
+		}
+		if ntype == ntGNUBuildID && namesz >= 3 && len(name) >= 3 && string(name[:3]) == "GNU" {
+			return desc
+		}
+		if _, err := r.Seek(int64(min(descLen-uint64(descsz), uint64(r.Len()))), io.SeekCurrent); err != nil {
+			return nil
 		}
 	}
 	return nil
 }
 
 // align4 rounds n up to the next 4-byte boundary (ELF note fields are padded).
-func align4(n uint32) uint32 { return (n + 3) &^ 3 }
+// It widens to uint64 so a hostile size near MaxUint32 cannot wrap to zero.
+func align4(n uint32) uint64 { return (uint64(n) + 3) &^ 3 }

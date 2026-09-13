@@ -123,15 +123,28 @@ mechanisms narrow that set.
 
 ### Include and exclude by name
 
-Both flags take a Go (RE2) regular expression matched against the symbol name.
-Exclude is evaluated first: a function that matches `--exclude` is dropped even
-if it also matches `--include`. RE2 has no negative lookahead, so use `--scope`
-or `--exclude` rather than trying to express "everything but" in `--include`.
+Both flags take a Go (RE2) regular expression. A pattern matches a function
+when it matches the raw symbol name or, for C++ and Rust binaries, its
+demangled name: `^app::net::` selects a C++ namespace and `^_ZN3app` keeps
+working. Exclude is evaluated first: a function that matches `--exclude` is
+dropped even if it also matches `--include`. RE2 has no negative lookahead, so
+use `--scope` or `--exclude` rather than trying to express "everything but" in
+`--include`.
 
 ```shell
 xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
 xcover run --path EXE_PATH --exclude "^runtime\.|^internal"
+xcover run --path EXE_PATH --include "^app::net::" --exclude 'parse\('
 ```
+
+Demangled names follow `c++filt`: overloads keep their parameter list
+(`app::net::parse(int)`), and template instantiations start with the return
+type (`double app::net::twice<double>(double)`), so leave the pattern
+unanchored to catch them. An unanchored pattern runs over the whole signature,
+parameter types included, so `app::net::` also matches a function elsewhere
+that takes an `app::net` type; anchor on the raw name (`^_ZN[KVRO]*3app3net`)
+when that matters. Rust legacy names drop their hash suffix, so several
+monomorphizations can share one demangled name.
 
 ### Scope
 
@@ -164,7 +177,8 @@ order.
 ### 1. ELF symbol table
 
 The `.symtab` section lists functions with names and virtual addresses. Filters
-match against these names.
+match against these names and, for C++ and Rust symbols, against their
+demangled form.
 
 ### 2. Go `.gopclntab` (stripped Go binaries)
 
@@ -231,8 +245,8 @@ error a moment later, such as a failed BPF load, is only in `/tmp/xcover.log`.
 
 ## Output and logging
 
-- `--verbose` prints the name of each function to stdout the first time it
-  runs.
+- `--verbose` prints the demangled name of each function to stdout the first
+  time it runs.
 - `--status` (on by default) redraws a status line on stderr once per second
   with the coverage so far, events consumed in the last second and ring
   buffer channel usage. Pass `--status=false` when stderr is a file.
@@ -250,12 +264,19 @@ overwritten.
 
 ```go
 type CoverageReport struct {
-	FuncsTraced []string `json:"funcs_traced"` // every resolved function, probed or not
-	FuncsAck    []string `json:"funcs_ack"`    // functions that ran at least once
-	CovByFunc   float64  `json:"cov_by_func"`  // share of funcs_traced that ran, in percent
-	ExePath     string   `json:"exe_path"`
+	FuncsTraced []string          `json:"funcs_traced"` // every resolved function, probed or not
+	FuncsAck    []string          `json:"funcs_ack"`    // functions that ran at least once
+	CovByFunc   float64           `json:"cov_by_func"`  // share of funcs_traced that ran, in percent
+	ExePath     string            `json:"exe_path"`
+	Symbols     map[string]string `json:"symbols,omitempty"` // raw name to demangled name, C++ and Rust only
 }
 ```
+
+`funcs_traced` and `funcs_ack` always hold the raw symbol names, so they stay
+stable keys. `symbols` appears only when at least one name demangles to
+something different; it maps that raw name to its demangled form, for example
+`"_ZN3app3net5parseEi": "app::net::parse(int)"`. Go and C reports do not
+carry the field.
 
 Notes on the numbers:
 

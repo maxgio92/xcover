@@ -56,8 +56,8 @@ It supports programs compiled to ELF.
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
 	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
 
-	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
-	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
+	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names, matched against the raw and the demangled name")
+	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names, matched against the raw and the demangled name")
 
 	cmd.Flags().StringVar(&o.debugPath, "debug-path", "", "Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary")
 	cmd.Flags().BoolVar(&o.noBuildIDCheck, "no-build-id-check", false, "Skip GNU build-id verification between --path and --debug-path")

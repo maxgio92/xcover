@@ -14,14 +14,32 @@ import (
 
 // FunctionEntry represents a function resolved from a binary, ready for uprobe attachment.
 type FunctionEntry struct {
-	Name   string
-	Offset uint64
+	// Name is the raw symbol name. It is the attach key and the name written
+	// to the report.
+	Name string
+	// Demangled is the human-readable form of Name for C++ and Rust symbols
+	// and equals Name for everything else. Resolvers may leave it empty to
+	// mean "same as Name".
+	Demangled string
+	Offset    uint64
 }
 
 // FunctionResolver resolves the set of functions to trace from a binary.
 // It is self-contained: it owns its own I/O and closes any resources it opens.
 // ctx is checked between steps; cancellation aborts the resolution early.
 type FunctionResolver func(ctx context.Context) ([]FunctionEntry, error)
+
+// funcSym is an ELF function symbol paired with its demangled name. The name
+// is demangled once here and shared by the filters and the FunctionEntry
+// built from it.
+type funcSym struct {
+	elf.Symbol
+	demangled string
+}
+
+func newFuncSym(sym elf.Symbol) funcSym {
+	return funcSym{Symbol: sym, demangled: demangleName(sym.Name)}
+}
 
 // SymbolTableResolver returns a FunctionResolver backed by the ELF symbol table,
 // with a .gopclntab fallback for stripped Go binaries.
@@ -75,28 +93,29 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 }
 
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
+func funcSymsFromELF(f *elf.File, filter symFilter) ([]funcSym, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
 	}
 
-	var out []elf.Symbol
+	var out []funcSym
 	for _, sym := range syms {
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
-		if !filter.shouldInclude(sym) {
+		fs := newFuncSym(sym)
+		if !filter.shouldInclude(fs) {
 			continue
 		}
-		out = append(out, sym)
+		out = append(out, fs)
 	}
 	return out, nil
 }
 
 // funcEntriesFromSymbols converts a list of ELF function symbols to FunctionEntry values.
 // toOffset converts sym.Value (a virtual address) to the file offset required for uprobe attachment.
-func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, error), logger log.Logger) ([]FunctionEntry, error) {
+func funcEntriesFromSymbols(syms []funcSym, toOffset func(uint64) (uint64, error), logger log.Logger) ([]FunctionEntry, error) {
 	var entries []FunctionEntry
 	for _, sym := range syms {
 		offset, err := toOffset(sym.Value)
@@ -104,7 +123,7 @@ func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, er
 			logger.Debug().Str("symbol", sym.Name).Err(err).Msg("failed to resolve file offset, skipping")
 			continue
 		}
-		entries = append(entries, FunctionEntry{Name: sym.Name, Offset: offset})
+		entries = append(entries, FunctionEntry{Name: sym.Name, Demangled: sym.demangled, Offset: offset})
 	}
 	if len(entries) == 0 {
 		return nil, ErrNoOffsets
@@ -143,13 +162,19 @@ func funcEntriesFromGoPclntab(f *elf.File, filter symFilter, logger log.Logger) 
 		return nil, errors.New("no functions found in .gopclntab")
 	}
 
-	var syms []elf.Symbol
+	var syms []funcSym
 	for _, fn := range table.Funcs {
-		sym := elf.Symbol{
-			Name:  fn.Name,
-			Value: fn.Entry,
-			Size:  fn.End - fn.Entry,
-			Info:  byte(elf.STT_FUNC),
+		// Go symbol names are plain text and never mangled, so they bypass
+		// the demangler: a name starting with _R or _Z would otherwise be
+		// misread as a Rust or C++ symbol.
+		sym := funcSym{
+			Symbol: elf.Symbol{
+				Name:  fn.Name,
+				Value: fn.Entry,
+				Size:  fn.End - fn.Entry,
+				Info:  byte(elf.STT_FUNC),
+			},
+			demangled: fn.Name,
 		}
 		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
@@ -205,9 +230,10 @@ func newSymFilter(include, exclude string, bindInclude, bindExclude []elf.SymBin
 }
 
 // shouldInclude reports whether sym passes the filters. Binding filters run
-// first, then the exclude pattern, then the include pattern. Exclude wins
-// over include.
-func (f symFilter) shouldInclude(sym elf.Symbol) bool {
+// first. A name pattern matches when it matches the raw or the demangled
+// name, so "^app::net::" selects a C++ namespace while "^_ZN3app" keeps
+// working. Exclude wins over include.
+func (f symFilter) shouldInclude(sym funcSym) bool {
 	for _, b := range f.bindExclude {
 		if elf.ST_BIND(sym.Info) == b {
 			return false
@@ -221,13 +247,18 @@ func (f symFilter) shouldInclude(sym elf.Symbol) bool {
 		}
 		return false
 	}
-	if f.exclude != nil && f.exclude.MatchString(sym.Name) {
+	if f.exclude != nil && matchesName(f.exclude, sym) {
 		return false
 	}
 	if f.include != nil {
-		return f.include.MatchString(sym.Name)
+		return matchesName(f.include, sym)
 	}
 	return true
+}
+
+// matchesName reports whether re matches the raw or the demangled name of sym.
+func matchesName(re *regexp.Regexp, sym funcSym) bool {
+	return re.MatchString(sym.Name) || (sym.demangled != sym.Name && re.MatchString(sym.demangled))
 }
 
 // RecoveryResolver returns a FunctionResolver backed by binary analysis via resurgo.
@@ -268,9 +299,11 @@ func RecoveryResolver(path string, logger log.Logger) FunctionResolver {
 				logger.Debug().Uint64("addr", c.Address).Err(err).Msg("skipping candidate")
 				continue
 			}
+			name := fmt.Sprintf("func_0x%x", c.Address)
 			entries = append(entries, FunctionEntry{
-				Name:   fmt.Sprintf("func_0x%x", c.Address),
-				Offset: offset,
+				Name:      name,
+				Demangled: name,
+				Offset:    offset,
 			})
 		}
 		if len(entries) == 0 {

@@ -10,6 +10,10 @@ type CoverageReport struct {
 	FuncsAck    []string `json:"funcs_ack"`
 	CovByFunc   float64  `json:"cov_by_func"`
 	ExePath     string   `json:"exe_path"`
+	// Symbols maps a raw name from FuncsTraced or FuncsAck to its demangled
+	// C++ or Rust form. Only names that differ are listed, so the field is
+	// absent for Go and C binaries.
+	Symbols map[string]string `json:"symbols,omitempty"`
 }
 
 type CoverageReportOption func(*CoverageReport)
@@ -44,6 +48,12 @@ func WithReportFuncsCov(cov float64) CoverageReportOption {
 func WithReportExePath(exePath string) CoverageReportOption {
 	return func(o *CoverageReport) {
 		o.ExePath = exePath
+	}
+}
+
+func WithReportSymbols(symbols map[string]string) CoverageReportOption {
+	return func(o *CoverageReport) {
+		o.Symbols = symbols
 	}
 }
 

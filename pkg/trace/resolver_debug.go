@@ -96,8 +96,8 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 // (e.g. printf) appear in .symtab as STT_FUNC with SHN_UNDEF and Value==0; on a
 // PIE the first PT_LOAD has Vaddr 0, so VA 0 maps to file offset 0 (the ELF
 // header) instead of being rejected, which would attach a bogus probe.
-func definedFuncs(syms []elf.Symbol) []elf.Symbol {
-	out := make([]elf.Symbol, 0, len(syms))
+func definedFuncs(syms []funcSym) []funcSym {
+	out := make([]funcSym, 0, len(syms))
 	for _, s := range syms {
 		if s.Section == elf.SHN_UNDEF || s.Value == 0 {
 			continue
@@ -139,7 +139,7 @@ type dwarfSubprogram struct {
 //     these forms to raw offsets but never loads the supplementary file, so
 //     such names resolve empty and are skipped. Common on Fedora/Debian
 //     debuginfod, which dwz-process their debug files.
-func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.Symbol, error) {
+func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]funcSym, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, errors.Wrap(err, "no DWARF info")
@@ -198,7 +198,7 @@ func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.
 		return ""
 	}
 
-	var syms []elf.Symbol
+	var syms []funcSym
 	r = d.Reader()
 	for {
 		entry, err := r.Next()
@@ -232,7 +232,7 @@ func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.
 		if name == "" {
 			continue
 		}
-		sym := elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)}
+		sym := newFuncSym(elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)})
 		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}

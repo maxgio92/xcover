@@ -61,4 +61,30 @@ func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 	require.True(t, strings.Contains(output, "main.foo"))
 	require.True(t, strings.Contains(output, "cov_by_func"))
 	require.True(t, strings.Contains(output, "exe_path"))
+	require.False(t, strings.Contains(output, "symbols"), "symbols must be omitted when no name was demangled")
+}
+
+// TestWriteReportSymbols checks that the symbols map round-trips and that an
+// empty map is omitted from the JSON so Go and C reports keep their schema.
+func TestWriteReportSymbols(t *testing.T) {
+	symbols := map[string]string{"_ZN3app3net5parseEi": "app::net::parse(int)"}
+	report := coverage.NewCoverageReport(
+		coverage.WithReportFuncsTraced([]string{"_ZN3app3net5parseEi", "main"}),
+		coverage.WithReportFuncsAck([]string{"_ZN3app3net5parseEi"}),
+		coverage.WithReportSymbols(symbols),
+	)
+
+	var buf bytes.Buffer
+	require.NoError(t, report.WriteReport(&buf))
+
+	var parsed map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &parsed))
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(parsed["symbols"], &got))
+	require.Equal(t, symbols, got)
+
+	buf.Reset()
+	empty := coverage.NewCoverageReport(coverage.WithReportSymbols(map[string]string{}))
+	require.NoError(t, empty.WriteReport(&buf))
+	require.NotContains(t, buf.String(), "symbols")
 }

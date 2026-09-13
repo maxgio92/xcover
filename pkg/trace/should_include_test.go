@@ -2,6 +2,7 @@ package trace
 
 import (
 	"debug/elf"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -81,7 +82,8 @@ func TestFilterFuncSyms(t *testing.T) {
 		{Name: "runtime.text", Info: funcInfo, Section: 1, Value: 0x1000, Size: 0},
 		{Name: "runtime.text.1", Info: funcInfo, Section: 1, Value: 0x2800, Size: 0},
 		{Name: "runtime.etext", Info: funcInfo, Section: 1, Value: textEnd - 1, Size: 0},
-		// GOFIPS140 builds emit 1-byte padding symbols around the FIPS module.
+		// The linker emits 1-byte padding symbols around the crypto FIPS module
+		// on every ELF target, regardless of GOFIPS140.
 		{Name: "go:textfipsstart", Info: funcInfo, Section: 1, Value: 0x2b00, Size: 1},
 		{Name: "go:textfipsend", Info: funcInfo, Section: 1, Value: 0x2c00, Size: 1},
 		// A sized function whose name only resembles a marker is not one.
@@ -128,5 +130,26 @@ func TestSymbolTableResolver_InvalidPattern(t *testing.T) {
 			_, err = SeparateDebugResolver("/nonexistent-binary-path", "/nonexistent-debug-path", log.Nop(), patterns[0], patterns[1], nil, nil, false)(t.Context())
 			require.True(t, errors.Is(err, ErrInvalidPattern), "got %v", err)
 		})
+	}
+}
+
+// TestFuncEntriesFromGoPclntab_DropsGoTextMarkers covers the .gopclntab
+// fallback: the go1.24 fixture's table lists go:textfipsstart (with the size
+// gosym derives from the next entry) and go:textfipsend, neither of which may
+// become a probe target.
+func TestFuncEntriesFromGoPclntab_DropsGoTextMarkers(t *testing.T) {
+	f, err := elf.Open("testdata/gotest")
+	require.NoError(t, err)
+	defer f.Close()
+
+	entries, err := funcEntriesFromGoPclntab(f, mustSymFilter(t, "", "", nil, nil), log.Nop())
+	require.NoError(t, err)
+	require.NotEmpty(t, entries)
+
+	for _, e := range entries {
+		require.False(t, strings.HasPrefix(e.Name, "go:textfips"), "pclntab path leaked %q", e.Name)
+		// runtime.text and friends never appear in pclntab (the linker emits
+		// them outside the func table), so this guard is defensive only.
+		require.False(t, goTextMarkerRe.MatchString(e.Name), "pclntab path leaked %q", e.Name)
 	}
 }

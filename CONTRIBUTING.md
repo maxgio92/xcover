@@ -86,7 +86,8 @@ set by the Makefile and the embedded BPF object.
 
 `make test-e2e` runs `go test -count=1 -tags e2e ./e2e` as the current user
 with `XCOVER_E2E_BIN` pointing at `./xcover`. It does not escalate
-privileges, so as a normal user the tests skip when BPF loading is denied.
+privileges. As a normal user the harness notices it is not root and skips
+before it starts xcover, or fails when `XCOVER_E2E_REQUIRE=1` is set.
 Either run the whole target as root, or do what the CI `e2e` job does:
 compile the test binary as your user and run only that binary under `sudo`,
 so `go` and its cache stay yours:
@@ -98,9 +99,16 @@ sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
 sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v -test.count=1
 ```
 
-The e2e harness skips, rather than fails, when `XCOVER_E2E_BIN` is unset, when
-stale `/tmp/xcover.*` files exist, when `/tmp/xcover.log` is not writable, or
-when BPF loading is denied. A green run without root therefore proves little;
+The e2e harness skips when `XCOVER_E2E_BIN` is unset, when stale
+`/tmp/xcover.*` files exist, or when it is not running as root. Set
+`XCOVER_E2E_REQUIRE=1` to turn those skips into failures, as CI does:
+
+```shell
+sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v
+```
+
+Any xcover error past the preconditions, including a denied BPF load, fails
+the test. A green run without root and without the variable proves little;
 check for `SKIP` lines.
 
 Limit any Go target to a package with `TEST_PATH`, for example
@@ -108,7 +116,8 @@ Limit any Go target to a package with `TEST_PATH`, for example
 
 ## Lint
 
-CI runs `gofmt -l .` and `go mod verify`. Run `gofmt -w .` before pushing.
+CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,
+`integration` and `docs` build tags. Run `gofmt -w .` before pushing.
 
 ## Documentation
 
@@ -127,7 +136,7 @@ touch it. When you add a page, link it from [docs/README.md](docs/README.md),
 which is the index by reader intent.
 
 The generator does not delete pages for removed commands; delete them by hand.
-CI does not yet check that generated docs are current.
+CI runs `make docs` and fails when the generated files differ from the commit.
 
 ## Commit and pull request conventions
 

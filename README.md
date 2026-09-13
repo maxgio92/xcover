@@ -343,7 +343,9 @@ latency benchmarks.
   with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
 - **Linux only, kernel 6.6 or a backport.** `uprobe_multi` landed upstream in
-  6.6; some distribution kernels backport it. Without it the attach fails.
+  6.6; some distribution kernels backport it. Without it the attach fails;
+  xcover logs a warning, still reports ready and writes 0% coverage rather
+  than aborting.
 - **Project scope is Go only.** For other binaries and single-file Go builds
   xcover logs `project scope unavailable, falling back to binary scope` and
   traces everything. In `--detach` mode the warning is only in

@@ -335,12 +335,8 @@ func (t *UserTracer) buildReport() *coverage.CoverageReport {
 		functions = append(functions, coverage.FunctionCoverage{Name: fn.name, Offset: fn.offset, Hit: hit})
 	}
 	sort.Strings(traced)
-	sort.Slice(functions, func(i, j int) bool {
-		if functions[i].Offset != functions[j].Offset {
-			return functions[i].Offset < functions[j].Offset
-		}
-		return functions[i].Name < functions[j].Name
-	})
+	// Offsets are unique: funcs is keyed by offset, so no tie-break is needed.
+	sort.Slice(functions, func(i, j int) bool { return functions[i].Offset < functions[j].Offset })
 
 	ack := make([]string, 0, len(functions))
 	t.ack.Range(func(k, v interface{}) bool {

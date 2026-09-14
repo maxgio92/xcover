@@ -5,11 +5,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	log "github.com/rs/zerolog"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
@@ -99,8 +101,7 @@ func TestOptionsSetup(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// Truncates to pid_t -1, which kill(2) accepts and libbpf reads
-			// as every process.
+			// Truncates to pid_t -1, which libbpf reads as every process.
 			name:    "pid 1<<32-1 is rejected",
 			scope:   string(trace.ScopeBinary),
 			pid:     1<<32 - 1,
@@ -153,6 +154,39 @@ func TestOptionsSetup(t *testing.T) {
 			require.Equal(t, tt.wantScope, scope)
 		})
 	}
+}
+
+// TestValidatePIDThread proves the pre-check rejects a non-leader thread id:
+// the kernel resolves the uprobe_multi pid as a thread group, so kill(2)
+// accepting a tid would only defer the ESRCH to the daemon log.
+func TestValidatePIDThread(t *testing.T) {
+	// Pin the test to its thread and lock a helper goroutine to another one;
+	// both stay locked and alive until the check has run. Either thread may
+	// be the thread-group leader, so pick whichever is not.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	self := unix.Gettid()
+
+	tid := make(chan int)
+	done := make(chan struct{})
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		tid <- unix.Gettid()
+		<-done
+	}()
+	defer close(done)
+
+	id := <-tid
+	require.NotEqual(t, self, id, "helper goroutine must run on a different thread")
+	if id == os.Getpid() {
+		id = self
+	}
+
+	err := validatePID(id, false)
+	require.ErrorContains(t, err, "not a process (thread-group leader) PID")
+	require.NoError(t, validatePID(os.Getpid(), false))
+	require.ErrorContains(t, validatePID(1<<22+1, false), "no such process")
 }
 
 func TestOptionsBuildTracer(t *testing.T) {

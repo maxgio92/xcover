@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/bpftime"
@@ -129,16 +130,19 @@ func (o *Options) setup() (trace.Scope, error) {
 }
 
 // validatePID checks the --pid flag. libbpf maps 0 to xcover's own PID and
-// the kernel rejects other negative values, so only -1 (all processes) or a
-// real PID make sense. The value is passed to libbpf as a C int, so anything
-// above MaxInt32 would be truncated: 4294967295 becomes -1 and silently traces
+// treats any negative pid as unfiltered, so a stray negative value would
+// silently trace every process; only -1 (all processes) or a real PID are
+// accepted. The value is passed to libbpf as a C int, so anything above
+// MaxInt32 would be truncated: 4294967295 becomes -1 and silently traces
 // every process while the report records the bogus PID. A PID that does not
 // exist is rejected here so the error reaches the user before daemonizing;
 // the kernel would otherwise refuse the uprobe_multi link with ESRCH during
-// attach. Signal 0 checks existence without delivering anything; EPERM means
-// the process exists but is owned by someone else, which is still a valid
-// target. An unreaped zombie also passes, so the check proves existence, not
-// liveness, and it is inherently racy.
+// attach. pidfd_open(2) (Linux 5.3+) succeeds only for a thread-group leader,
+// matching the kernel's uprobe_multi lookup, and needs no signal permission,
+// so a process owned by someone else is still accepted. A non-leader thread
+// id fails with EINVAL before Linux 6.16 and ENOENT since. An unreaped zombie
+// also passes, so the check proves existence, not liveness, and it is
+// inherently racy.
 //
 // bpftime stores the uprobe pid but never compares it when hooking, so under
 // --userspace-bpf a positive --pid would silently record hits from every
@@ -156,9 +160,17 @@ func validatePID(pid int, userspaceBPF bool) error {
 	if userspaceBPF {
 		return errors.New("--pid is not enforced by bpftime; drop --pid or run without --userspace-bpf")
 	}
-	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
-		return errors.Wrapf(err, "--pid %d: no such process", pid)
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		switch {
+		case errors.Is(err, unix.ESRCH):
+			return errors.Wrapf(err, "--pid %d: no such process", pid)
+		case errors.Is(err, unix.EINVAL), errors.Is(err, unix.ENOENT):
+			return errors.Wrapf(err, "--pid %d: not a process (thread-group leader) PID", pid)
+		}
+		return errors.Wrapf(err, "--pid %d: pidfd_open failed", pid)
 	}
+	_ = unix.Close(fd)
 	return nil
 }
 

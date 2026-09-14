@@ -79,3 +79,8 @@ func TestHandleEvent_UnknownCookie(t *testing.T) {
 	_, ok := tracer.ack.Load(cookie(2))
 	require.True(t, ok)
 }
+
+func TestWithTracerPID(t *testing.T) {
+	require.Equal(t, -1, NewUserTracer().pid, "default must trace every process")
+	require.Equal(t, 1234, NewUserTracer(WithTracerPID(1234)).pid)
+}

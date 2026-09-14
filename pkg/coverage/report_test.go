@@ -62,3 +62,27 @@ func TestWriteReportToBufferContainsExpectedFields(t *testing.T) {
 	require.True(t, strings.Contains(output, "cov_by_func"))
 	require.True(t, strings.Contains(output, "exe_path"))
 }
+
+func TestWithReportPID(t *testing.T) {
+	tests := []struct {
+		name    string
+		pid     int
+		wantPID int
+		wantKey bool
+	}{
+		{name: "positive pid is recorded", pid: 1234, wantPID: 1234, wantKey: true},
+		{name: "all processes leaves pid unset", pid: -1},
+		{name: "zero leaves pid unset", pid: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := coverage.NewCoverageReport(coverage.WithReportPID(tt.pid))
+			require.Equal(t, tt.wantPID, report.PID)
+
+			var buf bytes.Buffer
+			require.NoError(t, report.WriteReport(&buf))
+			require.Equal(t, tt.wantKey, strings.Contains(buf.String(), `"pid"`))
+		})
+	}
+}

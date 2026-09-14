@@ -41,6 +41,10 @@ type Probe struct {
 	userspaceBPF bool
 	funcCount    int
 
+	// pid restricts uprobe attachment to one process (thread group); -1
+	// traces every process executing the target binary.
+	pid int
+
 	logger log.Logger
 }
 
@@ -92,8 +96,16 @@ func resizeSeenFuncs(seenFuncs *bpf.BPFMap, funcCount int) error {
 	return nil
 }
 
+// WithPID restricts the uprobes to the given process. The default of -1
+// traces every process that executes the target binary.
+func WithPID(pid int) Option {
+	return func(p *Probe) {
+		p.pid = pid
+	}
+}
+
 func NewProbe(opts ...Option) *Probe {
-	p := new(Probe)
+	p := &Probe{pid: -1}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -217,7 +229,13 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 		return p.attachSingleUprobes(exePath, offsets, cookies)
 	}
 
-	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
+	// Kernels without commit 46ba0e49b642 (before 6.6.35 and 6.9.5) filter
+	// pid by thread instead of thread group. libbpf's USDT auto-attach
+	// detects the fixed kernel with a link_create probe (pid -1 on path "/":
+	// EINVAL fixed, EBADF broken); the explicit attach used here does not
+	// consult it and xcover does not replicate it because those kernels are
+	// rare.
+	link, err := p.bpfProg.AttachUprobeMulti(p.pid, exePath, offsets, cookies)
 	if err != nil {
 		if len(cookies) > 0 {
 			return errors.Wrapf(err, "error attaching uprobe_multi link for %d functions (first cookie 0x%x)", len(cookies), cookies[0])
@@ -306,7 +324,7 @@ func (p *Probe) CloseBPFMod() {
 func (p *Probe) attachSingleUprobes(exePath string, offsets, cookies []uint64) error {
 	for i, offset := range offsets {
 		cookie := cookies[i]
-		link, err := p.bpfProg.AttachUprobeWithOpts(-1, exePath, offset, cookie)
+		link, err := p.bpfProg.AttachUprobeWithOpts(p.pid, exePath, offset, cookie)
 		if err != nil {
 			return fmt.Errorf("attach uprobe at offset 0x%x cookie 0x%x: %w", offset, cookie, err)
 		}

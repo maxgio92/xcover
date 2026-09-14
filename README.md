@@ -156,9 +156,12 @@ Non-Go binaries always use binary scope.
 xcover run --path EXE_PATH --pid PID
 ```
 
-`--pid` restricts tracing to one process. The process must be running when the
-probes attach, otherwise the run fails before readiness is signalled. Without
-`--pid`, every process that executes the binary counts toward coverage.
+`--pid` restricts tracing to one process. The value is a process (thread-group
+leader) PID as seen in xcover's own PID namespace, so a container-local PID
+handed to a host xcover selects a different process. The process must be
+running when the probes attach, otherwise the run fails before readiness is
+signalled. Without `--pid`, every process that executes the binary counts
+toward coverage.
 
 The kernel `uprobe_multi` filter matches the thread group, so every thread of
 the process is traced on fixed kernels. Linux 6.6 to 6.9 without the backport of

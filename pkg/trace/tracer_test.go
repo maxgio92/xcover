@@ -28,7 +28,7 @@ func TestHandleEvent_Verbose(t *testing.T) {
 		WithTraceeExePath("testdata/gotest"),
 		WithTraceeSymPatternExclude(testExcludedSyms),
 	)
-	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction"}}
+	tracee.funcs = map[cookie]funcInfo{1: {name: "main.fooFunction", demangled: "main.fooFunction"}}
 	err := tracee.Init(t.Context())
 	require.NoError(t, err)
 
@@ -253,4 +253,66 @@ func TestWriteReport_Disabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.json")
 	require.NoError(t, tracer.writeReport(path))
 	require.NoFileExists(t, path)
+}
+
+// cppFuncs is a function map as Init would build it from a C++ binary: one
+// mangled symbol with a distinct demangled form and one plain C symbol.
+var cppFuncs = map[cookie]funcInfo{
+	1: {name: "_ZN3app3net5parseEi", demangled: "app::net::parse(int)", offset: 1},
+	2: {name: "c_entry", demangled: "c_entry", offset: 2},
+}
+
+// TestHandleEvent_VerbosePrintsDemangled checks that verbose output shows the
+// demangled name while the raw name stays out of it.
+func TestHandleEvent_VerbosePrintsDemangled(t *testing.T) {
+	var buf bytes.Buffer
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = cppFuncs
+	tracer := NewUserTracer(
+		WithTracerVerbose(true),
+		WithTracerWriter(&buf),
+		WithTracerTracee(tracee),
+	)
+
+	tracer.handleEvent(encodeEvent(t, 1))
+	tracer.handleEvent(encodeEvent(t, 2))
+
+	require.Equal(t, "app::net::parse(int)\nc_entry\n", buf.String())
+}
+
+// TestWriteReport_Demangled checks that funcs_traced, funcs_ack and name keep
+// the raw symbol names and that a function entry carries demangled only when
+// it differs from name.
+func TestWriteReport_Demangled(t *testing.T) {
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = cppFuncs
+	tracer := NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
+	tracer.handleEvent(encodeEvent(t, 1))
+
+	path := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, tracer.writeReport(path))
+	report := readReport(t, path)
+
+	require.Equal(t, []string{"_ZN3app3net5parseEi", "c_entry"}, report.FuncsTraced)
+	require.Equal(t, []string{"_ZN3app3net5parseEi"}, report.FuncsAck)
+	require.Equal(t, []coverage.FunctionCoverage{
+		{Name: "_ZN3app3net5parseEi", Demangled: "app::net::parse(int)", Offset: 1, Hit: true},
+		{Name: "c_entry", Offset: 2, Hit: false},
+	}, report.Functions)
+}
+
+// TestWriteReport_NoDemangledForGo checks that a Go-only function set writes
+// no demangled key at all, keeping the report shape unchanged for Go users.
+func TestWriteReport_NoDemangledForGo(t *testing.T) {
+	tracee := NewUserTracee(WithTraceeExePath("dummy-path"))
+	tracee.funcs = map[cookie]funcInfo{1: {name: "main.foo", demangled: "main.foo", offset: 1}}
+	tracer := NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
+
+	path := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, tracer.writeReport(path))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"functions"`)
+	require.NotContains(t, string(raw), `"demangled"`)
 }

@@ -78,10 +78,14 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
 		// funcSymsFromELF already drops undefined and zero-address symbols.
-		syms, err := funcSymsFromELF(dbg, filter)
+		syms, err := funcSymsFromELF(ctx, dbg, filter)
 		if err == nil && len(syms) > 0 {
 			logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
 			return funcEntriesFromSymbols(syms, toOffset, logger)
+		}
+		// A cancelled run stops here; it must not continue into the DWARF fallback.
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
 		// Fallback: DWARF subprograms. Best-effort; see funcSymsFromDWARF.
@@ -134,7 +138,7 @@ type dwarfSubprogram struct {
 //     these forms to raw offsets but never loads the supplementary file, so
 //     such names resolve empty and are skipped. Common on Fedora/Debian
 //     debuginfod, which dwz-process their debug files.
-func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.Symbol, error) {
+func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]funcSym, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, errors.Wrap(err, "no DWARF info")
@@ -191,7 +195,7 @@ func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.
 		return ""
 	}
 
-	var syms []elf.Symbol
+	var syms []funcSym
 	r = d.Reader()
 	for {
 		entry, err := r.Next()
@@ -225,7 +229,7 @@ func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.
 		if name == "" {
 			continue
 		}
-		sym := elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)}
+		sym := newFuncSym(elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)})
 		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}

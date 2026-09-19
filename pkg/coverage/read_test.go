@@ -1,6 +1,7 @@
 package coverage_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -185,4 +186,14 @@ func TestReadReportRoundTrip(t *testing.T) {
 		}),
 	)
 	require.Equal(t, want, report)
+}
+
+// TestReadReport_Demangled pins that the optional demangled name survives the
+// strict function decoder, which rebuilds each entry field by field.
+func TestReadReport_Demangled(t *testing.T) {
+	doc := `{"schema_version":` + strconv.Itoa(coverage.SchemaVersion) + `,"funcs_traced":["_ZN3app3barEv"],"funcs_ack":[],"cov_by_func":0,` +
+		`"functions":[{"name":"_ZN3app3barEv","demangled":"app::bar()","offset":16,"hit":false}]}`
+	report, err := coverage.ReadReport(strings.NewReader(doc))
+	require.NoError(t, err)
+	require.Equal(t, "app::bar()", report.Functions[0].Demangled)
 }

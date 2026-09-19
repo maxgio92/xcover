@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"context"
 	"debug/elf"
 	"strings"
 	"testing"
@@ -22,14 +23,14 @@ func TestShouldInclude(t *testing.T) {
 		Name: "main.fooFunction",
 		Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC),
 	}
-	require.True(t, mustSymFilter(t, "^main.fooFunction$", "", nil, nil).shouldInclude(fooSym))
+	require.True(t, mustSymFilter(t, "^main.fooFunction$", "", nil, nil).shouldInclude(newFuncSym(fooSym)))
 
 	runtimeSym := elf.Symbol{
 		Name: "runtime.sched",
 		Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC),
 	}
-	require.True(t, mustSymFilter(t, "", "", nil, nil).shouldInclude(runtimeSym))
-	require.False(t, mustSymFilter(t, "", "^runtime.", nil, nil).shouldInclude(runtimeSym))
+	require.True(t, mustSymFilter(t, "", "", nil, nil).shouldInclude(newFuncSym(runtimeSym)))
+	require.False(t, mustSymFilter(t, "", "^runtime.", nil, nil).shouldInclude(newFuncSym(runtimeSym)))
 }
 
 // TestShouldInclude_Precedence pins the filter order: bind filters win over
@@ -39,14 +40,14 @@ func TestShouldInclude_Precedence(t *testing.T) {
 	local := elf.Symbol{Name: "main.foo", Info: elf.ST_INFO(elf.STB_LOCAL, elf.STT_FUNC)}
 
 	// exclude before include: a name matching both is excluded.
-	require.False(t, mustSymFilter(t, "^main", "foo$", nil, nil).shouldInclude(global))
+	require.False(t, mustSymFilter(t, "^main", "foo$", nil, nil).shouldInclude(newFuncSym(global)))
 
 	// bindExclude wins regardless of name patterns.
-	require.False(t, mustSymFilter(t, "^main", "", nil, []elf.SymBind{elf.STB_LOCAL}).shouldInclude(local))
+	require.False(t, mustSymFilter(t, "^main", "", nil, []elf.SymBind{elf.STB_LOCAL}).shouldInclude(newFuncSym(local)))
 
 	// bindInclude short-circuits the name patterns, in both directions.
-	require.True(t, mustSymFilter(t, "", "^main", []elf.SymBind{elf.STB_GLOBAL}, nil).shouldInclude(global))
-	require.False(t, mustSymFilter(t, "^main", "", []elf.SymBind{elf.STB_GLOBAL}, nil).shouldInclude(local))
+	require.True(t, mustSymFilter(t, "", "^main", []elf.SymBind{elf.STB_GLOBAL}, nil).shouldInclude(newFuncSym(global)))
+	require.False(t, mustSymFilter(t, "^main", "", []elf.SymBind{elf.STB_GLOBAL}, nil).shouldInclude(newFuncSym(local)))
 }
 
 func TestNewSymFilter_InvalidPattern(t *testing.T) {
@@ -99,7 +100,8 @@ func TestFilterFuncSyms(t *testing.T) {
 	}
 	kept := []string{"main.main", "runtime.textOff", "runtime.text.x", "asm_no_size", "tail_func", "sized_at_text_end", "fini_zero_size"}
 
-	got := filterFuncSyms(syms, mustSymFilter(t, "", "", nil, nil))
+	got, err := filterFuncSyms(t.Context(), syms, mustSymFilter(t, "", "", nil, nil))
+	require.NoError(t, err)
 
 	var names []string
 	for _, s := range got {
@@ -108,9 +110,25 @@ func TestFilterFuncSyms(t *testing.T) {
 	require.ElementsMatch(t, kept, names)
 
 	// Name patterns are applied after the structural checks.
-	got = filterFuncSyms(syms, mustSymFilter(t, "^main", "", nil, nil))
+	got, err = filterFuncSyms(t.Context(), syms, mustSymFilter(t, "^main", "", nil, nil))
+	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "main.main", got[0].Name)
+}
+
+// TestFilterFuncSyms_Cancelled checks that a cancelled context stops the
+// symbol pass with ctx.Err() instead of demangling the whole table.
+func TestFilterFuncSyms_Cancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	syms := []elf.Symbol{
+		{Name: "main.main", Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC), Section: 1, Value: 0x1000, Size: 0x20},
+	}
+
+	got, err := filterFuncSyms(ctx, syms, mustSymFilter(t, "", "", nil, nil))
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, got)
 }
 
 func TestSymbolTableResolver_InvalidPattern(t *testing.T) {
@@ -152,4 +170,44 @@ func TestFuncEntriesFromGoPclntab_DropsGoTextMarkers(t *testing.T) {
 		// them outside the func table), so this guard is defensive only.
 		require.False(t, goTextMarkerRe.MatchString(e.Name), "pclntab path leaked %q", e.Name)
 	}
+}
+
+func globalFunc(name string) funcSym {
+	return newFuncSym(elf.Symbol{
+		Name: name,
+		Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC),
+	})
+}
+
+// TestShouldInclude_Demangled checks that name patterns match the demangled
+// C++ name as well as the raw one, and that exclude still wins.
+func TestShouldInclude_Demangled(t *testing.T) {
+	parseInt := globalFunc("_ZN3app3net5parseEi")
+	parseStr := globalFunc("_ZN3app3net5parseEPKc")
+	connOpen := globalFunc("_ZN3app3net4Conn4openEv")
+	cEntry := globalFunc("c_entry")
+	helper := globalFunc("_ZL13helper_statici")
+
+	ns := mustSymFilter(t, "^app::net::", "", nil, nil)
+	for _, sym := range []funcSym{parseInt, parseStr, connOpen} {
+		require.Truef(t, ns.shouldInclude(sym), "%s should match the namespace", sym.Name)
+	}
+	for _, sym := range []funcSym{cEntry, helper} {
+		require.Falsef(t, ns.shouldInclude(sym), "%s should not match the namespace", sym.Name)
+	}
+
+	// The raw mangled prefix keeps working.
+	require.True(t, mustSymFilter(t, "^_ZN3app", "", nil, nil).shouldInclude(parseInt))
+
+	// A template instantiation demangles with its return type first, as with
+	// c++filt, so the anchored namespace misses it and the unanchored one hits.
+	twice := globalFunc("_ZN3app3net5twiceIdEET_S2_")
+	require.False(t, ns.shouldInclude(twice))
+	require.True(t, mustSymFilter(t, "app::net::twice", "", nil, nil).shouldInclude(twice))
+
+	// Exclude on the demangled name drops both overloads and wins over include.
+	noParse := mustSymFilter(t, "^app::net::", `parse\(`, nil, nil)
+	require.False(t, noParse.shouldInclude(parseInt))
+	require.False(t, noParse.shouldInclude(parseStr))
+	require.True(t, noParse.shouldInclude(connOpen))
 }

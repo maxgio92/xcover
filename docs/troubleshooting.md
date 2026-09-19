@@ -150,7 +150,19 @@ filtered out gives `no functions found for module "..."` instead.
 
 **Fix.** Check the patterns against `nm --defined-only ./app | grep ' T '` or
 `go tool nm ./app`. Patterns are Go (RE2) regular expressions matched against
-the full symbol name, for example `^github.com/org/app/`.
+the full symbol name, for example `^github.com/org/app/`. For C++ binaries a
+pattern also matches the demangled name shown by `nm -C`, for example
+`^app::net::`; template instantiations start with their return type, so leave
+such a pattern unanchored, or anchor on the raw name (`^_ZN[KVRO]*3app3net`)
+to keep functions from other namespaces out. Rust binaries match their
+demangled name too, as `nm -C` shows it; `c++filt` additionally prints the
+legacy hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate disambiguator
+(`[3c1c0]`), so leave both out of the pattern. v0 names wrap the type a
+method belongs to in angle brackets (`<mycrate::net::Conn>::open`,
+`<mycrate::net::Conn>::open::{closure#0}`), so `^mycrate::` matches free
+functions and their closures but not methods; write `^<?mycrate::` to catch
+methods too. A trait impl for a foreign type renders as
+`<i32 as mycrate::net::MyTrait>::run` and needs the unanchored `mycrate::`.
 
 ## `cannot verify the debug file belongs to the executable` and other build-id errors
 
@@ -286,4 +298,5 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
 `--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with
-`funcs_ack` to see which functions never fired.
+`funcs_ack` to see which functions never fired; for C++ and Rust binaries each
+`functions[]` entry carries `demangled` when it differs from `name`.

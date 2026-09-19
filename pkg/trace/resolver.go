@@ -14,14 +14,31 @@ import (
 
 // FunctionEntry represents a function resolved from a binary, ready for uprobe attachment.
 type FunctionEntry struct {
-	Name   string
-	Offset uint64
+	// Name is the raw symbol name, the one written to the report.
+	Name string
+	// Demangled is the human-readable form of Name for C++ and Rust symbols
+	// and equals Name for everything else. Resolvers may leave it empty to
+	// mean "same as Name".
+	Demangled string
+	Offset    uint64
 }
 
 // FunctionResolver resolves the set of functions to trace from a binary.
 // It is self-contained: it owns its own I/O and closes any resources it opens.
 // ctx is checked between steps; cancellation aborts the resolution early.
 type FunctionResolver func(ctx context.Context) ([]FunctionEntry, error)
+
+// funcSym is an ELF function symbol paired with its demangled name. The name
+// is demangled once here and shared by the filters and the FunctionEntry
+// built from it.
+type funcSym struct {
+	elf.Symbol
+	demangled string
+}
+
+func newFuncSym(sym elf.Symbol) funcSym {
+	return funcSym{Symbol: sym, demangled: demangleName(sym.Name)}
+}
 
 // SymbolTableResolver returns a FunctionResolver backed by the ELF symbol table,
 // with a .gopclntab fallback for stripped Go binaries.
@@ -47,7 +64,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
-		syms, err := funcSymsFromELF(f, filter)
+		syms, err := funcSymsFromELF(ctx, f, filter)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
@@ -75,13 +92,13 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 }
 
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
+func funcSymsFromELF(ctx context.Context, f *elf.File, filter symFilter) ([]funcSym, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
 	}
 
-	return filterFuncSyms(syms, filter), nil
+	return filterFuncSyms(ctx, syms, filter)
 }
 
 // goTextMarkerRe matches the zero-size STT_FUNC symbols the Go linker emits to
@@ -91,7 +108,11 @@ func funcSymsFromELF(f *elf.File, filter symFilter) ([]elf.Symbol, error) {
 var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
 
 // filterFuncSyms keeps the STT_FUNC symbols that name code present in the file
-// and pass filter.
+// and pass filter, each paired with its demangled name. Demangling runs after
+// the structural checks, so undefined imports and linker markers never reach
+// the demangler. It still runs for every defined symbol before the name
+// filters and dominates resolution time on large symbol tables, so ctx is
+// checked once per symbol and a cancelled run returns ctx.Err() early.
 //
 // Undefined imports (e.g. puts@GLIBC_2.2.5: STT_FUNC, SHN_UNDEF, Value 0) are
 // dropped: on a PIE the first PT_LOAD has Vaddr 0, so Value 0 would map to file
@@ -99,9 +120,12 @@ var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
 // The Go linker's zero-size text markers are dropped by name. Every other
 // zero-size symbol is kept: some toolchains emit assembly functions with Size
 // 0, including ones at the very end of .text.
-func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
-	var out []elf.Symbol
+func filterFuncSyms(ctx context.Context, syms []elf.Symbol, filter symFilter) ([]funcSym, error) {
+	var out []funcSym
 	for _, sym := range syms {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
@@ -111,20 +135,22 @@ func filterFuncSyms(syms []elf.Symbol, filter symFilter) []elf.Symbol {
 		if isGoTextMarker(sym) {
 			continue
 		}
-		if !filter.shouldInclude(sym) {
+		fs := newFuncSym(sym)
+		if !filter.shouldInclude(fs) {
 			continue
 		}
-		out = append(out, sym)
+		out = append(out, fs)
 	}
-	return out
+	return out, nil
 }
 
-// isGoTextMarker reports whether sym is one of the Go linker's zero-size
-// text delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
-// go:textfipsstart and go:textfipsend that the linker emits around the crypto
-// FIPS module on every supported ELF target, whether or not GOFIPS140 is set
-// (cmd/link/internal/ld/fips140.go). The FIPS pair is matched
-// by name alone: gosym derives a function's size from the next entry, so the
+// isGoTextMarker reports whether sym is one of the Go linker's zero-size text
+// delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
+// go:textfipsstart and go:textfipsend. The linker emits that pair around the
+// crypto FIPS module whenever obj.EnableFIPS is true, which holds on every ELF
+// target and does not depend on GOFIPS140: default builds carry it too
+// (cmd/link/internal/ld/fips140.go, loadfips). The pair is matched by name
+// alone: gosym derives a function's size from the next entry, so the
 // .gopclntab path reports go:textfipsstart with a size larger than one.
 func isGoTextMarker(sym elf.Symbol) bool {
 	if sym.Name == "go:textfipsstart" || sym.Name == "go:textfipsend" {
@@ -141,7 +167,7 @@ func isDefinedFunc(sym elf.Symbol) bool {
 
 // funcEntriesFromSymbols converts a list of ELF function symbols to FunctionEntry values.
 // toOffset converts sym.Value (a virtual address) to the file offset required for uprobe attachment.
-func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, error), logger log.Logger) ([]FunctionEntry, error) {
+func funcEntriesFromSymbols(syms []funcSym, toOffset func(uint64) (uint64, error), logger log.Logger) ([]FunctionEntry, error) {
 	var entries []FunctionEntry
 	for _, sym := range syms {
 		offset, err := toOffset(sym.Value)
@@ -149,7 +175,7 @@ func funcEntriesFromSymbols(syms []elf.Symbol, toOffset func(uint64) (uint64, er
 			logger.Debug().Str("symbol", sym.Name).Err(err).Msg("failed to resolve file offset, skipping")
 			continue
 		}
-		entries = append(entries, FunctionEntry{Name: sym.Name, Offset: offset})
+		entries = append(entries, FunctionEntry{Name: sym.Name, Demangled: sym.demangled, Offset: offset})
 	}
 	if len(entries) == 0 {
 		return nil, ErrNoOffsets
@@ -188,15 +214,21 @@ func funcEntriesFromGoPclntab(f *elf.File, filter symFilter, logger log.Logger) 
 		return nil, errors.New("no functions found in .gopclntab")
 	}
 
-	var syms []elf.Symbol
+	var syms []funcSym
 	for _, fn := range table.Funcs {
-		sym := elf.Symbol{
-			Name:  fn.Name,
-			Value: fn.Entry,
-			Size:  fn.End - fn.Entry,
-			Info:  byte(elf.STT_FUNC),
+		// Go symbol names are plain text and never mangled, so they bypass
+		// the demangler: a name starting with _R or _Z would otherwise be
+		// misread as a Rust or C++ symbol.
+		sym := funcSym{
+			Symbol: elf.Symbol{
+				Name:  fn.Name,
+				Value: fn.Entry,
+				Size:  fn.End - fn.Entry,
+				Info:  byte(elf.STT_FUNC),
+			},
+			demangled: fn.Name,
 		}
-		if isGoTextMarker(sym) || !filter.shouldInclude(sym) {
+		if isGoTextMarker(sym.Symbol) || !filter.shouldInclude(sym) {
 			continue
 		}
 		syms = append(syms, sym)
@@ -261,8 +293,10 @@ func ValidateSymPatterns(include, exclude string) error {
 
 // shouldInclude reports whether sym passes the include/exclude filters.
 // Binding filters take precedence over name patterns, and exclude is checked
-// before include.
-func (f symFilter) shouldInclude(sym elf.Symbol) bool {
+// before include. A name pattern matches when it matches the raw or the
+// demangled name, so "^app::net::" selects a C++ namespace while "^_ZN3app"
+// keeps working.
+func (f symFilter) shouldInclude(sym funcSym) bool {
 	if f.bindExclude != nil {
 		for _, b := range f.bindExclude {
 			if elf.ST_BIND(sym.Info) == b {
@@ -278,13 +312,18 @@ func (f symFilter) shouldInclude(sym elf.Symbol) bool {
 		}
 		return false
 	}
-	if f.exclude != nil && f.exclude.MatchString(sym.Name) {
+	if f.exclude != nil && matchesName(f.exclude, sym) {
 		return false
 	}
 	if f.include != nil {
-		return f.include.MatchString(sym.Name)
+		return matchesName(f.include, sym)
 	}
 	return true
+}
+
+// matchesName reports whether re matches the raw or the demangled name of sym.
+func matchesName(re *regexp.Regexp, sym funcSym) bool {
+	return re.MatchString(sym.Name) || (sym.demangled != sym.Name && re.MatchString(sym.demangled))
 }
 
 // RecoveryResolver returns a FunctionResolver backed by binary analysis via resurgo.
@@ -325,9 +364,11 @@ func RecoveryResolver(path string, logger log.Logger) FunctionResolver {
 				logger.Debug().Uint64("addr", c.Address).Err(err).Msg("skipping candidate")
 				continue
 			}
+			name := fmt.Sprintf("func_0x%x", c.Address)
 			entries = append(entries, FunctionEntry{
-				Name:   fmt.Sprintf("func_0x%x", c.Address),
-				Offset: offset,
+				Name:      name,
+				Demangled: name,
+				Offset:    offset,
 			})
 		}
 		if len(entries) == 0 {

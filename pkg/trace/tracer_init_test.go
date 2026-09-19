@@ -3,6 +3,7 @@ package trace
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -36,6 +37,7 @@ func (f *countingProbe) PollEventBuf()                                     {}
 func (f *countingProbe) CloseEventBuf()                                    {}
 func (f *countingProbe) CloseBPFMod()                                      {}
 func (f *countingProbe) Drops() (uint64, error)                            { return 0, nil }
+func (f *countingProbe) CheckPIDFilter() error                             { return nil }
 
 // TestUserTracerInit_ProbeSizedAfterTracee asserts that Init resolves the
 // tracee functions before initializing the probe, so the seen_funcs map can be
@@ -139,6 +141,86 @@ func TestWarnDrops(t *testing.T) {
 			} else {
 				require.Empty(t, out.String())
 			}
+		})
+	}
+}
+
+// TestCheckPIDFilter asserts the kernel PID filter check runs only for an
+// active filter in kernel mode, warns about undercounting when the kernel
+// filters by thread or the check was inconclusive, and that the warning
+// repeats when warnPIDFilter runs again next to the report.
+func TestCheckPIDFilter(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		pid          int
+		userspaceBPF bool
+		probeErr     error
+		wantCalls    int
+		wantWarn     string
+	}{
+		{
+			name:     "no filter skips the check",
+			pid:      -1,
+			probeErr: probe.ErrPIDFilterByThread,
+		},
+		{
+			name:         "userspace BPF skips the check",
+			pid:          42,
+			userspaceBPF: true,
+			probeErr:     probe.ErrPIDFilterByThread,
+		},
+		{
+			name:      "thread group filter stays silent",
+			pid:       42,
+			wantCalls: 1,
+		},
+		{
+			name:      "thread filter warns about undercounting",
+			pid:       42,
+			probeErr:  probe.ErrPIDFilterByThread,
+			wantCalls: 1,
+			wantWarn:  "filters uprobe_multi by thread instead of thread group",
+		},
+		{
+			name:      "inconclusive check warns about undercounting",
+			pid:       42,
+			probeErr:  errors.New("link_create failed: operation not permitted"),
+			wantCalls: 1,
+			wantWarn:  "could not check whether the kernel filters uprobe_multi by thread group",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			p := &fakeProbe{pidFilterErr: tt.probeErr}
+			tracer := NewUserTracer(
+				WithTracerLogger(zerolog.New(&out)),
+				WithTracerProbe(p),
+				WithTracerPID(tt.pid),
+				WithTracerUserspaceBPF(tt.userspaceBPF),
+			)
+
+			tracer.checkPIDFilter()
+			require.Equal(t, tt.wantCalls, p.pidFilterCalls)
+			if tt.wantWarn == "" {
+				require.Empty(t, out.String())
+				return
+			}
+			assertPIDFilterWarning := func() {
+				t.Helper()
+				require.Contains(t, out.String(), `"level":"warn"`)
+				require.Contains(t, out.String(), `"pid":42`)
+				require.Contains(t, out.String(), `"kernel":"`)
+				require.Contains(t, out.String(), "undercount")
+				require.Contains(t, out.String(), "drop --pid")
+				require.Contains(t, out.String(), tt.wantWarn)
+			}
+			assertPIDFilterWarning()
+
+			// The recorded outcome repeats at report time without another probe call.
+			out.Reset()
+			tracer.warnPIDFilter()
+			require.Equal(t, tt.wantCalls, p.pidFilterCalls)
+			assertPIDFilterWarning()
 		})
 	}
 }

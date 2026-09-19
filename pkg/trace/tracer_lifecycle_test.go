@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/maxgio92/xcover/internal/utils"
+	"github.com/maxgio92/xcover/pkg/probe"
 )
 
 // fakeProbe satisfies Probe without a BPF-capable kernel. InitEventBuf hands
@@ -27,8 +29,11 @@ type fakeProbe struct {
 	events    chan []byte
 	onDetach  func()
 	drops     uint64
+	// pidFilterErr is what CheckPIDFilter returns.
+	pidFilterErr error
 
-	attachCalls int
+	attachCalls    int
+	pidFilterCalls int
 	// detachCalls counts DetachLinks calls made directly, not via CloseBPFMod.
 	detachCalls int
 	// reportAtDetach records whether the report file already existed when
@@ -49,6 +54,11 @@ func (p *fakeProbe) PollEventBuf()                                     {}
 func (p *fakeProbe) CloseEventBuf()                                    {}
 func (p *fakeProbe) CloseBPFMod()                                      { p.modClosed = true }
 func (p *fakeProbe) Drops() (uint64, error)                            { return p.drops, nil }
+
+func (p *fakeProbe) CheckPIDFilter() error {
+	p.pidFilterCalls++
+	return p.pidFilterErr
+}
 
 func (p *fakeProbe) DetachLinks() {
 	if p.detachCalls == 0 {
@@ -242,4 +252,36 @@ func TestDrainEvents_ObservesChannelEmptyBeforeReturn(t *testing.T) {
 
 	require.Equal(t, uint64(buffered), tracer.consumed)
 	require.Empty(t, events)
+}
+
+// TestRun_WarnsOnThreadPIDFilter pins the wiring of the PID filter check: Run
+// asks the probe once before attaching, and the warning reaches the log twice,
+// once before attach and once again before the report. Deleting either call
+// site leaves the helper tests green, so this is the regression guard for the
+// silent undercount the check exists to surface.
+func TestRun_WarnsOnThreadPIDFilter(t *testing.T) {
+	p := &fakeProbe{events: make(chan []byte, 1), pidFilterErr: probe.ErrPIDFilterByThread}
+	tracer, _ := newLifecycleTracer(t, p)
+	// The healthcheck listener logs from its own goroutine, so the buffer
+	// needs zerolog's SyncWriter.
+	var logs bytes.Buffer
+	WithTracerLogger(zerolog.New(zerolog.SyncWriter(&logs)))(tracer)
+	WithTracerPID(42)(tracer)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	require.NoError(t, tracer.Init(ctx))
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- tracer.Run(ctx) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+
+	require.Equal(t, 1, p.pidFilterCalls)
+	require.Equal(t, 2, strings.Count(logs.String(), "filters uprobe_multi by thread instead of thread group"),
+		"warning must be logged before attach and again before the report:\n%s", logs.String())
 }

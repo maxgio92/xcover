@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/internal/utils"
@@ -70,6 +71,11 @@ type Probe interface {
 	// Drops returns how many calls the BPF program could not record because
 	// the seen_funcs insert failed.
 	Drops() (uint64, error)
+	// CheckPIDFilter reports whether the kernel applies the uprobe_multi PID
+	// filter to the whole thread group: nil when it does,
+	// probe.ErrPIDFilterByThread when it matches one thread only, and another
+	// error when the check was inconclusive. It must run after Init.
+	CheckPIDFilter() error
 }
 
 type UserTracer struct {
@@ -81,6 +87,9 @@ type UserTracer struct {
 	ack sync.Map
 	// User functions being consumed.
 	consumed uint64
+	// pidFilterErr is the CheckPIDFilter outcome recorded at attach time, so
+	// the undercount warning repeats next to the report.
+	pidFilterErr error
 	// HealthCheck server.
 	hcServer *healthcheck.HealthCheckServer
 
@@ -89,7 +98,7 @@ type UserTracer struct {
 
 func NewUserTracer(opts ...UserTracerOpt) *UserTracer {
 	tracer := &UserTracer{
-		UserTracerOptions: &UserTracerOptions{},
+		UserTracerOptions: &UserTracerOptions{pid: -1},
 	}
 	for _, opt := range opts {
 		opt(tracer)
@@ -166,6 +175,7 @@ func (t *UserTracer) defaultProbe(funcCount int) Probe {
 	probeOpts := []probe.Option{
 		probe.WithLogger(t.logger),
 		probe.WithFuncCount(funcCount),
+		probe.WithPID(t.pid),
 	}
 	if t.userspaceBPF {
 		probeOpts = append(probeOpts, probe.WithUserspaceBPF())
@@ -191,6 +201,7 @@ func (t *UserTracer) Run(ctx context.Context) error {
 	// Attach one uprobe per function to trace. Fail before signalling
 	// readiness so `wait` never reports ready for a tracer with no probes.
 	t.logger.Debug().Msg("attaching trace to selected functions")
+	t.checkPIDFilter()
 	if err := t.attachProbe(ctx); err != nil {
 		return err
 	}
@@ -255,6 +266,7 @@ func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg
 	t.logger.Info().Msg("terminating...")
 
 	t.warnDrops()
+	t.warnPIDFilter()
 
 	return t.writeReport(ReportFileName)
 }
@@ -272,6 +284,44 @@ func (t *UserTracer) warnDrops() {
 		t.logger.Warn().Uint64("dropped", drops).
 			Msg("calls not recorded because the seen_funcs map rejected the insert; the report undercounts coverage, narrow the probe set with --scope or --exclude")
 	}
+}
+
+// checkPIDFilter asks the probe whether the kernel applies the --pid filter
+// to the whole thread group and warns when it does not, or when the check was
+// inconclusive. It runs only for an active filter in kernel mode: bpftime
+// never enforces the pid and the run command refuses that combination. The
+// outcome is kept so waitAndReport repeats the warning next to the report,
+// like the drop counter.
+func (t *UserTracer) checkPIDFilter() {
+	if t.pid <= 0 || t.userspaceBPF {
+		return
+	}
+	t.pidFilterErr = t.probe.CheckPIDFilter()
+	t.warnPIDFilter()
+}
+
+// warnPIDFilter warns that the report may undercount when checkPIDFilter
+// found a kernel that filters uprobe_multi by thread, or could not tell.
+func (t *UserTracer) warnPIDFilter() {
+	if t.pidFilterErr == nil {
+		return
+	}
+	ev := t.logger.Warn().Str("kernel", kernelRelease()).Int("pid", t.pid)
+	if errors.Is(t.pidFilterErr, probe.ErrPIDFilterByThread) {
+		ev.Msg("the kernel filters uprobe_multi by thread instead of thread group (missing commit 46ba0e49b642), so only hits from the main thread of the traced process are recorded; the report may undercount, use a kernel with the fix (6.6.35, 6.9.5, 6.10 or newer) or drop --pid")
+		return
+	}
+	ev.Err(t.pidFilterErr).Msg("could not check whether the kernel filters uprobe_multi by thread group; the report may undercount on a multithreaded target, use a kernel with commit 46ba0e49b642 (6.6.35, 6.9.5, 6.10 or newer) or drop --pid")
+}
+
+// kernelRelease returns the running kernel release from uname, or "unknown"
+// when uname fails.
+func kernelRelease() string {
+	var u unix.Utsname
+	if err := unix.Uname(&u); err != nil {
+		return "unknown"
+	}
+	return unix.ByteSliceToString(u.Release[:])
 }
 
 // attachProbe attaches the probe to every tracee function in uprobe_multi
@@ -423,6 +473,7 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
+		coverage.WithReportPID(t.pid),
 	)
 
 	file, err := os.Create(reportPath)

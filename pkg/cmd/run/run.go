@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"syscall"
@@ -9,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/preflight"
 	"github.com/maxgio92/xcover/internal/settings"
@@ -56,7 +58,7 @@ It supports programs compiled to ELF.
 	}
 
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
-	cmd.Flags().IntVar(&o.pid, "pid", -1, "Filter the process by PID")
+	cmd.Flags().IntVar(&o.pid, "pid", -1, "Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary)")
 
 	cmd.Flags().StringVar(&o.symExcludePattern, "exclude", "", "Regex pattern to exclude function symbol names")
 	cmd.Flags().StringVar(&o.symIncludePattern, "include", "", "Regex pattern to include function symbol names")
@@ -122,6 +124,10 @@ func (o *Options) setup() (trace.Scope, error) {
 	// Store PID file.
 	common.WritePID(os.Getpid())
 
+	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
+		return "", err
+	}
+
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
 		return "", err
@@ -138,6 +144,52 @@ func (o *Options) preflight() error {
 		preflight.WithUserspaceBPF(o.userspaceBPF),
 		preflight.WithLogger(o.Logger),
 	)
+}
+
+// validatePID checks the --pid flag. libbpf maps 0 to xcover's own PID and
+// treats any negative pid as unfiltered, so a stray negative value would
+// silently trace every process; only -1 (all processes) or a real PID are
+// accepted. The value is passed to libbpf as a C int, so anything above
+// MaxInt32 would be truncated: 4294967295 becomes -1 and silently traces
+// every process while the report records the bogus PID. A PID that does not
+// exist is rejected here so the error reaches the user before daemonizing;
+// the kernel would otherwise refuse the uprobe_multi link with ESRCH during
+// attach. pidfd_open(2) (Linux 5.3+) succeeds only for a thread-group leader,
+// matching the kernel's uprobe_multi lookup, and needs no signal permission,
+// so a process owned by someone else is still accepted. A non-leader thread
+// id fails with EINVAL before Linux 6.16 and ENOENT since; before 6.16 EINVAL
+// is also what a leader that exits during the lookup gets, so the two cases
+// share one message. An unreaped zombie also passes, so the check proves
+// existence, not liveness, and it is inherently racy.
+//
+// bpftime stores the uprobe pid but never compares it when hooking, so under
+// --userspace-bpf a positive --pid would silently record hits from every
+// process that loaded the agent; the combination is refused.
+func validatePID(pid int, userspaceBPF bool) error {
+	if pid == -1 {
+		return nil
+	}
+	if pid <= 0 {
+		return errors.Errorf("invalid --pid %d: must be -1 or a positive PID", pid)
+	}
+	if pid > math.MaxInt32 {
+		return errors.Errorf("invalid --pid %d: must not exceed %d", pid, math.MaxInt32)
+	}
+	if userspaceBPF {
+		return errors.New("--pid is not enforced by bpftime; drop --pid or run without --userspace-bpf")
+	}
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		switch {
+		case errors.Is(err, unix.ESRCH):
+			return errors.Wrapf(err, "--pid %d: no such process", pid)
+		case errors.Is(err, unix.EINVAL), errors.Is(err, unix.ENOENT):
+			return errors.Wrapf(err, "--pid %d: is gone or is not a thread-group leader PID", pid)
+		}
+		return errors.Wrapf(err, "--pid %d: pidfd_open failed", pid)
+	}
+	_ = unix.Close(fd)
+	return nil
 }
 
 // buildTracer constructs the tracee to trace and the tracer that drives it,
@@ -166,6 +218,7 @@ func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 		trace.WithTracerReport(o.report),
 		trace.WithTracerStatus(o.status),
 		trace.WithTracerUserspaceBPF(o.userspaceBPF),
+		trace.WithTracerPID(o.pid),
 		trace.WithTracerTracee(tracee),
 	)
 }
@@ -208,6 +261,12 @@ func daemonArgs(fs *pflag.FlagSet) []string {
 }
 
 func (o *Options) daemonize(cmd *cobra.Command) error {
+	// Validate the target before forking so the error reaches the user
+	// instead of only the daemon log.
+	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
+		return err
+	}
+
 	// Check if already running.
 	if common.IsDaemonRunning() {
 		fmt.Println("Daemon already running")

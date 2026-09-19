@@ -224,6 +224,33 @@ libbpf error names the actual cause.
 **Fix.** Check `uname -r` and upgrade to 6.6 or newer, or a kernel that
 backports `uprobe_multi`. In `--detach` mode the error is in `/tmp/xcover.log`.
 
+## `the kernel filters uprobe_multi by thread instead of thread group`
+
+Logged as a warning by `xcover run` when `--pid` is set, right before the
+probes attach and again before the report is written. The run continues; the
+warning does not stop it.
+
+**Cause.** The kernel lacks upstream commit 46ba0e49b642 ("bpf: fix
+multi-uprobe PID filtering logic"). Without it the `uprobe_multi` PID filter
+matches one thread, the one whose id equals `--pid`, instead of the whole
+thread group, so hits from every other thread of the process are dropped. A
+Go program runs goroutines on many threads, so most of its hits are lost and
+the report undercounts. Affected releases are 6.6.0 to 6.6.34, 6.9.0 to 6.9.4,
+and 6.7 or 6.8 trees without a distribution backport; 6.6.35, 6.9.5 and 6.10
+or newer carry the fix. xcover detects the bug with the same `link_create`
+probe libbpf uses for its own feature detection (`pkg/probe/pidfilter.go`),
+so the warning reflects the running kernel, not its version string. The
+`kernel` field of the warning names the release.
+
+**Fix.** Use a kernel with the fix, or drop `--pid` and rely on the
+per-binary filter. The report's `pid` field tells a reader whether the filter
+was active.
+
+The variant `could not check whether the kernel filters uprobe_multi by
+thread group` means the probe itself failed; the wrapped error names the
+reason. Treat it the same way, since the report may undercount for the same
+reason.
+
 ## `xcover-report.json` is missing after the session
 
 **Cause.** The report is written when the daemon receives `SIGINT` or
@@ -249,10 +276,13 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
   number of calls whose event was discarded because the function could not be
   recorded in `seen_funcs`, so it can exceed the number of functions missing
   from the report.
-- `--pid` was set. The flag is parsed but not applied
-  (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`), so hits from every process
-  running the binary are counted and the report does not describe a single
-  process.
+- `--pid` was set and the target process exited after attach, or forked and
+  the work ran in a child: only the named process is traced
+  (`pkg/probe/probe.go`), so hits from other processes running the binary are
+  not counted and the report's `pid` field names the traced process. A target
+  that is already gone at attach fails the run instead, with `no such process`.
+- `--pid` was set on a kernel that filters `uprobe_multi` by thread; see the
+  warning section above.
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
 `--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with

@@ -17,10 +17,15 @@ import (
 )
 
 const (
-	docsDir            = "docs"
-	fileTemplateHeader = `` // Use it for headers like YAML frontmatters.
-	templateMarker     = "{{ .CLI_REFERENCE }}"
+	docsDir        = "docs"
+	templateMarker = "{{ .CLI_REFERENCE }}"
 )
+
+// fileTemplateHeader is a format string with one %s for the page title,
+// prepended to every generated page. Empty means no header; set it to
+// something like "---\ntitle: %s\n---\n" for a YAML front matter. A var,
+// not a const, so vet does not flag the Sprintf while it is empty.
+var fileTemplateHeader = ""
 
 var (
 	filePrepender = func(filename string) string {

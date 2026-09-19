@@ -4,138 +4,109 @@ import (
 	"context"
 	"net"
 	"os"
-	"sync"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-// MockConn implements the net.Conn interface for testing purposes
-type MockConn struct {
-	mock.Mock
-}
+// newTestServer starts a health check server on a socket private to the
+// test and stops it, including its accept loop, when the test ends.
+func newTestServer(t *testing.T) *HealthCheckServer {
+	t.Helper()
 
-// Implementing the net.Conn interface methods
+	logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
+	hcs := NewHealthCheckServer(filepath.Join(t.TempDir(), "hc.sock"), logger)
 
-func (m *MockConn) Read(b []byte) (n int, err error) {
-	args := m.Called(b)
-	return args.Int(0), args.Error(1)
-}
+	require.NoError(t, hcs.InitializeListener(t.Context()))
+	t.Cleanup(func() { _ = hcs.ShutdownListener() })
 
-func (m *MockConn) Write(b []byte) (n int, err error) {
-	args := m.Called(b)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *MockConn) Close() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-func (m *MockConn) LocalAddr() net.Addr {
-	args := m.Called()
-	return args.Get(0).(net.Addr)
-}
-
-func (m *MockConn) RemoteAddr() net.Addr {
-	args := m.Called()
-	return args.Get(0).(net.Addr)
-}
-
-func (m *MockConn) SetDeadline(t time.Time) error {
-	args := m.Called(t)
-	return args.Error(0)
-}
-
-func (m *MockConn) SetReadDeadline(t time.Time) error {
-	args := m.Called(t)
-	return args.Error(0)
-}
-
-func (m *MockConn) SetWriteDeadline(t time.Time) error {
-	args := m.Called(t)
-	return args.Error(0)
+	return hcs
 }
 
 func TestHealthCheckServer_InitializeListener(t *testing.T) {
 	t.Run("should start UDS listener without errors", func(t *testing.T) {
-		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
+		hcs := newTestServer(t)
 
-		os.Remove("/tmp/server.sock")
-		ln, err := net.Listen("unix", "/tmp/server.sock")
-		assert.Nil(t, err)
-		hcs.ln = ln
+		fi, err := os.Stat(hcs.socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+	})
 
-		err = hcs.InitializeListener(context.Background())
-		assert.Nil(t, err)
+	t.Run("should replace a stale socket file", func(t *testing.T) {
+		socketPath := filepath.Join(t.TempDir(), "hc.sock")
+		require.NoError(t, os.WriteFile(socketPath, nil, 0o600))
+
+		hcs := NewHealthCheckServer(socketPath, zerolog.Nop())
+		require.NoError(t, hcs.InitializeListener(t.Context()))
+		t.Cleanup(func() { _ = hcs.ShutdownListener() })
+
+		fi, err := os.Stat(socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
 	})
 }
 
 func TestHealthCheckServer_NotifyReadiness(t *testing.T) {
-	t.Run("should write readiness message when ready", func(t *testing.T) {
-		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
+	t.Run("should write readiness message to clients once ready", func(t *testing.T) {
+		hcs := newTestServer(t)
 
-		// Trigger the readiness.
+		// Connect before readiness: the server must hold the connection
+		// and answer only after NotifyReadiness.
+		conn, err := net.DialTimeout("unix", hcs.socketPath, time.Second)
+		require.NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+
 		hcs.NotifyReadiness()
 
-		// Test that the readyCh channel is closed.
-		assert.Panics(t, func() {
-			hcs.readyCh <- struct{}{}
-		})
+		buf := make([]byte, 1)
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+		n, err := conn.Read(buf)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		assert.Equal(t, byte(ReadyMsg), buf[0])
+	})
 
-		// Mock connection.
-		mockConn := new(MockConn)
+	t.Run("should not write when context is cancelled before readiness", func(t *testing.T) {
+		hcs := NewHealthCheckServer(filepath.Join(t.TempDir(), "hc.sock"), zerolog.Nop())
 
-		// Verify the readiness message was sent.
-		mockConn.On("Write", []byte{ReadyMsg}).Return(len([]byte{ReadyMsg}), nil)
-		mockConn.On("Close").Return(nil)
-		mockConn.On("SetReadDeadline", mock.Anything).Return(nil)
-		//mockConn.On("Read", mock.AnythingOfType("[]uint8")).Return(0, io.EOF)
-		mockConn.On("Read", mock.AnythingOfType("[]uint8")).Return(1, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
-		hcs.processConnection(context.Background(), mockConn)
+		server, client := net.Pipe()
+		t.Cleanup(func() { client.Close() })
 
-		mockConn.AssertExpectations(t)
+		hcs.processConnection(ctx, server)
+
+		// processConnection closes its end on return; the client observes
+		// EOF without ever receiving a readiness byte.
+		buf := make([]byte, 1)
+		n, err := client.Read(buf)
+		assert.Zero(t, n)
+		assert.Error(t, err)
 	})
 }
 
 func TestHealthCheckServer_ShutdownListener(t *testing.T) {
 	t.Run("should properly shut down listener and remove socket", func(t *testing.T) {
-		logger := zerolog.New(zerolog.NewTestWriter(t)).With().Timestamp().Logger()
-		hcs := NewHealthCheckServer("/tmp/server.sock", logger)
+		hcs := newTestServer(t)
 
-		// Mock net.Listener.
-		os.Remove("/tmp/server.sock")
-		ln, err := net.Listen("unix", "/tmp/server.sock")
-		assert.Nil(t, err)
-		hcs.ln = ln
+		require.NoError(t, hcs.ShutdownListener())
 
-		// Start listener in a goroutine, using t.Context() so the context is
-		// cancelled when the test ends. A WaitGroup ensures the goroutine has
-		// fully exited (and finished any logging) before the test tears down.
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			hcs.acceptConnections(t.Context())
-		}()
-
-		// Stop listener.
-		err = hcs.ShutdownListener()
-		assert.Nil(t, err)
-
-		// Wait for the acceptConnections goroutine to finish before the test
-		// returns, preventing "log in goroutine after test has completed" panics.
-		wg.Wait()
-
-		// Verify the listener is closed properly.
 		fi, err := os.Stat(hcs.socketPath)
 		assert.Nil(t, fi)
 		assert.ErrorIs(t, err, os.ErrNotExist)
+
+		// The listener is closed: new clients are refused.
+		_, err = net.DialTimeout("unix", hcs.socketPath, time.Second)
+		assert.Error(t, err)
+	})
+
+	t.Run("should be safe to call without a listener", func(t *testing.T) {
+		hcs := NewHealthCheckServer(filepath.Join(t.TempDir(), "hc.sock"), zerolog.Nop())
+		assert.NoError(t, hcs.ShutdownListener())
 	})
 }

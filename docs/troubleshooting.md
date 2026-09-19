@@ -152,17 +152,47 @@ If your toolchain does not emit build-ids at all, pass
 `--no-build-id-check`. Do not use it to silence a mismatch: the names would
 not belong to the code being probed.
 
+## `CAP_BPF and CAP_PERFMON not in the effective set`
+
+Printed by `xcover run` before any BPF object is loaded
+(`internal/preflight/preflight.go`). The process exits 1. The message names
+what is missing, so it reads `CAP_PERFMON not in the effective set` when only
+one capability is absent, and it ends with `: missing capabilities`.
+
+**Cause.** Loading a BPF program needs root, or `CAP_BPF` plus
+`CAP_PERFMON`. xcover reads its effective capability set at start and stops
+before libbpf runs. Containers often drop these capabilities even for root.
+
+**Fix.** Run `xcover run` with `sudo`, or grant the two capabilities to the
+binary with `setcap cap_bpf,cap_perfmon+ep /path/to/xcover`. File
+capabilities do not apply under `go run` or on `nosuid` mounts. In a
+container, add the capabilities explicitly or run privileged. Userspace BPF
+mode needs neither; see [userspace-bpf.md](userspace-bpf.md).
+`--skip-preflight` bypasses the check; if the privileges are missing the load
+then fails with the next entry's error.
+
 ## `error initializing BPF probe` with `permission denied` or `operation not permitted`
 
 Printed by `xcover run` (`pkg/trace/tracer.go`, `pkg/probe/probe.go`). The
 process exits 1 before any probe is attached.
 
-**Cause.** Loading a BPF program needs root, or `CAP_BPF` plus
-`CAP_PERFMON`. Containers often drop these even for root.
+**Cause.** The BPF load reached libbpf without the privileges it needs. The
+preflight check of the previous entry normally stops the run earlier, so this
+message usually means one of three things: the run used `--skip-preflight`,
+the process is in a user namespace (a rootless container, `unshare -Ur`), or
+a seccomp profile or LSM policy denies `bpf(2)`. Inside a user namespace the
+capability set xcover reads is local to the namespace and can look complete,
+while the kernel checks BPF privileges against the initial namespace. xcover
+logs `running in a user namespace` as a warning when `/proc/self/uid_map`
+shows one. With `--detach` that warning is printed on the terminal before the
+daemon starts, not in `/tmp/xcover.log`. For a seccomp or LSM denial, check
+the container runtime's seccomp profile.
 
-**Fix.** Run `xcover run` with `sudo`, or grant the two capabilities. In a
-container, add them explicitly or run privileged. Userspace BPF mode needs
-neither; see [userspace-bpf.md](userspace-bpf.md).
+**Fix.** Run `xcover run` with `sudo` in the initial user namespace, or grant
+the two capabilities there. In a container, add them explicitly or run
+privileged; a rootless engine cannot grant them, since it runs in a user
+namespace itself. Userspace BPF mode needs neither; see
+[userspace-bpf.md](userspace-bpf.md).
 
 ## `error attaching uprobe for functions with cookies: [...]`
 

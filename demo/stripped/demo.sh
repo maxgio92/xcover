@@ -10,9 +10,12 @@ DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
 # Show sources with bat when installed, plain cat otherwise.
+# Debian and Ubuntu install bat as batcat.
 SRC_VIEWER="cat"
 if command -v bat >/dev/null 2>&1; then
     SRC_VIEWER="bat --paging=never"
+elif command -v batcat >/dev/null 2>&1; then
+    SRC_VIEWER="batcat --paging=never"
 fi
 
 function cleanup() {

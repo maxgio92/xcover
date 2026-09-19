@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
+	"time"
 
 	log "github.com/rs/zerolog"
 	"github.com/spf13/pflag"
@@ -167,13 +169,17 @@ func TestOptionsSetup(t *testing.T) {
 			o.symIncludePattern = tt.include
 			o.symExcludePattern = tt.exclude
 
+			// A stale PID from another process must be replaced.
+			require.NoError(t, os.WriteFile(settings.PidFile, []byte("1"), 0644))
+			t.Cleanup(func() { _ = os.Remove(settings.PidFile) })
+
 			scope, err := o.setup()
 
-			// setup() always writes the PID file before parsing anything, so
-			// the caller can unconditionally defer its removal.
-			_, statErr := os.Stat(settings.PidFile)
-			require.NoError(t, statErr)
-			t.Cleanup(func() { _ = os.Remove(settings.PidFile) })
+			// setup() writes the PID file before parsing anything, so the
+			// caller can unconditionally defer its removal.
+			got, readErr := os.ReadFile(settings.PidFile)
+			require.NoError(t, readErr)
+			require.Equal(t, strconv.Itoa(os.Getpid()), string(got))
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -186,6 +192,37 @@ func TestOptionsSetup(t *testing.T) {
 			require.Equal(t, tt.wantScope, scope)
 		})
 	}
+}
+
+// TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf proves the detached
+// child leaves a PID file that already names it untouched: no truncate and no
+// rename, so the inode survives setup().
+func TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf(t *testing.T) {
+	origPidFile := settings.PidFile
+	settings.PidFile = filepath.Join(t.TempDir(), "xcover.pid")
+	t.Cleanup(func() { settings.PidFile = origPidFile })
+
+	want := strconv.Itoa(os.Getpid())
+	require.NoError(t, os.WriteFile(settings.PidFile, []byte(want), 0644))
+	// Age the file so any write, in place or by rename, moves its mtime.
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(settings.PidFile, old, old))
+	before, err := os.Stat(settings.PidFile)
+	require.NoError(t, err)
+
+	o := newTestOptions(t)
+	o.scope = string(trace.ScopeBinary)
+	_, err = o.setup()
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(settings.PidFile)
+	require.NoError(t, err)
+	require.Equal(t, want, string(got))
+
+	after, err := os.Stat(settings.PidFile)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "setup replaced the PID file")
+	require.Equal(t, before.ModTime(), after.ModTime(), "setup wrote the PID file")
 }
 
 // TestValidatePIDThread proves the pre-check rejects a non-leader thread id:

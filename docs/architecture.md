@@ -163,7 +163,8 @@ The report carries `schema_version`, `xcover_version`, `generated_at`, `kernel`,
 build-id captured when the functions were resolved), then `funcs_traced` (every
 resolved function), `funcs_ack` (the names of acknowledged cookies that still
 resolve to a function), `cov_by_func` (`len(funcs_ack) / len(funcs_traced) *
-100`) and `functions[]` with `name`, `offset` and `hit` per function. Lists are
+100`) and `functions[]` with `name`, `offset` and `hit` per function. Each
+`functions[]` entry carries `demangled` when it differs from `name`. Lists are
 sorted, and `functions` is ordered by offset, so two reports of the same
 session differ only in `generated_at`. Verbose output prints the demangled
 name.

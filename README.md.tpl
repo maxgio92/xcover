@@ -317,9 +317,10 @@ type CoverageReport struct {
 }
 
 type FunctionCoverage struct {
-	Name   string `json:"name"`
-	Offset uint64 `json:"offset"` // executable file offset where the probe is attached
-	Hit    bool   `json:"hit"`
+	Name      string `json:"name"`                // raw symbol name
+	Demangled string `json:"demangled,omitempty"` // C++ or Rust name, only when it differs from name
+	Offset    uint64 `json:"offset"`              // executable file offset where the probe is attached
+	Hit       bool   `json:"hit"`
 }
 ```
 
@@ -336,6 +337,8 @@ Notes on the numbers:
   `/tmp/xcover.log` for the cause.
 - `cov_by_func` is `len(funcs_ack) / len(funcs_traced) * 100`. A recorded
   cookie that cannot be mapped back to a function is dropped and never counts.
+- `funcs_traced`, `funcs_ack` and `name` hold the raw symbol names; each
+  `functions[]` entry carries `demangled` when it differs from `name`.
 - Lists are sorted and `functions` is ordered by offset, so two reports of the
   same session differ only in `generated_at` and diff cleanly.
 - `build_id` identifies the exact binary measured. It is captured at start-up,

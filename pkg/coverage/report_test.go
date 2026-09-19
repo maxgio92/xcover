@@ -114,3 +114,23 @@ func TestWithReportPID(t *testing.T) {
 		})
 	}
 }
+
+// TestWriteReportFunctionDemangled checks that a function entry carries the
+// demangled key only when it is set, so Go and C entries keep their shape.
+func TestWriteReportFunctionDemangled(t *testing.T) {
+	report := coverage.NewCoverageReport(coverage.WithReportFunctions([]coverage.FunctionCoverage{
+		{Name: "_ZN3app3net5parseEi", Demangled: "app::net::parse(int)", Offset: 1, Hit: true},
+		{Name: "c_entry", Offset: 2},
+	}))
+
+	var buf bytes.Buffer
+	require.NoError(t, report.WriteReport(&buf))
+
+	var parsed struct {
+		Functions []map[string]json.RawMessage `json:"functions"`
+	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &parsed))
+	require.Len(t, parsed.Functions, 2)
+	require.JSONEq(t, `"app::net::parse(int)"`, string(parsed.Functions[0]["demangled"]))
+	require.NotContains(t, parsed.Functions[1], "demangled")
+}

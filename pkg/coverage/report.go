@@ -13,9 +13,12 @@ const SchemaVersion = 1
 
 // FunctionCoverage is the per-function entry of the report.
 type FunctionCoverage struct {
-	Name   string `json:"name"`
-	Offset uint64 `json:"offset"`
-	Hit    bool   `json:"hit"`
+	Name string `json:"name"`
+	// Demangled is the human-readable form of a mangled C++ or Rust Name. It
+	// is set only when it differs from Name, so Go and C entries omit it.
+	Demangled string `json:"demangled,omitempty"`
+	Offset    uint64 `json:"offset"`
+	Hit       bool   `json:"hit"`
 }
 
 // UnmarshalJSON decodes a function record and rejects one whose offset or

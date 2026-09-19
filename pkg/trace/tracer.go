@@ -486,13 +486,19 @@ func (t *UserTracer) writeReport(reportPath string) error {
 // the acked cookies. Lists are sorted so that identical sessions produce
 // byte-identical reports apart from generated_at. Acked cookies that no
 // longer resolve to a function are skipped and do not count as coverage.
+// Names are the raw symbol names; a function entry carries the demangled
+// name only when it differs, so Go and C reports keep their shape.
 func (t *UserTracer) buildReport() *coverage.CoverageReport {
 	traced := make([]string, 0, len(t.tracee.funcs))
 	functions := make([]coverage.FunctionCoverage, 0, len(t.tracee.funcs))
 	for ck, fn := range t.tracee.funcs {
 		_, hit := t.ack.Load(ck)
 		traced = append(traced, fn.name)
-		functions = append(functions, coverage.FunctionCoverage{Name: fn.name, Offset: fn.offset, Hit: hit})
+		fc := coverage.FunctionCoverage{Name: fn.name, Offset: fn.offset, Hit: hit}
+		if fn.demangled != fn.name {
+			fc.Demangled = fn.demangled
+		}
+		functions = append(functions, fc)
 	}
 	sort.Strings(traced)
 	// Offsets are unique: funcs is keyed by offset, so no tie-break is needed.

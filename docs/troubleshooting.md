@@ -298,4 +298,5 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
 `--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with
-`funcs_ack` to see which functions never fired.
+`funcs_ack` to see which functions never fired; for C++ and Rust binaries each
+`functions[]` entry carries `demangled` when it differs from `name`.

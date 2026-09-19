@@ -11,6 +11,14 @@ DEMO_APP="./demo-app"
 DEBUG_FILE="./demo-app.debug"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
+# Show sources with bat when installed, plain cat otherwise.
+# Debian and Ubuntu install bat as batcat.
+SRC_VIEWER="cat"
+if command -v bat >/dev/null 2>&1; then
+    SRC_VIEWER="bat --paging=never"
+elif command -v batcat >/dev/null 2>&1; then
+    SRC_VIEWER="batcat --paging=never"
+fi
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -33,7 +41,7 @@ function main() {
 	runCmd "# Strip the binary for production. Keep the debug file for profiling."
 	echo
 	runCmd "# Let's test a demo C application"
-	runCmd "bat ../src/c/demo-app.c"
+	runCmd "${SRC_VIEWER} ../src/c/demo-app.c"
 	sleep "${SLEEP}"
 	clear
 	runCmd "gcc -O0 -g -o demo-app ../src/c/demo-app.c"

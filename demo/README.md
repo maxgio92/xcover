@@ -12,8 +12,9 @@ Scripted terminal sessions for recording with asciinema. Each scenario is a
 | `userspace-stripped/` | Userspace BPF mode on a stripped C program | `../../xcover-userspace` | no root |
 
 Shared sources live in `src/go/demo-app.go` and `src/c/demo-app.c`. All scripts
-also call `bat`, `jq`, `gcc` or `go`, and honour `SLEEP` (seconds between
-commands, default 2).
+also call `jq` and either `gcc` or `go`. They show sources with the first of
+`bat`, `batcat` or `cat` found on PATH; Debian and Ubuntu name the viewer
+`batcat`. `SLEEP` sets the pause between commands in seconds (default 2).
 
 ## Run a demo
 

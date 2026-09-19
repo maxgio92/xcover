@@ -8,6 +8,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_APP="./demo-app"
 XCOVER="${SCRIPT_DIR}/../../xcover"
 SLEEP="${SLEEP:-2}"
+# Show sources with bat when installed, plain cat otherwise.
+# Debian and Ubuntu install bat as batcat.
+SRC_VIEWER="cat"
+if command -v bat >/dev/null 2>&1; then
+    SRC_VIEWER="bat --paging=never"
+elif command -v batcat >/dev/null 2>&1; then
+    SRC_VIEWER="batcat --paging=never"
+fi
 
 function cleanup() {
     ${XCOVER} stop 2>/dev/null || true
@@ -30,7 +38,7 @@ function main() {
 	runCmd "# Profile coverage without instrumenting your binaries!"
 	echo
 	runCmd "# Let's test a demo Go application"
-	runCmd "bat ../src/go/demo-app.go"
+	runCmd "${SRC_VIEWER} ../src/go/demo-app.go"
 	sleep "${SLEEP}"
 	clear
 	runCmd "go build -o demo-app ../src/go/"

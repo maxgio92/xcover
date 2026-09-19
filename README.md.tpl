@@ -270,11 +270,23 @@ overwritten.
 
 ```go
 type CoverageReport struct {
-	FuncsTraced []string `json:"funcs_traced"` // every resolved function, probed or not
-	FuncsAck    []string `json:"funcs_ack"`    // functions that ran at least once
-	CovByFunc   float64  `json:"cov_by_func"`  // share of funcs_traced that ran, in percent
-	ExePath     string   `json:"exe_path"`
-	PID         int      `json:"pid,omitempty"`  // set when --pid restricted the trace
+	SchemaVersion int                `json:"schema_version"` // 1
+	FuncsTraced   []string           `json:"funcs_traced"`   // every resolved function, sorted
+	FuncsAck      []string           `json:"funcs_ack"`      // functions that ran at least once, sorted
+	CovByFunc     float64            `json:"cov_by_func"`    // len(funcs_ack) / len(funcs_traced) * 100
+	ExePath       string             `json:"exe_path"`       // the --path argument
+	PID           int                `json:"pid,omitempty"`  // set when --pid restricted the trace
+	BuildID       string             `json:"build_id"`       // GNU build-id of the binary, read when functions were resolved
+	Kernel        string             `json:"kernel"`         // uname -r of the tracing host
+	XcoverVersion string             `json:"xcover_version"`
+	GeneratedAt   string             `json:"generated_at"`   // RFC 3339, UTC
+	Functions     []FunctionCoverage `json:"functions"`      // one entry per probed function, sorted by offset
+}
+
+type FunctionCoverage struct {
+	Name   string `json:"name"`
+	Offset uint64 `json:"offset"` // executable file offset where the probe is attached
+	Hit    bool   `json:"hit"`
 }
 ```
 
@@ -289,9 +301,13 @@ Notes on the numbers:
   signalling readiness and writes no report, so a low number never hides an
   attach failure. `xcover wait` returns an error in that case; check
   `/tmp/xcover.log` for the cause.
-- `cov_by_func` is computed from the count of acknowledged functions, not
-  from the length of `funcs_ack`. The two can differ when a recorded cookie
-  cannot be mapped back to a name.
+- `cov_by_func` is `len(funcs_ack) / len(funcs_traced) * 100`. A recorded
+  cookie that cannot be mapped back to a function is dropped and never counts.
+- Lists are sorted and `functions` is ordered by offset, so two reports of the
+  same session differ only in `generated_at` and diff cleanly.
+- `build_id` identifies the exact binary measured. It is captured at start-up,
+  when the functions are resolved, rather than at exit, so a binary rebuilt or
+  removed during the session is still reported under the id it was probed with.
 
 Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
 to skip the file.

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +16,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
-	"github.com/maxgio92/xcover/internal/utils"
 	"github.com/maxgio92/xcover/pkg/coverage"
 	"github.com/maxgio92/xcover/pkg/healthcheck"
 	"github.com/maxgio92/xcover/pkg/probe"
@@ -85,6 +86,8 @@ type UserTracer struct {
 	tracee *UserTracee
 	// User functions being acknowledged.
 	ack sync.Map
+	// Cookies with no matching function, recorded so each is warned about once.
+	unknown sync.Map
 	// User functions being consumed.
 	consumed uint64
 	// pidFilterErr is the CheckPIDFilter outcome recorded at attach time, so
@@ -402,13 +405,17 @@ func (t *UserTracer) handleEvent(data []byte) {
 	event, err := t.decodeEvent(data)
 	if err != nil {
 		t.logger.Err(err).Msg("failed to read event")
+		return
 	}
 
 	if t.tracee == nil {
 		return
 	}
 
-	fun, _ := t.lookupFunc(event.Cookie)
+	fun, ok := t.lookupFunc(event.Cookie)
+	if !ok {
+		return
+	}
 	t.ackFunc(event.Cookie, fun)
 }
 
@@ -422,13 +429,15 @@ func (t *UserTracer) decodeEvent(data []byte) (Event, error) {
 	return event, err
 }
 
-// lookupFunc resolves the function traced by cookie, logging a miss instead
-// of failing so a single unmatched cookie doesn't stop the consumer. The
-// caller acks the cookie regardless of the lookup result.
+// lookupFunc resolves the function traced by cookie. A miss is warned about
+// once per cookie instead of failing, so a single unmatched cookie neither
+// stops the consumer nor floods the log; the caller must not ack it.
 func (t *UserTracer) lookupFunc(ck cookie) (funcInfo, bool) {
 	fun, ok := t.tracee.funcs[ck]
 	if !ok {
-		t.logger.Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(ck)).Msg("failed getting function from cookie")
+		if _, seen := t.unknown.LoadOrStore(ck, struct{}{}); !seen {
+			t.logger.Warn().Err(ErrFuncNotFoundForCookie).Uint64("cookie", uint64(ck)).Msg("failed getting function from cookie")
+		}
 	}
 
 	return fun, ok
@@ -451,38 +460,65 @@ func (t *UserTracer) writeReport(reportPath string) error {
 		return nil
 	}
 
-	traced := make([]string, 0, len(t.tracee.funcs))
-	for _, fn := range t.tracee.funcs {
-		traced = append(traced, fn.name)
+	report := t.buildReport()
+
+	file, err := os.Create(reportPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to create report file")
 	}
 
-	ack := make([]string, 0, utils.LenSyncMap(&t.ack))
+	// Close before logging success: a failed close means the file on disk
+	// may not hold what was written.
+	werr := report.WriteReport(file)
+	if cerr := file.Close(); cerr != nil {
+		werr = stderrors.Join(werr, errors.Wrap(cerr, "failed to close report file"))
+	}
+	if werr != nil {
+		return errors.Wrap(werr, "failed to write report")
+	}
+
+	t.logger.Info().Str("path", reportPath).Msg("report generated")
+
+	return nil
+}
+
+// buildReport assembles the coverage report from the traced function set and
+// the acked cookies. Lists are sorted so that identical sessions produce
+// byte-identical reports apart from generated_at. Acked cookies that no
+// longer resolve to a function are skipped and do not count as coverage.
+func (t *UserTracer) buildReport() *coverage.CoverageReport {
+	traced := make([]string, 0, len(t.tracee.funcs))
+	functions := make([]coverage.FunctionCoverage, 0, len(t.tracee.funcs))
+	for ck, fn := range t.tracee.funcs {
+		_, hit := t.ack.Load(ck)
+		traced = append(traced, fn.name)
+		functions = append(functions, coverage.FunctionCoverage{Name: fn.name, Offset: fn.offset, Hit: hit})
+	}
+	sort.Strings(traced)
+	// Offsets are unique: funcs is keyed by offset, so no tie-break is needed.
+	sort.Slice(functions, func(i, j int) bool { return functions[i].Offset < functions[j].Offset })
+
+	ack := make([]string, 0, len(functions))
 	t.ack.Range(func(k, v interface{}) bool {
-		fun, ok := t.tracee.funcs[k.(cookie)]
-		if !ok {
-			return false
+		if fun, ok := t.tracee.funcs[k.(cookie)]; ok {
+			ack = append(ack, fun.name)
 		}
-		ack = append(ack, fun.name)
 		return true
 	})
+	sort.Strings(ack)
 
-	covByFunc := float64(utils.LenSyncMap(&t.ack)) / float64(len(t.tracee.funcs)) * 100
+	covByFunc := float64(len(ack)) / float64(len(t.tracee.funcs)) * 100
 
-	report := coverage.NewCoverageReport(
+	return coverage.NewCoverageReport(
 		coverage.WithReportFuncsAck(ack),
 		coverage.WithReportFuncsTraced(traced),
 		coverage.WithReportFuncsCov(covByFunc),
 		coverage.WithReportExePath(t.tracee.exePath),
 		coverage.WithReportPID(t.pid),
+		coverage.WithReportBuildID(t.tracee.exeBuildID()),
+		coverage.WithReportKernel(kernelRelease()),
+		coverage.WithReportXcoverVersion(settings.Version),
+		coverage.WithReportGeneratedAt(time.Now().UTC().Format(time.RFC3339)),
+		coverage.WithReportFunctions(functions),
 	)
-
-	file, err := os.Create(reportPath)
-	if err != nil {
-		t.logger.Err(err).Msg("failed to create report file")
-	}
-	defer file.Close()
-
-	t.logger.Info().Str("path", reportPath).Msgf("report generated")
-
-	return report.WriteReport(file)
 }

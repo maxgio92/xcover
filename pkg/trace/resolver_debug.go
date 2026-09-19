@@ -6,6 +6,7 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"encoding/binary"
+	"io"
 
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
@@ -13,6 +14,11 @@ import (
 
 // ntGNUBuildID is the ELF note type for a GNU build-id (NT_GNU_BUILD_ID).
 const ntGNUBuildID = 3
+
+// maxNoteSegmentSize bounds the PT_NOTE payload that buildID reads. Real
+// note segments hold a few hundred bytes. The size comes from the traced
+// binary, so it must not size an allocation on its own.
+const maxNoteSegmentSize = 64 << 10
 
 // SeparateDebugResolver returns a FunctionResolver that reads function symbols
 // from a companion debug file (e.g. `objcopy --only-keep-debug` output, a
@@ -238,9 +244,10 @@ func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) 
 }
 
 // verifyBuildIDMatch fails unless the executable and debug file carry the same
-// GNU build-id. The id is read from PT_NOTE program headers rather than the
-// .note.gnu.build-id section so that verification still works on executables
-// whose section table has been stripped.
+// GNU build-id. The id is read from PT_NOTE program headers first, falling
+// back to the .note.gnu.build-id section when the section table is present, so
+// that verification still works on executables whose section table has been
+// stripped (see buildID).
 func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error {
 	if skip {
 		logger.Warn().Msg("build-id verification disabled (--no-build-id-check)")
@@ -260,10 +267,13 @@ func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error 
 
 // buildID returns the GNU build-id from the first PT_NOTE segment that contains
 // one, or nil if absent. Reading from the program header (not the section)
-// means it survives section-table stripping.
+// means it survives section-table stripping. The Go linker emits a PT_NOTE
+// covering only .note.go.buildid, so .note.gnu.build-id is consulted as a
+// fallback when the section table is present. A PT_NOTE larger than
+// maxNoteSegmentSize is skipped, since the size comes from the traced binary.
 func buildID(f *elf.File) []byte {
 	for _, p := range f.Progs {
-		if p.Type != elf.PT_NOTE {
+		if p.Type != elf.PT_NOTE || p.Filesz > maxNoteSegmentSize {
 			continue
 		}
 		data := make([]byte, p.Filesz)
@@ -274,11 +284,19 @@ func buildID(f *elf.File) []byte {
 			return id
 		}
 	}
+	if s := f.Section(".note.gnu.build-id"); s != nil {
+		if data, err := s.Data(); err == nil {
+			return parseBuildIDNote(data, f.ByteOrder)
+		}
+	}
 	return nil
 }
 
 // parseBuildIDNote scans a PT_NOTE payload for an NT_GNU_BUILD_ID note and
-// returns its descriptor (the build-id bytes), or nil.
+// returns its descriptor (the build-id bytes), or nil. The payload comes from
+// the traced binary, so the note sizes are bounded against the remaining
+// data before anything is allocated or read: a malformed note yields nil
+// (no build-id) rather than a panic or an invented id.
 func parseBuildIDNote(data []byte, bo binary.ByteOrder) []byte {
 	r := bytes.NewReader(data)
 	for r.Len() >= 12 {
@@ -292,20 +310,32 @@ func parseBuildIDNote(data []byte, bo binary.ByteOrder) []byte {
 		if err := binary.Read(r, bo, &ntype); err != nil {
 			return nil
 		}
-		name := make([]byte, align4(namesz))
-		if _, err := r.Read(name); err != nil {
+		// The last descriptor may be unpadded (GNU ld emits a 19-byte
+		// .note.gnu.build-id for a 3-byte id), so only the name padding and
+		// the raw descriptor are required; descriptor padding is consumed
+		// only when more data follows.
+		nameLen, descLen := align4(namesz), align4(descsz)
+		if nameLen+uint64(descsz) > uint64(r.Len()) {
 			return nil
 		}
-		desc := make([]byte, align4(descsz))
-		if _, err := r.Read(desc); err != nil {
+		name := make([]byte, nameLen)
+		if _, err := io.ReadFull(r, name); err != nil {
 			return nil
 		}
-		if ntype == ntGNUBuildID && namesz >= 3 && string(name[:3]) == "GNU" {
-			return desc[:descsz]
+		desc := make([]byte, descsz)
+		if _, err := io.ReadFull(r, desc); err != nil {
+			return nil
+		}
+		if ntype == ntGNUBuildID && namesz >= 3 && len(name) >= 3 && string(name[:3]) == "GNU" {
+			return desc
+		}
+		if _, err := r.Seek(int64(min(descLen-uint64(descsz), uint64(r.Len()))), io.SeekCurrent); err != nil {
+			return nil
 		}
 	}
 	return nil
 }
 
 // align4 rounds n up to the next 4-byte boundary (ELF note fields are padded).
-func align4(n uint32) uint32 { return (n + 3) &^ 3 }
+// It widens to uint64 so a hostile size near MaxUint32 cannot wrap to zero.
+func align4(n uint32) uint64 { return (uint64(n) + 3) &^ 3 }

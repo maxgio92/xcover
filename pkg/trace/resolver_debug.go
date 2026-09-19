@@ -84,30 +84,18 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 			return funcEntriesFromSymbols(syms, toOffset, logger)
 		}
 
-		// Fallback: DWARF subprograms. Best-effort — see funcSymsFromDWARF.
+		// Fallback: DWARF subprograms. Best-effort; see funcSymsFromDWARF.
 		// DWARF subprograms carry no ELF binding, so only the name patterns apply.
+		// funcSymsFromDWARF drops zero-address subprograms itself and its symbols
+		// carry no section index, so isDefinedFunc must not run on them: it would
+		// reject every entry as SHN_UNDEF.
 		logger.Info().Msg("debug file has no usable .symtab; trying DWARF subprograms")
 		dwarfSyms, derr := funcSymsFromDWARF(dbg, symFilter{include: filter.include, exclude: filter.exclude}, logger)
 		if derr != nil {
 			return nil, errors.Wrapf(derr, "no usable symbols in debug file %q (.symtab and DWARF both failed)", debugPath)
 		}
-		if dwarfSyms = definedFuncs(dwarfSyms); len(dwarfSyms) == 0 {
-			return nil, errors.Errorf("no defined functions in debug file %q", debugPath)
-		}
 		return funcEntriesFromSymbols(dwarfSyms, toOffset, logger)
 	}
-}
-
-// definedFuncs drops undefined and zero-address symbols (see isDefinedFunc).
-func definedFuncs(syms []elf.Symbol) []elf.Symbol {
-	out := make([]elf.Symbol, 0, len(syms))
-	for _, s := range syms {
-		if !isDefinedFunc(s) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 // dwarfSubprogram holds the name attributes of a DW_TAG_subprogram DIE, plus a
@@ -130,6 +118,10 @@ type dwarfSubprogram struct {
 // functions the definition DIE carries DW_AT_low_pc but its name only via a
 // DW_AT_specification/DW_AT_abstract_origin reference to the declaration, so
 // those references are followed (a pre-pass indexes DIE names by offset).
+//
+// The returned symbols carry only Name, Value and an STT_FUNC type. Section is
+// left zero (SHN_UNDEF) because DWARF has no section index to offer, so callers
+// must not filter them with isDefinedFunc.
 //
 // Known limitations (both reasons .symtab — retained by --only-keep-debug and
 // `eu-strip -f` — is the primary, far more robust source):

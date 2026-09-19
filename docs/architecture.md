@@ -69,9 +69,16 @@ uprobes are addressed by file offset, PIE and ASLR need no special handling.
 
 ### 2. Filter
 
-`shouldInclude` in `resolver.go` applies, in order: symbol binding exclude,
-symbol binding include (library API only), `--exclude` regex, `--include`
-regex. Exclude wins over include. Project scope filtering runs after these.
+`newSymFilter` in `resolver.go` compiles the `--include` and `--exclude`
+patterns once into a `symFilter` and returns an error wrapping
+`ErrInvalidPattern` for a bad pattern. `SymbolTableResolver` and
+`SeparateDebugResolver` build the filter before opening any binary, and
+`GoProjectResolver` validates the patterns before it reads the Go build info.
+`run` also validates them with `ValidateSymPatterns` before the tracer is built
+(see Daemon mode). The filter's `shouldInclude` applies, in order: symbol
+binding exclude, symbol binding include (library API only), `--exclude` regex,
+`--include` regex. Exclude wins over include. Project scope filtering runs
+after these.
 
 Functions are stored in a map keyed by file offset. The offset is also the BPF
 cookie, so two names at the same address (weak aliases, identical code folding)
@@ -150,11 +157,13 @@ session differ only in `generated_at`.
 
 `--detach` re-executes `os.Args[0] run ...` with `Setsid`, forwarding every flag
 that was set except `--detach`, redirecting output to `/tmp/xcover.log` and
-writing the child PID to `/tmp/xcover.pid`. `status` checks the PID with
-signal 0. `stop` sends `SIGTERM` and polls every 100 ms for up to `--timeout`
-(default 30 seconds). If the daemon is still alive it sends `SIGKILL`, removes
-the PID file and exits with an error; if `SIGKILL` itself fails the PID file is
-kept.
+writing the child PID to `/tmp/xcover.pid`. Before re-executing, the parent
+validates `--include` and `--exclude` with `ValidateSymPatterns`, so a bad
+pattern fails in the foreground instead of in the log file. `status` checks
+the PID with signal 0. `stop` sends `SIGTERM` and polls every 100 ms for up to
+`--timeout` (default 30 seconds). If the daemon is still alive it sends
+`SIGKILL`, removes the PID file and exits with an error; if `SIGKILL` itself
+fails the PID file is kept.
 
 ## Userspace BPF mode
 
@@ -172,6 +181,4 @@ temporary file and prints the path. See
 These are visible from reading the code and worth knowing before you change the
 related areas:
 
-- `shouldInclude` compiles the include and exclude regexes once per symbol, and
-  an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

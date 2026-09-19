@@ -3,6 +3,8 @@ package coverage
 import (
 	"encoding/json"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
 // SchemaVersion identifies the report layout. Bump it when a field changes
@@ -14,6 +16,36 @@ type FunctionCoverage struct {
 	Name   string `json:"name"`
 	Offset uint64 `json:"offset"`
 	Hit    bool   `json:"hit"`
+}
+
+// UnmarshalJSON decodes a function record and rejects one whose offset or
+// hit is missing or null. Left to the default decoder both would read as
+// zero: the record would land at offset 0 and count as not hit, which is
+// indistinguishable from a real function there. An explicit 0 and false are
+// accepted. The name is checked by ReadReport, since it stays a string.
+func (f *FunctionCoverage) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return errors.New("function record is null")
+	}
+
+	var record struct {
+		Name   string  `json:"name"`
+		Offset *uint64 `json:"offset"`
+		Hit    *bool   `json:"hit"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return err
+	}
+	if record.Offset == nil {
+		return errors.Errorf("function %q has no offset", record.Name)
+	}
+	if record.Hit == nil {
+		return errors.Errorf("function %q has no hit", record.Name)
+	}
+
+	*f = FunctionCoverage{Name: record.Name, Offset: *record.Offset, Hit: *record.Hit}
+
+	return nil
 }
 
 type CoverageReport struct {

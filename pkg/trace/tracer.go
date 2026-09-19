@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"sort"
@@ -465,10 +466,15 @@ func (t *UserTracer) writeReport(reportPath string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create report file")
 	}
-	defer file.Close()
 
-	if err := report.WriteReport(file); err != nil {
-		return errors.Wrap(err, "failed to write report")
+	// Close before logging success: a failed close means the file on disk
+	// may not hold what was written.
+	werr := report.WriteReport(file)
+	if cerr := file.Close(); cerr != nil {
+		werr = stderrors.Join(werr, errors.Wrap(cerr, "failed to close report file"))
+	}
+	if werr != nil {
+		return errors.Wrap(werr, "failed to write report")
 	}
 
 	t.logger.Info().Str("path", reportPath).Msg("report generated")

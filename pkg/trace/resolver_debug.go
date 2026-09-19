@@ -15,6 +15,11 @@ import (
 // ntGNUBuildID is the ELF note type for a GNU build-id (NT_GNU_BUILD_ID).
 const ntGNUBuildID = 3
 
+// maxNoteSegmentSize bounds the PT_NOTE payload that buildID reads. Real
+// note segments hold a few hundred bytes. The size comes from the traced
+// binary, so it must not size an allocation on its own.
+const maxNoteSegmentSize = 64 << 10
+
 // SeparateDebugResolver returns a FunctionResolver that reads function symbols
 // from a companion debug file (e.g. `objcopy --only-keep-debug` output, a
 // distro -dbg package, or a debuginfod artifact) while computing uprobe attach
@@ -264,10 +269,11 @@ func verifyBuildIDMatch(exe, dbg *elf.File, skip bool, logger log.Logger) error 
 // one, or nil if absent. Reading from the program header (not the section)
 // means it survives section-table stripping. The Go linker emits a PT_NOTE
 // covering only .note.go.buildid, so .note.gnu.build-id is consulted as a
-// fallback when the section table is present.
+// fallback when the section table is present. A PT_NOTE larger than
+// maxNoteSegmentSize is skipped, since the size comes from the traced binary.
 func buildID(f *elf.File) []byte {
 	for _, p := range f.Progs {
-		if p.Type != elf.PT_NOTE {
+		if p.Type != elf.PT_NOTE || p.Filesz > maxNoteSegmentSize {
 			continue
 		}
 		data := make([]byte, p.Filesz)

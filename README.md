@@ -206,7 +206,7 @@ written. State lives in fixed paths, so only one xcover daemon can run per host:
 | File | Purpose |
 |---|---|
 | `/tmp/xcover.pid` | PID of the running profiler. |
-| `/tmp/xcover.log` | stdout and stderr of the daemon. Warnings about scope fallback or failed attaches land here. |
+| `/tmp/xcover.log` | stdout and stderr of the daemon. Scope fallback warnings and the error from a failed attach land here. |
 | `/tmp/xcover.sock` | Readiness socket used by `xcover wait`. |
 
 ```shell
@@ -220,8 +220,9 @@ xcover stopped (PID 1234)
 ```
 
 `wait` polls the socket every 500 ms; tune the limit with `--timeout`. `stop`
-sends `SIGTERM`, waits up to 5 seconds for the daemon to write the report, then
-sends `SIGKILL`. A daemon killed with `SIGKILL` writes no report.
+sends `SIGTERM` and waits up to 30 seconds (`--timeout`) for the daemon to write
+the report, then sends `SIGKILL` and exits with an error. A daemon killed with
+`SIGKILL` writes no report.
 
 If `/tmp/xcover.pid` names a live process, `run --detach` prints
 `Daemon already running`, exits 0 and starts nothing. Run `xcover status` to

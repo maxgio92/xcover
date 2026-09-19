@@ -36,7 +36,8 @@ var (
 	// descheduled past the quiet period loses its batch to RingBuffer.Stop.
 	// The uprobes are detached first, so the ring is quiescent; the
 	// deterministic fix is one ring_buffer__consume after the poll goroutine
-	// has stopped, which the pinned libbpfgo does not expose yet. Tests
+	// has stopped, which the pinned libbpfgo does not expose yet. Until it
+	// does, that loss is a known limitation left for a follow-up. Tests
 	// shorten it.
 	drainQuietPeriod = 150 * time.Millisecond
 	// HealthCheckSockPath is kept as an alias of settings.HealthCheckSockPath

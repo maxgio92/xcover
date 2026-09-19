@@ -86,8 +86,9 @@ since 5.11), and sets the expected attach type to `TRACE_UPROBE_MULTI`.
 `UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 128, the
 largest that fits the kernel's `bpf_attr` buffer, and calls
 `AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. The PID argument
-`-1` means every process that maps the file. A failed batch is logged as a
-warning and skipped; the tracer still reports readiness.
+`-1` means every process that maps the file. The first failed batch aborts
+`Run` with an error before readiness is signalled; links from earlier batches
+are destroyed on close.
 
 In userspace BPF mode bpftime does not implement `uprobe_multi`, so
 `attachSingleUprobes` attaches one perf-event uprobe per function instead.
@@ -107,25 +108,31 @@ returns if the cookie is already in `seen_funcs`, otherwise inserts it and
 submits an 8-byte event. The program only fires on function entry; there is no
 return probe.
 
-Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096 events, a
-second goroutine forwards them, and `handleEvent` decodes the cookie and stores
-it in the `ack` map.
+Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096
+events. A single consumer goroutine (`processEvents`) receives from that channel
+and `handleEvent` decodes the cookie and stores it in the `ack` map.
 
 ### 7. Report
 
-On `SIGINT` or `SIGTERM` the tracer drains its goroutines, destroys the links
-(which detaches the probes) and writes `xcover-report.json` in the current
-directory when `--report` is true. `funcs_traced` is every resolved function,
-`funcs_ack` the names found for acknowledged cookies, `cov_by_func` the ratio
-of acknowledged cookies to resolved functions times 100.
+On `SIGINT` or `SIGTERM` the tracer first destroys the links, which detaches the
+probes so no new events are produced. It then keeps consuming the event channel
+until no event has arrived for 150 ms (`drainQuietPeriod`) and writes
+`xcover-report.json` in the current directory when `--report` is true. The quiet
+period is a heuristic, not a completion signal; the comment on
+`drainQuietPeriod` in `tracer.go` states what it does not guarantee.
+`funcs_traced` is every resolved function, `funcs_ack` the names found for
+acknowledged cookies, `cov_by_func` the ratio of acknowledged cookies to
+resolved functions times 100.
 
 ## Daemon mode
 
 `--detach` re-executes `os.Args[0] run ...` with `Setsid`, forwarding every flag
 that was set except `--detach`, redirecting output to `/tmp/xcover.log` and
 writing the child PID to `/tmp/xcover.pid`. `status` checks the PID with
-signal 0. `stop` sends `SIGTERM`, polls for 5 seconds, then `SIGKILL`s and
-removes the PID file.
+signal 0. `stop` sends `SIGTERM` and polls every 100 ms for up to `--timeout`
+(default 30 seconds). If the daemon is still alive it sends `SIGKILL`, removes
+the PID file and exits with an error; if `SIGKILL` itself fails the PID file is
+kept.
 
 ## Userspace BPF mode
 
@@ -145,8 +152,6 @@ related areas:
 
 - `--pid` is parsed into `Options.pid` but never used; attach always passes
   `-1`.
-- `Probe.Attach` returns `nil` after a failed `uprobe_multi` attach, so partial
-  instrumentation is silent apart from a warning.
 - In `writeReport`, the `ack.Range` callback returns `false` on a cookie it
   cannot resolve, which stops the iteration and truncates `funcs_ack`.
   `cov_by_func` uses the raw ack count, so it can disagree with

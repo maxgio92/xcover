@@ -116,14 +116,20 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 // setup performs the PID file bookkeeping, function scope parsing and symbol
 // pattern validation needed before a tracer can be built. The PID file is
-// written unconditionally so that the caller's deferred removal, armed right
-// after this call, always cleans it up regardless of the returned error.
-// Log-level configuration is handled centrally by the parent command's
-// PersistentPreRunE before RunE runs, so o.Logger is already at the requested
-// level here.
+// written before any parsing so that the caller's deferred removal, armed
+// right after this call, always cleans it up regardless of the returned
+// error. A detached child skips the write when the file already names it.
+// When the child runs ahead of the parent's write in daemonize it writes
+// atomically, and the parent's later write carries the same PID, so a reader
+// never sees the file truncated. Log-level configuration is handled centrally
+// by the parent command's PersistentPreRunE before RunE runs, so o.Logger is
+// already at the requested level here.
 func (o *Options) setup() (trace.Scope, error) {
-	// Store PID file.
-	common.WritePID(os.Getpid())
+	if pid, err := common.ReadPID(); err != nil || pid != os.Getpid() {
+		if err := common.WritePID(os.Getpid()); err != nil {
+			o.Logger.Warn().Err(err).Msg("failed to write PID file")
+		}
+	}
 
 	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
 		return "", err

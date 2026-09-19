@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"context"
 	"debug/elf"
 	"strings"
 	"testing"
@@ -99,7 +100,8 @@ func TestFilterFuncSyms(t *testing.T) {
 	}
 	kept := []string{"main.main", "runtime.textOff", "runtime.text.x", "asm_no_size", "tail_func", "sized_at_text_end", "fini_zero_size"}
 
-	got := filterFuncSyms(syms, mustSymFilter(t, "", "", nil, nil))
+	got, err := filterFuncSyms(t.Context(), syms, mustSymFilter(t, "", "", nil, nil))
+	require.NoError(t, err)
 
 	var names []string
 	for _, s := range got {
@@ -108,9 +110,25 @@ func TestFilterFuncSyms(t *testing.T) {
 	require.ElementsMatch(t, kept, names)
 
 	// Name patterns are applied after the structural checks.
-	got = filterFuncSyms(syms, mustSymFilter(t, "^main", "", nil, nil))
+	got, err = filterFuncSyms(t.Context(), syms, mustSymFilter(t, "^main", "", nil, nil))
+	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "main.main", got[0].Name)
+}
+
+// TestFilterFuncSyms_Cancelled checks that a cancelled context stops the
+// symbol pass with ctx.Err() instead of demangling the whole table.
+func TestFilterFuncSyms_Cancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	syms := []elf.Symbol{
+		{Name: "main.main", Info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC), Section: 1, Value: 0x1000, Size: 0x20},
+	}
+
+	got, err := filterFuncSyms(ctx, syms, mustSymFilter(t, "", "", nil, nil))
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, got)
 }
 
 func TestSymbolTableResolver_InvalidPattern(t *testing.T) {

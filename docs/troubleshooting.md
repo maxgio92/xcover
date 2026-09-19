@@ -157,7 +157,12 @@ such a pattern unanchored, or anchor on the raw name (`^_ZN[KVRO]*3app3net`)
 to keep functions from other namespaces out. Rust binaries match their
 demangled name too, as `nm -C` shows it; `c++filt` additionally prints the
 legacy hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate disambiguator
-(`[3c1c0]`), so leave both out of the pattern.
+(`[3c1c0]`), so leave both out of the pattern. v0 names wrap the type a
+method belongs to in angle brackets (`<mycrate::net::Conn>::open`,
+`<mycrate::net::Conn>::open::{closure#0}`), so `^mycrate::` matches free
+functions and their closures but not methods; write `^<?mycrate::` to catch
+methods too. A trait impl for a foreign type renders as
+`<i32 as mycrate::net::MyTrait>::run` and needs the unanchored `mycrate::`.
 
 ## `cannot verify the debug file belongs to the executable` and other build-id errors
 

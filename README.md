@@ -135,18 +135,35 @@ use `--scope` or `--exclude` rather than trying to express "everything but" in
 xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
 xcover run --path EXE_PATH --exclude "^runtime\.|^internal"
 xcover run --path EXE_PATH --include "^app::net::" --exclude 'parse\('
+xcover run --path EXE_PATH --include '^<?mycrate::'
 ```
 
-Demangled C++ names follow `c++filt`: overloads keep their parameter list
-(`app::net::parse(int)`), and template instantiations start with the return
-type (`double app::net::twice<double>(double)`), so leave the pattern
-unanchored to catch them. An unanchored pattern runs over the whole signature,
-parameter types included, so `app::net::` also matches a function elsewhere
-that takes an `app::net` type; anchor on the raw name (`^_ZN[KVRO]*3app3net`)
-when that matters. Rust names differ from `c++filt` output: the demangler
-drops the legacy hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate
-disambiguator (`[3c1c0]`), so several monomorphizations can share one
-demangled name and a pattern must leave both out.
+Names are rendered by
+[github.com/ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle).
+The output is close to `c++filt` but not byte-identical: the library prints
+`operator<<(std::ostream&, Foo const&)` where `c++filt` expands the typedef to
+`std::basic_ostream<char, std::char_traits<char> >&`. C++ overloads keep their
+parameter list (`app::net::parse(int)`), and template instantiations start
+with the return type (`double app::net::twice<double>(double)`), so leave the
+pattern unanchored to catch them. An unanchored pattern runs over the whole
+signature, parameter types included, so `app::net::` also matches a function
+elsewhere that takes an `app::net` type; anchor on the raw name
+(`^_ZN[KVRO]*3app3net`) when that matters.
+
+Rust names differ from `c++filt` output too: the demangler drops the legacy
+hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate disambiguator
+(`[3c1c0]`), so several monomorphizations can share one demangled name and a
+pattern must leave both out. v0 names also wrap the type a method belongs to
+in angle brackets: an inherent method renders as `<mycrate::net::Conn>::open`
+and a closure inside it as `<mycrate::net::Conn>::open::{closure#0}`, while a
+legacy inherent method renders as `mycrate::net::Conn::open`. Free functions,
+their closures (`mycrate::net::parse::{closure#0}`) and generic
+instantiations (`mycrate::net::twice::<i32>`) keep the `mycrate::` prefix.
+`^mycrate::` therefore misses every v0 method and the closures inside them;
+`^<?mycrate::` catches those too. A trait impl for a type from another crate
+renders as `<i32 as mycrate::net::MyTrait>::run`, which neither anchored
+pattern matches; leave the pattern unanchored (`mycrate::`) to catch it, with
+the same false-positive caveat as for C++.
 
 ### Scope
 

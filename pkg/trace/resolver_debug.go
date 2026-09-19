@@ -78,10 +78,14 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
 		// funcSymsFromELF already drops undefined and zero-address symbols.
-		syms, err := funcSymsFromELF(dbg, filter)
+		syms, err := funcSymsFromELF(ctx, dbg, filter)
 		if err == nil && len(syms) > 0 {
 			logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
 			return funcEntriesFromSymbols(syms, toOffset, logger)
+		}
+		// A cancelled run stops here; it must not continue into the DWARF fallback.
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
 		// Fallback: DWARF subprograms. Best-effort; see funcSymsFromDWARF.

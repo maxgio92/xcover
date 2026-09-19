@@ -64,7 +64,7 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 			return nil, err
 		}
 
-		syms, err := funcSymsFromELF(f, filter)
+		syms, err := funcSymsFromELF(ctx, f, filter)
 		if err != nil {
 			if errors.Is(err, elf.ErrNoSymbols) {
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
@@ -92,13 +92,13 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 }
 
 // funcSymsFromELF returns filtered function symbols from the ELF symbol table.
-func funcSymsFromELF(f *elf.File, filter symFilter) ([]funcSym, error) {
+func funcSymsFromELF(ctx context.Context, f *elf.File, filter symFilter) ([]funcSym, error) {
 	syms, err := f.Symbols()
 	if err != nil {
 		return nil, err
 	}
 
-	return filterFuncSyms(syms, filter), nil
+	return filterFuncSyms(ctx, syms, filter)
 }
 
 // goTextMarkerRe matches the zero-size STT_FUNC symbols the Go linker emits to
@@ -110,7 +110,9 @@ var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
 // filterFuncSyms keeps the STT_FUNC symbols that name code present in the file
 // and pass filter, each paired with its demangled name. Demangling runs after
 // the structural checks, so undefined imports and linker markers never reach
-// the demangler.
+// the demangler. It still runs for every defined symbol before the name
+// filters and dominates resolution time on large symbol tables, so ctx is
+// checked once per symbol and a cancelled run returns ctx.Err() early.
 //
 // Undefined imports (e.g. puts@GLIBC_2.2.5: STT_FUNC, SHN_UNDEF, Value 0) are
 // dropped: on a PIE the first PT_LOAD has Vaddr 0, so Value 0 would map to file
@@ -118,9 +120,12 @@ var goTextMarkerRe = regexp.MustCompile(`^runtime\.(text(\.[0-9]+)?|etext)$`)
 // The Go linker's zero-size text markers are dropped by name. Every other
 // zero-size symbol is kept: some toolchains emit assembly functions with Size
 // 0, including ones at the very end of .text.
-func filterFuncSyms(syms []elf.Symbol, filter symFilter) []funcSym {
+func filterFuncSyms(ctx context.Context, syms []elf.Symbol, filter symFilter) ([]funcSym, error) {
 	var out []funcSym
 	for _, sym := range syms {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if elf.ST_TYPE(sym.Info) != elf.STT_FUNC {
 			continue
 		}
@@ -136,15 +141,16 @@ func filterFuncSyms(syms []elf.Symbol, filter symFilter) []funcSym {
 		}
 		out = append(out, fs)
 	}
-	return out
+	return out, nil
 }
 
-// isGoTextMarker reports whether sym is one of the Go linker's zero-size
-// text delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
-// go:textfipsstart and go:textfipsend that the linker emits around the crypto
-// FIPS module on every supported ELF target, whether or not GOFIPS140 is set
-// (cmd/link/internal/ld/fips140.go). The FIPS pair is matched
-// by name alone: gosym derives a function's size from the next entry, so the
+// isGoTextMarker reports whether sym is one of the Go linker's zero-size text
+// delimiters (see goTextMarkerRe), or one of the 1-byte padding symbols
+// go:textfipsstart and go:textfipsend. The linker emits that pair around the
+// crypto FIPS module whenever obj.EnableFIPS is true, which holds on every ELF
+// target and does not depend on GOFIPS140: default builds carry it too
+// (cmd/link/internal/ld/fips140.go, loadfips). The pair is matched by name
+// alone: gosym derives a function's size from the next entry, so the
 // .gopclntab path reports go:textfipsstart with a size larger than one.
 func isGoTextMarker(sym elf.Symbol) bool {
 	if sym.Name == "go:textfipsstart" || sym.Name == "go:textfipsend" {

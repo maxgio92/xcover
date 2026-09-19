@@ -73,10 +73,12 @@ Every symbol read from `.symtab` or DWARF is wrapped in a `funcSym` by
 format option is passed, so overloads and template instantiations stay
 distinct; the only option caps the output at 64 KiB, and input over 16 KiB
 passes through unchanged, because symbol names are untrusted input. Names from
-`.gopclntab` are Go names and skip the demangler. The filters
-and `funcEntriesFromSymbols` share that value, and the latter copies it into
+`.gopclntab` are Go names and skip the demangler. The filters and
+`funcEntriesFromSymbols` share that value, and the latter copies it into
 `FunctionEntry.Demangled`. Names without mangling, including the synthetic
 recovery names, demangle to themselves. The raw name remains the report key.
+Demangling dominates resolution time on large symbol tables, so the pass over
+`.symtab` checks the context once per symbol and a cancelled run stops early.
 
 ### 2. Filter
 

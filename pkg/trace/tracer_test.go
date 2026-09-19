@@ -106,12 +106,16 @@ func newReportTracer(t *testing.T) *UserTracer {
 	return NewUserTracer(WithTracerReport(true), WithTracerTracee(tracee))
 }
 
-func readReport(t *testing.T, path string) coverage.CoverageReport {
+// readReport reads a report the tracer wrote through coverage.ReadReport, so
+// every test here also checks that the producer output passes the consumer's
+// validation.
+func readReport(t *testing.T, path string) *coverage.CoverageReport {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	require.NoError(t, err)
-	var report coverage.CoverageReport
-	require.NoError(t, json.Unmarshal(data, &report))
+	defer f.Close()
+	report, err := coverage.ReadReport(f)
+	require.NoError(t, err)
 	return report
 }
 
@@ -200,6 +204,27 @@ func reportBytesWithoutTimestamp(t *testing.T, path string) []byte {
 	out, err := json.Marshal(fields)
 	require.NoError(t, err)
 	return out
+}
+
+// TestWriteReport_MergeRoundTrip writes a report through the tracer, reads it
+// back with coverage.ReadReport and merges it with itself. The merge must
+// give the input back apart from generated_at, which shows that the producer
+// and coverage.Merge agree on ordering, cov_by_func and the metadata fields.
+func TestWriteReport_MergeRoundTrip(t *testing.T) {
+	tracer := newReportTracer(t)
+	tracer.ack.Store(cookie(0x30), struct{}{})
+	tracer.ack.Store(cookie(0x10), struct{}{})
+
+	path := filepath.Join(t.TempDir(), "report.json")
+	require.NoError(t, tracer.writeReport(path))
+	report := readReport(t, path)
+
+	merged, err := coverage.Merge([]*coverage.CoverageReport{report, report})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, merged.GeneratedAt)
+	merged.GeneratedAt = report.GeneratedAt
+	require.Equal(t, report, merged)
 }
 
 func TestWriteReport_EmptyAck(t *testing.T) {

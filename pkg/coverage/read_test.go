@@ -28,9 +28,10 @@ const validReport = `{
 
 func TestReadReport(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantErr string
+		name          string
+		input         string
+		wantErr       string
+		wantFunctions []coverage.FunctionCoverage
 	}{
 		{
 			name:  "valid report",
@@ -111,7 +112,37 @@ func TestReadReport(t *testing.T) {
 		{
 			name:    "null function record",
 			input:   `{"schema_version":1,"build_id":"abc","functions":[null]}`,
-			wantErr: "has no name",
+			wantErr: "function record is null",
+		},
+		{
+			name:    "missing offset",
+			input:   `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":["foo"],"functions":[{"name":"foo","hit":true}]}`,
+			wantErr: `function "foo" has no offset`,
+		},
+		{
+			name:    "null offset",
+			input:   `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":["foo"],"functions":[{"name":"foo","offset":null,"hit":true}]}`,
+			wantErr: `function "foo" has no offset`,
+		},
+		{
+			name:    "missing hit",
+			input:   `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":[],"functions":[{"name":"foo","offset":1}]}`,
+			wantErr: `function "foo" has no hit`,
+		},
+		{
+			name:    "null hit",
+			input:   `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":[],"functions":[{"name":"foo","offset":1,"hit":null}]}`,
+			wantErr: `function "foo" has no hit`,
+		},
+		{
+			name:          "explicit zero offset",
+			input:         `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":["foo"],"functions":[{"name":"foo","offset":0,"hit":true}]}`,
+			wantFunctions: []coverage.FunctionCoverage{{Name: "foo", Offset: 0, Hit: true}},
+		},
+		{
+			name:          "explicit false hit",
+			input:         `{"schema_version":1,"build_id":"abc","funcs_traced":["foo"],"funcs_ack":[],"functions":[{"name":"foo","offset":1,"hit":false}]}`,
+			wantFunctions: []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: false}},
 		},
 	}
 
@@ -128,6 +159,9 @@ func TestReadReport(t *testing.T) {
 			require.NotNil(t, report)
 			require.Equal(t, coverage.SchemaVersion, report.SchemaVersion)
 			require.Equal(t, "abc", report.BuildID)
+			if tt.wantFunctions != nil {
+				require.Equal(t, tt.wantFunctions, report.Functions)
+			}
 		})
 	}
 }

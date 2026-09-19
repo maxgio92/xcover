@@ -328,6 +328,13 @@ cannot be verified and is refused unless `--allow-missing-build-id` is set, in
 which case the merged `build_id` is empty. Pass `-` to read one report from
 stdin.
 
+Symbol aliases share an offset, and each run keeps one name per offset,
+normally the one its include pattern left. When two inputs with the same
+`build_id` name one offset differently, the merged report keeps the name that
+sorts first in byte order, so the other name leaves `funcs_traced` and
+`funcs_ack`. Without a verified `build_id` the
+conflict is refused.
+
 ## Use in CI
 
 xcover fits a job that already runs your functional tests. The job needs root
@@ -413,7 +420,6 @@ for `trace_pipe` inspection.
   `/tmp/xcover.log`; the report does not record which scope was used.
 - **Binary must not change on disk** while a session is running, because probe
   offsets are computed once at start.
-- **No merge of multiple reports yet.** Each run writes a fresh file.
 
 Open feature requests and known gaps are tracked in
 [GitHub issues](https://github.com/maxgio92/xcover/issues).

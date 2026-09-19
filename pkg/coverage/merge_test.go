@@ -1,6 +1,8 @@
 package coverage_test
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -315,4 +317,29 @@ func TestMergeDefaultClock(t *testing.T) {
 	generated, err := time.Parse(time.RFC3339, got.GeneratedAt)
 	require.NoError(t, err)
 	require.False(t, generated.Before(before))
+}
+
+// TestMergeFieldPolicy checks that every exported CoverageReport field has an
+// entry in mergeFieldPolicy, so a new field cannot reach the merged report as
+// a silent zero value before a policy is chosen for it.
+func TestMergeFieldPolicy(t *testing.T) {
+	typ := reflect.TypeFor[coverage.CoverageReport]()
+	fields := make(map[string]bool, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		fields[field.Name] = true
+
+		policy, ok := coverage.MergeFieldPolicy[field.Name]
+		require.True(t, ok, "field %s has no merge policy; add it to mergeFieldPolicy and to Merge", field.Name)
+		action, reason, _ := strings.Cut(policy, ":")
+		require.Contains(t, []string{"merged", "recomputed", "dropped"}, action, "field %s: policy %q must start with merged, recomputed or dropped", field.Name, policy)
+		require.NotEmpty(t, strings.TrimSpace(reason), "field %s: policy %q needs a reason after the colon", field.Name, policy)
+	}
+
+	for name := range coverage.MergeFieldPolicy {
+		require.True(t, fields[name], "mergeFieldPolicy names %s, which CoverageReport no longer has", name)
+	}
 }

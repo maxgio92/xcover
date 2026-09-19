@@ -28,6 +28,7 @@ Generated from the command help by `make docs`. Do not edit by hand.
 - [xcover wait](xcover_wait.md)
 - [xcover status](xcover_status.md)
 - [xcover stop](xcover_stop.md)
+- [xcover merge](xcover_merge.md)
 
 ## Design
 

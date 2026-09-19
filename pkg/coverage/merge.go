@@ -40,12 +40,33 @@ func WithAllowMissingBuildID() MergeOption {
 	}
 }
 
-// WithClock overrides the time source used for generated_at. It is exported
-// for the package tests, which live in package coverage_test.
-func WithClock(now func() time.Time) MergeOption {
+// withClock overrides the time source used for generated_at so tests get a
+// fixed value. It is not part of the package API.
+func withClock(now func() time.Time) MergeOption {
 	return func(c *mergeConfig) {
 		c.now = now
 	}
+}
+
+// mergeFieldPolicy states what Merge does with every CoverageReport field:
+// "merged" fields are combined from the inputs, "recomputed" fields are
+// derived from the merged functions or set fresh, and "dropped" fields are
+// left out of the result with the reason after the colon. Merge builds its
+// result field by field at the end of the function and does not read this
+// table. The table records the intended policy; TestMergeFieldPolicy fails
+// when a CoverageReport field has no entry, so a new field cannot be
+// forgotten, but the matching Merge logic still has to be written.
+var mergeFieldPolicy = map[string]string{
+	"SchemaVersion": "recomputed: the merged report is written in the schema of this build",
+	"XcoverVersion": "recomputed: the version of the xcover that merged",
+	"GeneratedAt":   "recomputed: the time of the merge",
+	"Kernel":        "merged: kept when every input agrees, empty otherwise",
+	"ExePath":       "merged: kept when every input agrees, empty otherwise",
+	"BuildID":       "merged: shared by every input, empty when a missing one is allowed in",
+	"FuncsTraced":   "recomputed: the names of the merged functions",
+	"FuncsAck":      "recomputed: the names of the merged functions that were hit",
+	"CovByFunc":     "recomputed: ack over traced of the merged functions",
+	"Functions":     "merged: union by offset, hit is the OR of the inputs",
 }
 
 // Merge combines the reports into one. A function is identified by its

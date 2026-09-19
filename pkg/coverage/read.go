@@ -10,8 +10,9 @@ import (
 // ReadReport decodes exactly one report document from r and validates it
 // against the schema this build understands. It fails closed: an unsupported
 // or missing schema_version, an empty or null document, trailing data after
-// the document, a funcs_ack entry that is not in funcs_traced, or two
-// function names at the same offset are all rejected.
+// the document, a function record without offset or hit, a funcs_ack entry
+// that is not in funcs_traced, or two function names at the same offset are
+// all rejected.
 func ReadReport(r io.Reader) (*CoverageReport, error) {
 	// Decode into a bare struct, not NewCoverageReport, so a missing
 	// schema_version stays zero instead of inheriting the current default.

@@ -370,3 +370,22 @@ func TestMerge_PIDPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, unfiltered.PID)
 }
+
+// TestMerge_DemangledFollowsName pins how the optional demangled name merges:
+// it follows the raw name the merge keeps, and a shard without it does not
+// erase it when the raw names agree.
+func TestMerge_DemangledFollowsName(t *testing.T) {
+	agree, err := coverage.Merge([]*coverage.CoverageReport{
+		report("abc", []coverage.FunctionCoverage{{Name: "_ZN3app3barEv", Demangled: "app::bar()", Offset: 1}}),
+		report("abc", []coverage.FunctionCoverage{{Name: "_ZN3app3barEv", Offset: 1, Hit: true}}),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []coverage.FunctionCoverage{{Name: "_ZN3app3barEv", Demangled: "app::bar()", Offset: 1, Hit: true}}, agree.Functions)
+
+	alias, err := coverage.Merge([]*coverage.CoverageReport{
+		report("abc", []coverage.FunctionCoverage{{Name: "_ZN3app3zzzEv", Demangled: "app::zzz()", Offset: 1}}),
+		report("abc", []coverage.FunctionCoverage{{Name: "_ZN3app3aaaEv", Demangled: "app::aaa()", Offset: 1}}),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []coverage.FunctionCoverage{{Name: "_ZN3app3aaaEv", Demangled: "app::aaa()", Offset: 1}}, alias.Functions)
+}

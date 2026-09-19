@@ -32,9 +32,10 @@ func (f *FunctionCoverage) UnmarshalJSON(data []byte) error {
 	}
 
 	var record struct {
-		Name   string  `json:"name"`
-		Offset *uint64 `json:"offset"`
-		Hit    *bool   `json:"hit"`
+		Name      string  `json:"name"`
+		Demangled string  `json:"demangled"`
+		Offset    *uint64 `json:"offset"`
+		Hit       *bool   `json:"hit"`
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
 		return err
@@ -46,7 +47,7 @@ func (f *FunctionCoverage) UnmarshalJSON(data []byte) error {
 		return errors.Errorf("function %q has no hit", record.Name)
 	}
 
-	*f = FunctionCoverage{Name: record.Name, Offset: *record.Offset, Hit: *record.Hit}
+	*f = FunctionCoverage{Name: record.Name, Demangled: record.Demangled, Offset: *record.Offset, Hit: *record.Hit}
 
 	return nil
 }

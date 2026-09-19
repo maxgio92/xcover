@@ -67,7 +67,7 @@ var mergeFieldPolicy = map[string]string{
 	"FuncsTraced":   "recomputed: the names of the merged functions",
 	"FuncsAck":      "recomputed: the names of the merged functions that were hit",
 	"CovByFunc":     "recomputed: ack over traced of the merged functions",
-	"Functions":     "merged: union by offset, hit is the OR of the inputs",
+	"Functions":     "merged: union by offset, hit is the OR of the inputs, demangled follows the kept name",
 }
 
 // Merge combines the reports into one. A function is identified by its
@@ -116,7 +116,18 @@ func Merge(reports []*CoverageReport, opts ...MergeOption) (*CoverageReport, err
 				}
 				name = min(prev.Name, fn.Name)
 			}
-			byOffset[fn.Offset] = FunctionCoverage{Name: name, Offset: fn.Offset, Hit: prev.Hit || fn.Hit}
+			// The demangled name follows the kept raw name; when the raw names
+			// agree, a shard that recorded none does not erase it.
+			demangled := fn.Demangled
+			if ok {
+				switch {
+				case prev.Name != fn.Name && name == prev.Name:
+					demangled = prev.Demangled
+				case demangled == "":
+					demangled = prev.Demangled
+				}
+			}
+			byOffset[fn.Offset] = FunctionCoverage{Name: name, Demangled: demangled, Offset: fn.Offset, Hit: prev.Hit || fn.Hit}
 		}
 	}
 

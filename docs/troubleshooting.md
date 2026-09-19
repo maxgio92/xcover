@@ -209,7 +209,7 @@ privileged; a rootless engine cannot grant them, since it runs in a user
 namespace itself. Userspace BPF mode needs neither; see
 [userspace-bpf.md](userspace-bpf.md).
 
-## `error attaching probe: error attaching uprobe for functions with cookies: [...]`
+## `error attaching probe: error attaching uprobe_multi link for N functions (first cookie 0x...)`
 
 Returned by `xcover run` when `uprobe_multi` refuses a batch of functions
 (`pkg/probe/probe.go`). The run exits before signalling readiness and writes
@@ -243,16 +243,17 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 
 - Functions the compiler inlined have a symbol but no entry point, so their
   probe never fires.
-- More than 40960 distinct functions ran. The BPF `seen_funcs` map holds
-  40960 entries and the insert is not checked (`bpf/trace.bpf.c`), so
-  further functions are not deduplicated and their events keep flowing; the
-  effect on the report depends on which functions were recorded first.
+- The kernel rejected a `seen_funcs` insert. The map is sized to the traced
+  function count, so this is rare; when it happens `xcover run` logs a warning
+  on exit with the `drops` counter (`bpf/trace.bpf.c`). The counter is the
+  number of calls whose event was discarded because the function could not be
+  recorded in `seen_funcs`, so it can exceed the number of functions missing
+  from the report.
 - `--pid` was set. The flag is parsed but not applied
   (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`), so hits from every process
   running the binary are counted and the report does not describe a single
   process.
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
-`--scope project`, `--include` or `--exclude` so the function count is well
-below 40960. Compare `funcs_traced` with `funcs_ack` to see which functions
-never fired.
+`--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with
+`funcs_ack` to see which functions never fired.

@@ -13,13 +13,20 @@ OUTPUT := $(current_dir)/pkg/probe/output
 
 ARCH := $(subst x86_64,x86,$(shell uname -m))
 GOARCH := $(subst x86,amd64,$(subst aarch64,arm64,$(ARCH)))
+# libbpf headers expect __TARGET_ARCH_arm64, not the uname spelling, so the
+# define stays correct if bpf_tracing.h is included later.
+BPF_ARCH := $(subst aarch64,arm64,$(ARCH))
 
 # ebpf
 
 VMLINUXH := vmlinux.h
 BTFFILE := /sys/kernel/btf/vmlinux
 
-CFLAGS ?= -D__TARGET_ARCH_$(ARCH)
+CFLAGS ?= -D__TARGET_ARCH_$(BPF_ARCH)
+# BPF_DEBUG=1 compiles in the bpf_printk debug tracing of the BPF program.
+ifdef BPF_DEBUG
+override CFLAGS += -DXCOVER_DEBUG
+endif
 
 # libbpf
 

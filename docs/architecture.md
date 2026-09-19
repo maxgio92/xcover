@@ -34,7 +34,7 @@ xcover run --path BIN
    ├─ 1. resolve      ELF → []function{name, file offset}        pkg/trace/resolver*.go
    ├─ 2. filter       exclude, include, scope                     pkg/trace/resolver.go, resolver_go.go, scope.go
    ├─ 3. load         embedded trace.bpf.o → BPF module           pkg/probe/probe.go
-   ├─ 4. attach       uprobe_multi links, 128 offsets per link    pkg/trace/tracer.go, pkg/probe/probe.go
+   ├─ 4. attach       uprobe_multi links, 65536 offsets per link  pkg/trace/tracer.go, pkg/probe/probe.go
    ├─ 5. ready        close readiness channel, serve /tmp/xcover.sock   pkg/healthcheck
    ├─ 6. events       ring buffer → channel → ack map             pkg/probe/probe.go, pkg/trace/tracer.go
    └─ 7. report       on SIGINT/SIGTERM write xcover-report.json  pkg/trace/tracer.go, pkg/coverage
@@ -83,10 +83,13 @@ collapse into one entry.
 libbpfgo with `SkipMemlockBump` (the kernel accounts BPF memory to the memcg
 since 5.11), and sets the expected attach type to `TRACE_UPROBE_MULTI`.
 
-`UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 128, the
-largest that fits the kernel's `bpf_attr` buffer, and calls
-`AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. The PID argument
-`-1` means every process that maps the file. The first failed batch aborts
+`UserTracer.attachProbe` in `tracer.go` splits offsets into batches of 65536
+(`bpfUprobeMultiAttachMaxOffsets`) and calls
+`AttachUprobeMulti(-1, exePath, offsets, cookies)` per batch. libbpf passes the
+offset and cookie arrays to the kernel by pointer, so the batch is bounded only
+by the kernel cap `MAX_UPROBE_MULTI_CNT` (1<<20) per link; 65536 keeps the
+per-syscall arrays small while staying well below it. The PID argument `-1`
+means every process that maps the file. The first failed batch aborts
 `Run` with an error before readiness is signalled; links from earlier batches
 are destroyed on close.
 
@@ -102,11 +105,21 @@ The socket is removed on every exit path.
 
 ### 6. Events
 
-`bpf/trace.bpf.c` defines two maps: `events`, a 256 MB ring buffer, and
-`seen_funcs`, a hash map of 40960 cookies. The program reads the attach cookie,
-returns if the cookie is already in `seen_funcs`, otherwise inserts it and
-submits an 8-byte event. The program only fires on function entry; there is no
-return probe.
+`bpf/trace.bpf.c` defines three maps: `events`, a 256 MB ring buffer;
+`seen_funcs`, a hash map whose `max_entries` is set to the traced function
+count before load by `resizeSeenFuncs` (the compiled default of 40960 applies
+only when the count is unknown); and `drops`, a one-slot array counter. The
+program reads the attach cookie and returns if the cookie is already in
+`seen_funcs`. Otherwise it reserves an 8-byte event, inserts the cookie and
+submits the event. The insert comes after the reserve so a failed reserve
+does not mark the function as seen. A rejected insert discards the event and
+increments `drops`, which `Probe.Drops` reads on exit. The program only fires
+on function entry; there is no return probe.
+
+`make xcover/bpf` compiles the program with clang `-target bpf` and
+`-D__TARGET_ARCH_<arch>`, where `<arch>` is the libbpf spelling (`x86`,
+`arm64`) rather than the `uname -m` one. `bpf_printk` is compiled out unless
+the object is built with `XCOVER_DEBUG`, which `make xcover BPF_DEBUG=1` adds.
 
 Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096
 events. A single consumer goroutine (`processEvents`) receives from that channel
@@ -119,7 +132,9 @@ probes so no new events are produced. It then keeps consuming the event channel
 until no event has arrived for 150 ms (`drainQuietPeriod`) and writes
 `xcover-report.json` in the current directory when `--report` is true. The quiet
 period is a heuristic, not a completion signal; the comment on
-`drainQuietPeriod` in `tracer.go` states what it does not guarantee.
+`drainQuietPeriod` in `tracer.go` states what it does not guarantee. After the drain, `warnDrops` reads the `drops` counter through `Probe.Drops`
+and logs a warning when it is not zero, whether or not `--report` is set: those calls were not recorded, so the
+report undercounts coverage.
 `funcs_traced` is every resolved function, `funcs_ack` the names found for
 acknowledged cookies, `cov_by_func` the ratio of acknowledged cookies to
 resolved functions times 100.
@@ -156,9 +171,6 @@ related areas:
   cannot resolve, which stops the iteration and truncates `funcs_ack`.
   `cov_by_func` uses the raw ack count, so it can disagree with
   `len(funcs_ack)`. See issue #175.
-- `bpf/trace.bpf.c` calls `bpf_printk` on every hit, including the fast path.
-- `bpf_map_update_elem` on `seen_funcs` is not checked; past 40960 entries every
-  call of an untracked function emits an event.
 - `shouldInclude` compiles the include and exclude regexes once per symbol, and
   an invalid pattern panics instead of returning an error.
 - `internal/utils.Hash` and `pkg/static` are unused by the CLI path.

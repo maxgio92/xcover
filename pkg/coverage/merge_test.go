@@ -343,3 +343,30 @@ func TestMergeFieldPolicy(t *testing.T) {
 		require.True(t, fields[name], "mergeFieldPolicy names %s, which CoverageReport no longer has", name)
 	}
 }
+
+// TestMerge_PIDPolicy pins the pid field policy: the merged report keeps the
+// filter only when every input recorded the same one.
+func TestMerge_PIDPolicy(t *testing.T) {
+	fns := []coverage.FunctionCoverage{{Name: "foo", Offset: 1, Hit: true}}
+
+	same, err := coverage.Merge([]*coverage.CoverageReport{
+		report("abc", fns, coverage.WithReportPID(42)),
+		report("abc", fns, coverage.WithReportPID(42)),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 42, same.PID)
+
+	differ, err := coverage.Merge([]*coverage.CoverageReport{
+		report("abc", fns, coverage.WithReportPID(42)),
+		report("abc", fns, coverage.WithReportPID(43)),
+	})
+	require.NoError(t, err)
+	require.Zero(t, differ.PID)
+
+	unfiltered, err := coverage.Merge([]*coverage.CoverageReport{
+		report("abc", fns, coverage.WithReportPID(42)),
+		report("abc", fns),
+	})
+	require.NoError(t, err)
+	require.Zero(t, unfiltered.PID)
+}

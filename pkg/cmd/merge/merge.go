@@ -45,8 +45,9 @@ build_id.
 Symbol aliases share an offset, and each run keeps one name per offset,
 normally the one its include pattern left. When two inputs with the same
 build_id name one offset differently, the merged report keeps the name that
-sorts first in byte order and the other name leaves funcs_traced and funcs_ack. Without a verified build_id the conflict is
-refused.
+sorts first in byte order and the other name leaves funcs_traced and
+funcs_ack. Without a verified build_id the conflict is refused. The pid field
+is kept when every input recorded the same --pid filter and omitted otherwise.
 
 Pass '%s' as a path to read one report from standard input. The merged report is
 written to standard output unless --output is set.`, CmdName, stdinPath),

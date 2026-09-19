@@ -61,6 +61,7 @@ var mergeFieldPolicy = map[string]string{
 	"XcoverVersion": "recomputed: the version of the xcover that merged",
 	"GeneratedAt":   "recomputed: the time of the merge",
 	"Kernel":        "merged: kept when every input agrees, empty otherwise",
+	"PID":           "merged: kept when every input recorded the same filter, omitted otherwise",
 	"ExePath":       "merged: kept when every input agrees, empty otherwise",
 	"BuildID":       "merged: shared by every input, empty when a missing one is allowed in",
 	"FuncsTraced":   "recomputed: the names of the merged functions",
@@ -151,6 +152,7 @@ func Merge(reports []*CoverageReport, opts ...MergeOption) (*CoverageReport, err
 		WithReportBuildID(buildID),
 		WithReportExePath(commonValue(reports, func(r *CoverageReport) string { return r.ExePath })),
 		WithReportKernel(commonValue(reports, func(r *CoverageReport) string { return r.Kernel })),
+		WithReportPID(commonPID(reports)),
 		WithReportXcoverVersion(settings.Version),
 		WithReportGeneratedAt(cfg.now().UTC().Format(time.RFC3339)),
 	), nil
@@ -184,6 +186,20 @@ func mergeBuildID(reports []*CoverageReport, allowMissing bool) (string, error) 
 
 // commonValue returns the value of get when every report agrees on it, or
 // the empty string otherwise.
+// commonPID returns the PID filter every input recorded, or 0 when the
+// inputs disagree or none was recorded; WithReportPID leaves the field unset
+// for 0, so a merge across differently filtered runs carries no pid.
+func commonPID(reports []*CoverageReport) int {
+	first := reports[0].PID
+	for _, r := range reports[1:] {
+		if r.PID != first {
+			return 0
+		}
+	}
+
+	return first
+}
+
 func commonValue(reports []*CoverageReport, get func(*CoverageReport) string) string {
 	first := get(reports[0])
 	for _, r := range reports[1:] {

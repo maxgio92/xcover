@@ -30,8 +30,11 @@ func TestRun_MissingPIDFile(t *testing.T) {
 	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
 
 	err := o.Run(nil, nil)
-	if !errors.Is(err, ErrNotRunningOrNotFound) {
-		t.Fatalf("Run() error = %v, want ErrNotRunningOrNotFound", err)
+	if !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("Run() error = %v, want ErrNotRunning", err)
+	}
+	if got, want := err.Error(), "xcover is not running: PID file not found"; got != want {
+		t.Fatalf("Run() error string = %q, want %q", got, want)
 	}
 }
 

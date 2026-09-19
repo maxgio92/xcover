@@ -15,11 +15,12 @@ import (
 )
 
 var (
-	ErrNotRunningOrNotFound = errors.Errorf("%s not running or PID file not found", settings.CmdName)
-	ErrInvalidPIDFile       = errors.New("invalid PID file")
-	ErrProcessNotFound      = errors.New("process not found")
-	ErrFailedToStop         = errors.Errorf("failed to stop %s", settings.CmdName)
-	ErrForceKilled          = errors.Errorf("%s did not stop within the timeout and was force killed", settings.CmdName)
+	// ErrNotRunning matches wait's wording so both commands share one message.
+	ErrNotRunning      = errors.Errorf("%s is not running", settings.CmdName)
+	ErrInvalidPIDFile  = errors.New("invalid PID file")
+	ErrProcessNotFound = errors.New("process not found")
+	ErrFailedToStop    = errors.Errorf("failed to stop %s", settings.CmdName)
+	ErrForceKilled     = errors.Errorf("%s did not stop within the timeout and was force killed", settings.CmdName)
 )
 
 const (
@@ -54,8 +55,10 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		if errors.Is(err, common.ErrInvalidPID) {
 			return ErrInvalidPIDFile
 		}
-
-		return ErrNotRunningOrNotFound
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: PID file not found", ErrNotRunning)
+		}
+		return ErrNotRunning
 	}
 
 	process, err := os.FindProcess(pid)

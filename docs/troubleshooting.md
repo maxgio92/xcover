@@ -9,15 +9,18 @@ command prints nothing useful.
 
 ## `xcover is not running`
 
-Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) and by `xcover status`
-(`pkg/cmd/status/status.go`).
+Printed by `xcover wait` (`pkg/cmd/wait/wait.go`), `xcover status`
+(`pkg/cmd/status/status.go`), and `xcover stop` (`pkg/cmd/stop/stop.go`).
+`stop` appends `: PID file not found` when `/tmp/xcover.pid` itself is missing.
 
 **Cause.** `/tmp/xcover.pid` is missing, or the PID it names is not alive.
 Either `xcover run --detach` was never started, or the daemon exited before
-`wait` ran, most often because the BPF program failed to load or the function
-list was empty.
+`wait`/`stop` ran, most often because the BPF program failed to load or the
+function list was empty.
 
-**Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
+**Fix.** Nothing to stop. Read `/tmp/xcover.log` for the daemon's error and
+fix that first. A PID file with unparsable content gives `invalid PID file`
+instead; delete a corrupt PID file by hand.
 
 ## `xcover exited before becoming ready`
 
@@ -56,17 +59,6 @@ per host because the state paths are fixed.
 **Fix.** Run `sudo xcover status` to see the PID, then `sudo xcover stop` to
 end that session before starting a new one. If the PID belongs to an
 unrelated process that reused the number, remove `/tmp/xcover.pid` by hand.
-
-## `xcover not running or PID file not found`
-
-Printed by `xcover stop` (`pkg/cmd/stop/stop.go`).
-
-**Cause.** `/tmp/xcover.pid` cannot be read. The daemon already exited and
-removed it, or it was never started. A PID file with unparsable content gives
-`invalid PID file` instead.
-
-**Fix.** Nothing to stop. If you expected a running daemon, read
-`/tmp/xcover.log` to learn why it exited. Delete a corrupt PID file by hand.
 
 ## `xcover did not stop within the timeout and was force killed`
 

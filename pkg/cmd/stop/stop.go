@@ -55,6 +55,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 			return ErrInvalidPIDFile
 		}
 
+		common.DumpLogTail(os.Stderr, common.DefaultLogTailLines)
 		return ErrNotRunningOrNotFound
 	}
 
@@ -65,6 +66,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	err = process.Signal(syscall.SIGTERM)
 	if err != nil {
+		common.DumpLogTail(os.Stderr, common.DefaultLogTailLines)
 		return ErrFailedToStop
 	}
 

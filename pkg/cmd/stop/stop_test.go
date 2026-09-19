@@ -3,10 +3,12 @@ package stop
 import (
 	"bufio"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,9 +19,15 @@ import (
 func withTempPidFile(t *testing.T) string {
 	t.Helper()
 
-	orig := settings.PidFile
-	settings.PidFile = filepath.Join(t.TempDir(), "test.pid")
-	t.Cleanup(func() { settings.PidFile = orig })
+	dir := t.TempDir()
+	origPid := settings.PidFile
+	origLog := settings.LogFile
+	settings.PidFile = filepath.Join(dir, "test.pid")
+	settings.LogFile = filepath.Join(dir, "xcover.log")
+	t.Cleanup(func() {
+		settings.PidFile = origPid
+		settings.LogFile = origLog
+	})
 
 	return settings.PidFile
 }
@@ -32,6 +40,34 @@ func TestRun_MissingPIDFile(t *testing.T) {
 	err := o.Run(nil, nil)
 	if !errors.Is(err, ErrNotRunningOrNotFound) {
 		t.Fatalf("Run() error = %v, want ErrNotRunningOrNotFound", err)
+	}
+}
+
+func TestRun_MissingPIDFilePrintsLogTail(t *testing.T) {
+	withTempPidFile(t)
+	if err := os.WriteFile(settings.LogFile, []byte("failed to load BPF object\n"), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	runErr := (&Options{Options: options.NewOptions(), timeout: defaultTimeout}).Run(nil, nil)
+	_ = w.Close()
+	os.Stderr = orig
+	out, readErr := io.ReadAll(r)
+	if readErr != nil {
+		t.Fatalf("read stderr: %v", readErr)
+	}
+	if !errors.Is(runErr, ErrNotRunningOrNotFound) {
+		t.Fatalf("Run() error = %v, want ErrNotRunningOrNotFound", runErr)
+	}
+	got := string(out)
+	if !strings.Contains(got, "failed to load BPF object") {
+		t.Fatalf("stderr = %q, want daemon log tail", got)
 	}
 }
 

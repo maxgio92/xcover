@@ -1,6 +1,7 @@
 package wait
 
 import (
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -18,9 +19,15 @@ import (
 func withTempPidFile(t *testing.T) string {
 	t.Helper()
 
-	orig := settings.PidFile
-	settings.PidFile = filepath.Join(t.TempDir(), "test.pid")
-	t.Cleanup(func() { settings.PidFile = orig })
+	dir := t.TempDir()
+	origPid := settings.PidFile
+	origLog := settings.LogFile
+	settings.PidFile = filepath.Join(dir, "test.pid")
+	settings.LogFile = filepath.Join(dir, "xcover.log")
+	t.Cleanup(func() {
+		settings.PidFile = origPid
+		settings.LogFile = origLog
+	})
 
 	return settings.PidFile
 }
@@ -37,6 +44,33 @@ func TestRun_NotRunning(t *testing.T) {
 	}
 
 	require.ErrorIs(t, o.Run(nil, nil), ErrNotRunning)
+}
+
+func TestRun_NotRunningPrintsLogTail(t *testing.T) {
+	path := withTempPidFile(t)
+	require.NoError(t, os.WriteFile(path, []byte(strconv.Itoa(1<<22+1)), 0644))
+	require.NoError(t, os.WriteFile(settings.LogFile, []byte("bpf load failed: EPERM\nempty function list\n"), 0644))
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = w
+	o := &Options{
+		Options:    options.NewOptions(),
+		socketPath: filepath.Join(t.TempDir(), "missing.sock"),
+		timeout:    10 * time.Second,
+	}
+	runErr := o.Run(nil, nil)
+	require.NoError(t, w.Close())
+	os.Stderr = orig
+	out, readErr := io.ReadAll(r)
+	require.NoError(t, readErr)
+
+	require.ErrorIs(t, runErr, ErrNotRunning)
+	got := string(out)
+	require.Contains(t, got, "last 2 lines of "+settings.LogFile)
+	require.Contains(t, got, "bpf load failed: EPERM")
+	require.Contains(t, got, "empty function list")
 }
 
 // TestRun_DaemonExitsWhilePolling asserts the polling loop fails fast once

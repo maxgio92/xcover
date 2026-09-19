@@ -17,7 +17,8 @@ Either `xcover run --detach` was never started, or the daemon exited before
 `wait` ran, most often because the BPF program failed to load or the function
 list was empty.
 
-**Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
+**Fix.** `wait` prints the last lines of `/tmp/xcover.log` on stderr before
+this error, so the daemon's reason is on the same output. Fix that first.
 
 ## `xcover exited before becoming ready`
 
@@ -28,8 +29,8 @@ Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) when the daemon dies while
 **Cause.** The daemon failed after start-up: symbol resolution, BPF load or
 uprobe attach returned an error, so it exited instead of signalling readiness.
 
-**Fix.** Read `/tmp/xcover.log` for the error and see the matching entry in
-this page.
+**Fix.** `wait` prints the last lines of `/tmp/xcover.log` on stderr before
+this error. See the matching entry in this page.
 
 ## `timeout waiting for profiler readiness`
 
@@ -65,8 +66,9 @@ Printed by `xcover stop` (`pkg/cmd/stop/stop.go`).
 removed it, or it was never started. A PID file with unparsable content gives
 `invalid PID file` instead.
 
-**Fix.** Nothing to stop. If you expected a running daemon, read
-`/tmp/xcover.log` to learn why it exited. Delete a corrupt PID file by hand.
+**Fix.** Nothing to stop. `stop` prints the last lines of `/tmp/xcover.log`
+on stderr before this error if the file exists. Delete a corrupt PID file by
+hand.
 
 ## `xcover did not stop within the timeout and was force killed`
 

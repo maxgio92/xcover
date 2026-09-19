@@ -52,6 +52,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	o.Logger = o.Logger.With().Str("component", "wait").Logger()
 
 	if !common.IsDaemonRunning() {
+		common.DumpLogTail(os.Stderr, common.DefaultLogTailLines)
 		return ErrNotRunning
 	}
 
@@ -67,6 +68,7 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		// The daemon may fail after start-up (e.g. probe attach failure);
 		// fail fast instead of polling a socket that will never become ready.
 		if !common.IsDaemonRunning() {
+			common.DumpLogTail(os.Stderr, common.DefaultLogTailLines)
 			return ErrExited
 		}
 

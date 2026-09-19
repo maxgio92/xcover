@@ -3,12 +3,17 @@ package common
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/maxgio92/xcover/internal/settings"
 )
+
+// DefaultLogTailLines is how many trailing lines DumpLogTail prints.
+const DefaultLogTailLines = 20
 
 // ErrInvalidPID is returned by ReadPID when the PID file exists but its
 // content cannot be parsed as a PID. Callers should use errors.Is to detect
@@ -53,4 +58,32 @@ func IsDaemonRunning() bool {
 
 	// Check if process exists
 	return process.Signal(syscall.Signal(0)) == nil
+}
+
+// DumpLogTail writes the last n lines of the daemon log to w. A missing or
+// empty log is a no-op so wait/stop can call this on every "not running"
+// path without inventing a second error.
+func DumpLogTail(w io.Writer, n int) {
+	if w == nil {
+		return
+	}
+	if n <= 0 {
+		n = DefaultLogTailLines
+	}
+	data, err := os.ReadFile(settings.LogFile)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	text := strings.TrimRight(string(data), "\n")
+	if text == "" {
+		return
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	fmt.Fprintf(w, "last %d lines of %s:\n", len(lines), settings.LogFile)
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
 }

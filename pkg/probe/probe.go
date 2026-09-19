@@ -230,11 +230,9 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 	}
 
 	// Kernels without commit 46ba0e49b642 (before 6.6.35 and 6.9.5) filter
-	// pid by thread instead of thread group. libbpf's USDT auto-attach
-	// detects the fixed kernel with a link_create probe (pid -1 on path "/":
-	// EINVAL fixed, EBADF broken); the explicit attach used here does not
-	// consult it and xcover does not replicate it because those kernels are
-	// rare.
+	// pid by thread instead of thread group. The explicit attach used here
+	// does not consult libbpf's feature probe for that bug; CheckPIDFilter
+	// replicates it so the tracer can warn before attaching.
 	link, err := p.bpfProg.AttachUprobeMulti(p.pid, exePath, offsets, cookies)
 	if err != nil {
 		if len(cookies) > 0 {

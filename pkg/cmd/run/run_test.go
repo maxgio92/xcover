@@ -184,7 +184,7 @@ func TestValidatePIDThread(t *testing.T) {
 	}
 
 	err := validatePID(id, false)
-	require.ErrorContains(t, err, "not a process (thread-group leader) PID")
+	require.ErrorContains(t, err, "is gone or is not a thread-group leader PID")
 	require.NoError(t, validatePID(os.Getpid(), false))
 	require.ErrorContains(t, validatePID(1<<22+1, false), "no such process")
 }

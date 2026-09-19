@@ -164,9 +164,13 @@ signalled. Without `--pid`, every process that executes the binary counts
 toward coverage.
 
 The kernel `uprobe_multi` filter matches the thread group, so every thread of
-the process is traced on fixed kernels. Linux 6.6 to 6.9 without the backport of
-commit 46ba0e49b642 filtered by thread instead, so on those kernels only hits
-from the main thread are recorded.
+the process is traced. Kernels without upstream commit 46ba0e49b642 (6.6.0 to
+6.6.34, 6.9.0 to 6.9.4, and 6.7 or 6.8 trees without the backport) match one
+thread instead and drop hits from every other thread, which loses most of a Go
+program's hits. xcover checks for that bug when the probes attach and, if it
+finds it, logs a warning naming the kernel release: the report may undercount,
+so use a kernel with the fix (6.6.35, 6.9.5, 6.10 or newer) or drop `--pid`.
+See [docs/troubleshooting.md](docs/troubleshooting.md).
 
 The filter is kernel mode only: `--pid` is refused together with
 `--userspace-bpf`, because bpftime does not enforce the uprobe PID.

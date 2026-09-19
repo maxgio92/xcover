@@ -157,9 +157,10 @@ func (o *Options) preflight() error {
 // attach. pidfd_open(2) (Linux 5.3+) succeeds only for a thread-group leader,
 // matching the kernel's uprobe_multi lookup, and needs no signal permission,
 // so a process owned by someone else is still accepted. A non-leader thread
-// id fails with EINVAL before Linux 6.16 and ENOENT since. An unreaped zombie
-// also passes, so the check proves existence, not liveness, and it is
-// inherently racy.
+// id fails with EINVAL before Linux 6.16 and ENOENT since; before 6.16 EINVAL
+// is also what a leader that exits during the lookup gets, so the two cases
+// share one message. An unreaped zombie also passes, so the check proves
+// existence, not liveness, and it is inherently racy.
 //
 // bpftime stores the uprobe pid but never compares it when hooking, so under
 // --userspace-bpf a positive --pid would silently record hits from every
@@ -183,7 +184,7 @@ func validatePID(pid int, userspaceBPF bool) error {
 		case errors.Is(err, unix.ESRCH):
 			return errors.Wrapf(err, "--pid %d: no such process", pid)
 		case errors.Is(err, unix.EINVAL), errors.Is(err, unix.ENOENT):
-			return errors.Wrapf(err, "--pid %d: not a process (thread-group leader) PID", pid)
+			return errors.Wrapf(err, "--pid %d: is gone or is not a thread-group leader PID", pid)
 		}
 		return errors.Wrapf(err, "--pid %d: pidfd_open failed", pid)
 	}

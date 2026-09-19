@@ -17,7 +17,10 @@ const pidFilterGoScenario = "pid-filter-go-module"
 
 // TestPIDFilterRestrictsToProcess runs two instances of the same binary, each
 // calling a distinct marker function, and checks that --pid records hits from
-// the selected instance only while a run without --pid records both.
+// the selected instance only while a run without --pid records both. Each
+// instance also calls workerMarker from a second thread; the filtered run
+// must record it too, which proves the kernel filters by thread group and not
+// by the thread named by --pid.
 func TestPIDFilterRestrictsToProcess(t *testing.T) {
 	xcover := xcoverBinary(t)
 	buildDir := t.TempDir()
@@ -29,7 +32,7 @@ func TestPIDFilterRestrictsToProcess(t *testing.T) {
 		t.Fatalf("report pid = %d, want %d", filtered.PID, filteredPID)
 	}
 	acked := stringSet(filtered.FuncsAck)
-	for _, name := range []string{"main.tick", "main.onlyA"} {
+	for _, name := range []string{"main.tick", "main.onlyA", "main.workerMarker"} {
 		if !acked[name] {
 			t.Fatalf("--pid run did not ack %q; acked=%v", name, filtered.FuncsAck)
 		}
@@ -43,7 +46,7 @@ func TestPIDFilterRestrictsToProcess(t *testing.T) {
 		t.Fatalf("report without --pid has pid = %d, want it omitted", control.PID)
 	}
 	acked = stringSet(control.FuncsAck)
-	for _, name := range []string{"main.tick", "main.onlyA", "main.onlyB"} {
+	for _, name := range []string{"main.tick", "main.onlyA", "main.onlyB", "main.workerMarker"} {
 		if !acked[name] {
 			t.Fatalf("control run did not ack %q; acked=%v", name, control.FuncsAck)
 		}

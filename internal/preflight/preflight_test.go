@@ -116,18 +116,59 @@ func TestMissingCapabilities(t *testing.T) {
 	}
 }
 
+// TestIsIdentityUIDMap uses the exact content /proc/self/uid_map has on a
+// host (identity) and under unshare -Ur (a single rootless line); the
+// multi-line case is the shape rootless container engines produce with a
+// subordinate range from /etc/subuid (user_namespaces(7)).
+func TestIsIdentityUIDMap(t *testing.T) {
+	tests := []struct {
+		name    string
+		uidMap  string
+		want    bool
+		wantErr bool
+	}{
+		{name: "identity as printed by the kernel", uidMap: "         0          0 4294967295\n", want: true},
+		{name: "identity without padding", uidMap: "0 0 4294967295", want: true},
+		{name: "unshare -Ur", uidMap: "         0       1000          1\n"},
+		{name: "rootless container with a subordinate range", uidMap: "         0       1000          1\n         1     100000      65536\n"},
+		{name: "identity range from a non-zero id", uidMap: "         0        100 4294967295\n"},
+		{name: "empty map of a namespace without a mapping", uidMap: ""},
+		{name: "two fields", uidMap: "0 0\n", wantErr: true},
+		{name: "four fields", uidMap: "0 0 4294967295 0\n", wantErr: true},
+		{name: "non-numeric field", uidMap: "0 root 4294967295\n", wantErr: true},
+		{name: "length overflows uint32", uidMap: "0 0 4294967296\n", wantErr: true},
+		{name: "negative id", uidMap: "-1 0 4294967295\n", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := isIdentityUIDMap(tt.uidMap)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestRun(t *testing.T) {
 	oldKernel := func() (Version, string, error) { return Version{5, 14}, "kernel 5.14 is older than 6.6", nil }
 	unreadableKernel := func() (Version, string, error) { return Version{}, "", errors.New("uname failed") }
 	okKernel := func() (Version, string, error) { return Version{6, 12}, "", nil }
 	failCaps := func() error { return ErrMissingCapabilities }
 	okCaps := func() error { return nil }
+	initialNS := func() (bool, error) { return false, nil }
+	childNS := func() (bool, error) { return true, nil }
+	unreadableNS := func() (bool, error) { return false, errors.New("open /proc/self/uid_map: no such file or directory") }
 
 	tests := []struct {
 		name     string
 		opts     []Option
 		kernel   func() (Version, string, error)
 		caps     func() error
+		userNS   func() (bool, error) // nil means the initial namespace
 		wantErr  error
 		wantWarn string
 	}{
@@ -162,25 +203,54 @@ func TestRun(t *testing.T) {
 			wantErr: ErrMissingCapabilities,
 		},
 		{
+			name:     "user namespace is a warning once capabilities pass",
+			kernel:   okKernel,
+			caps:     okCaps,
+			userNS:   childNS,
+			wantWarn: "running in a user namespace",
+		},
+		{
+			name:     "unreadable uid map is a warning, not an error",
+			kernel:   okKernel,
+			caps:     okCaps,
+			userNS:   unreadableNS,
+			wantWarn: "user namespace not checked",
+		},
+		{
+			name:    "capability failure is not followed by the namespace warning",
+			kernel:  okKernel,
+			caps:    failCaps,
+			userNS:  childNS,
+			wantErr: ErrMissingCapabilities,
+		},
+		{
 			name:   "skip bypasses failing checks and silences the advisory",
 			opts:   []Option{WithSkip(true)},
 			kernel: oldKernel,
 			caps:   failCaps,
+			userNS: childNS,
 		},
 		{
 			name:   "userspace bpf implies skip",
 			opts:   []Option{WithUserspaceBPF(true)},
 			kernel: oldKernel,
 			caps:   failCaps,
+			userNS: childNS,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			userNS := tt.userNS
+			if userNS == nil {
+				userNS = initialNS
+			}
+
 			var logs bytes.Buffer
 			opts := append(tt.opts, WithLogger(log.New(&logs)), func(o *Options) {
 				o.checkKernel = tt.kernel
 				o.checkCapabilities = tt.caps
+				o.inUserNamespace = userNS
 			})
 
 			err := Run(opts...)
@@ -206,6 +276,13 @@ func TestCheckKernelReadsRunningRelease(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, v.Major)
 	require.Equal(t, v.Before(MinKernel), advisory != "")
+}
+
+// TestInUserNamespaceReadsProc only asserts the /proc read and parse path
+// works; whether the test runs in a namespace depends on the box.
+func TestInUserNamespaceReadsProc(t *testing.T) {
+	_, err := inUserNamespace()
+	require.NoError(t, err)
 }
 
 // TestCheckCapabilitiesUnprivileged asserts the capget path works whatever

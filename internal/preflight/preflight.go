@@ -6,6 +6,8 @@ package preflight
 
 import (
 	"fmt"
+	"math"
+	"os"
 	"strconv"
 	"strings"
 
@@ -176,6 +178,62 @@ func CheckCapabilities() error {
 		strings.Join(missing, " and "))
 }
 
+// uidMapPath lists the uid mapping of the calling process's user namespace,
+// see user_namespaces(7).
+const uidMapPath = "/proc/self/uid_map"
+
+// identityUIDMap is the single mapping line of the initial user namespace.
+var identityUIDMap = [3]uint32{0, 0, math.MaxUint32}
+
+// isIdentityUIDMap reports whether uidMap, the content of /proc/self/uid_map,
+// is the identity mapping "0 0 4294967295". Each line holds three decimal
+// fields: the first ID inside the namespace, the first ID outside it and the
+// length of the range (user_namespaces(7)). An empty map belongs to a
+// namespace whose mapping has not been written yet, so it is not the
+// identity either. Lines that do not fit the format are an error.
+func isIdentityUIDMap(uidMap string) (bool, error) {
+	var mappings [][3]uint32
+	for _, line := range strings.Split(uidMap, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 3 {
+			return false, errors.Errorf("unrecognized uid_map line %q", line)
+		}
+
+		var m [3]uint32
+		for i, f := range fields {
+			n, err := strconv.ParseUint(f, 10, 32)
+			if err != nil {
+				return false, errors.Wrapf(err, "unrecognized uid_map line %q", line)
+			}
+			m[i] = uint32(n)
+		}
+		mappings = append(mappings, m)
+	}
+
+	return len(mappings) == 1 && mappings[0] == identityUIDMap, nil
+}
+
+// inUserNamespace reports whether the process runs in a user namespace other
+// than the initial one, judged by /proc/self/uid_map: the initial namespace
+// is the one with the identity mapping. A child namespace that a privileged
+// parent gave the full identity mapping is not told apart.
+func inUserNamespace() (bool, error) {
+	uidMap, err := os.ReadFile(uidMapPath)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to read the uid map")
+	}
+
+	identity, err := isIdentityUIDMap(string(uidMap))
+	if err != nil {
+		return false, err
+	}
+
+	return !identity, nil
+}
+
 // Options configures Run.
 type Options struct {
 	skip         bool
@@ -185,6 +243,7 @@ type Options struct {
 	// Check implementations, replaceable in tests.
 	checkKernel       func() (Version, string, error)
 	checkCapabilities func() error
+	inUserNamespace   func() (bool, error)
 }
 
 // Option configures Options.
@@ -207,14 +266,17 @@ func WithLogger(logger log.Logger) Option {
 }
 
 // Run reports the kernel version advisory, if any, and returns the capability
-// check failure. A kernel that cannot be read or parsed is logged and
-// otherwise ignored, since the version is informational. Checks are skipped
-// when requested or when running in userspace BPF mode.
+// check failure. When the capabilities are present it also warns if the
+// process runs in a user namespace, where the check cannot see what the
+// kernel enforces. A kernel or uid map that cannot be read or parsed is
+// logged and otherwise ignored, since both are informational. Checks are
+// skipped when requested or when running in userspace BPF mode.
 func Run(opts ...Option) error {
 	o := &Options{
 		logger:            log.Nop(),
 		checkKernel:       CheckKernel,
 		checkCapabilities: CheckCapabilities,
+		inUserNamespace:   inUserNamespace,
 	}
 	for _, f := range opts {
 		f(o)
@@ -235,6 +297,20 @@ func Run(opts ...Option) error {
 
 	if err := o.checkCapabilities(); err != nil {
 		return err
+	}
+
+	// capget(2) reports the set local to the process's user namespace, while
+	// the kernel checks BPF privileges against the initial namespace. A passed
+	// check inside a child namespace therefore proves nothing; warn so the
+	// EPERM that may follow has an explanation.
+	inNS, err := o.inUserNamespace()
+	switch {
+	case err != nil:
+		o.logger.Warn().Err(err).Msg("user namespace not checked")
+	case inNS:
+		o.logger.Warn().Msg("running in a user namespace: the capability check passed against " +
+			"the namespace-local set and may not match what the kernel enforces, " +
+			"so the BPF load can still fail with EPERM")
 	}
 
 	if kernel != (Version{}) {

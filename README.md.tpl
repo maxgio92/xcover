@@ -41,7 +41,7 @@ More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 |---|---|
 | OS and architecture | Linux on x86_64 or arm64. |
 | Kernel | 6.6 or newer upstream, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 does on 5.14). Attach also relies on BPF cookies (5.15) and memcg-based BPF memory accounting (5.11). `xcover run` warns at start when the release looks older than 6.6; pass `--skip-preflight` to silence the check (it also skips the capability check). |
-| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental). `xcover run` checks the effective capability set at start and fails naming what is missing; the check cannot see user-namespace confinement (rootless containers): it may pass there and the BPF load fails instead. |
+| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental). `xcover run` checks the effective capability set at start and fails naming what is missing; the check cannot see user-namespace confinement (rootless containers): it may pass there and the BPF load fails instead, so xcover warns when `/proc/self/uid_map` shows it runs in a user namespace. With `--detach` that warning is printed on the terminal before the daemon starts, not in `/tmp/xcover.log`. |
 | Target binary | An ELF executable with function symbols (`.symtab`), a Go `.gopclntab` section, or a separate debug file passed with `--debug-path`. Static or dynamic linking both work. |
 
 A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
@@ -342,10 +342,8 @@ latency benchmarks.
   and every call emits an event. No warning is printed. Narrow the probe set
   with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
-- **Linux only, kernel 6.6 or a backport.** `uprobe_multi` landed upstream in
-  6.6; some distribution kernels backport it. Without it the attach fails;
-  xcover logs a warning, still reports ready and writes 0% coverage rather
-  than aborting.
+- **Kernel 6.6+, Linux only.** On older kernels the attach fails; xcover logs a
+  warning, still reports ready and writes 0% coverage rather than aborting.
 - **Project scope is Go only.** For other binaries and single-file Go builds
   xcover logs `project scope unavailable, falling back to binary scope` and
   traces everything. In `--detach` mode the warning is only in
@@ -363,7 +361,8 @@ Open feature requests and known gaps are tracked in
 |---|---|---|
 | `timeout waiting for profiler readiness` from `xcover wait` | The daemon is still attaching probes, or exited before it was ready. | Raise `--timeout`, narrow the probe set with `--scope` or `--exclude`, and read `/tmp/xcover.log`. |
 | `Daemon already running` from `xcover run --detach` (exit 0, nothing started) | `/tmp/xcover.pid` names a live process. | `sudo xcover status`, then `sudo xcover stop`, then start again. |
-| `error initializing BPF probe` with `permission denied` or `operation not permitted` | xcover lacks root or `CAP_BPF` plus `CAP_PERFMON`. | Run with `sudo` or grant the two capabilities. |
+| `CAP_BPF and CAP_PERFMON not in the effective set` from `xcover run` | xcover lacks root or `CAP_BPF` plus `CAP_PERFMON`; the preflight check stops the run before any BPF object is loaded. | Run with `sudo`, or grant the two capabilities with `setcap cap_bpf,cap_perfmon+ep /path/to/xcover`. |
+| `error initializing BPF probe` with `permission denied` or `operation not permitted` | The BPF load ran without privileges: `--skip-preflight` was set, xcover runs in a user namespace (rootless container) where the capability check cannot see the confinement, or a seccomp profile or LSM policy denies `bpf(2)`. | Run with `sudo` in the initial user namespace, or grant the two capabilities there. Check the container runtime's seccomp profile. |
 
 Every other message xcover prints is covered in
 [docs/troubleshooting.md](docs/troubleshooting.md).

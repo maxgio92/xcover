@@ -46,6 +46,11 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 			return nil, err
 		}
 
+		filter, err := newSymFilter(include, exclude, bindInclude, bindExclude)
+		if err != nil {
+			return nil, err
+		}
+
 		exe, err := elf.Open(exePath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open executable")
@@ -72,40 +77,25 @@ func SeparateDebugResolver(exePath, debugPath string, logger log.Logger, include
 
 		// Primary: the debug file's .symtab (retained by --only-keep-debug and
 		// `eu-strip -f`). Names here are already linkage-level and unambiguous.
-		syms, err := funcSymsFromELF(dbg, include, exclude, bindInclude, bindExclude)
-		if err == nil {
-			if syms = definedFuncs(syms); len(syms) > 0 {
-				logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
-				return funcEntriesFromSymbols(syms, toOffset, logger)
-			}
+		// funcSymsFromELF already drops undefined and zero-address symbols.
+		syms, err := funcSymsFromELF(dbg, filter)
+		if err == nil && len(syms) > 0 {
+			logger.Info().Int("symbols", len(syms)).Msg("resolved functions from debug file .symtab")
+			return funcEntriesFromSymbols(syms, toOffset, logger)
 		}
 
-		// Fallback: DWARF subprograms. Best-effort — see funcSymsFromDWARF.
+		// Fallback: DWARF subprograms. Best-effort; see funcSymsFromDWARF.
+		// DWARF subprograms carry no ELF binding, so only the name patterns apply.
+		// funcSymsFromDWARF drops zero-address subprograms itself and its symbols
+		// carry no section index, so isDefinedFunc must not run on them: it would
+		// reject every entry as SHN_UNDEF.
 		logger.Info().Msg("debug file has no usable .symtab; trying DWARF subprograms")
-		dwarfSyms, derr := funcSymsFromDWARF(dbg, include, exclude, logger)
+		dwarfSyms, derr := funcSymsFromDWARF(dbg, symFilter{include: filter.include, exclude: filter.exclude}, logger)
 		if derr != nil {
 			return nil, errors.Wrapf(derr, "no usable symbols in debug file %q (.symtab and DWARF both failed)", debugPath)
 		}
-		if dwarfSyms = definedFuncs(dwarfSyms); len(dwarfSyms) == 0 {
-			return nil, errors.Errorf("no defined functions in debug file %q", debugPath)
-		}
 		return funcEntriesFromSymbols(dwarfSyms, toOffset, logger)
 	}
-}
-
-// definedFuncs drops undefined and zero-address symbols. Imported functions
-// (e.g. printf) appear in .symtab as STT_FUNC with SHN_UNDEF and Value==0; on a
-// PIE the first PT_LOAD has Vaddr 0, so VA 0 maps to file offset 0 (the ELF
-// header) instead of being rejected, which would attach a bogus probe.
-func definedFuncs(syms []elf.Symbol) []elf.Symbol {
-	out := make([]elf.Symbol, 0, len(syms))
-	for _, s := range syms {
-		if s.Section == elf.SHN_UNDEF || s.Value == 0 {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 // dwarfSubprogram holds the name attributes of a DW_TAG_subprogram DIE, plus a
@@ -129,6 +119,10 @@ type dwarfSubprogram struct {
 // DW_AT_specification/DW_AT_abstract_origin reference to the declaration, so
 // those references are followed (a pre-pass indexes DIE names by offset).
 //
+// The returned symbols carry only Name, Value and an STT_FUNC type. Section is
+// left zero (SHN_UNDEF) because DWARF has no section index to offer, so callers
+// must not filter them with isDefinedFunc.
+//
 // Known limitations (both reasons .symtab — retained by --only-keep-debug and
 // `eu-strip -f` — is the primary, far more robust source):
 //   - split-DWARF (-gsplit-dwarf) keeps subprogram DIEs in separate .dwo files
@@ -140,7 +134,7 @@ type dwarfSubprogram struct {
 //     these forms to raw offsets but never loads the supplementary file, so
 //     such names resolve empty and are skipped. Common on Fedora/Debian
 //     debuginfod, which dwz-process their debug files.
-func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) ([]elf.Symbol, error) {
+func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]elf.Symbol, error) {
 	d, err := f.DWARF()
 	if err != nil {
 		return nil, errors.Wrap(err, "no DWARF info")
@@ -232,7 +226,7 @@ func funcSymsFromDWARF(f *elf.File, include, exclude string, logger log.Logger) 
 			continue
 		}
 		sym := elf.Symbol{Name: name, Value: addr, Info: byte(elf.STT_FUNC)}
-		if shouldInclude(sym, include, exclude, nil, nil) {
+		if filter.shouldInclude(sym) {
 			syms = append(syms, sym)
 		}
 	}

@@ -3,6 +3,7 @@
 package trace_test
 
 import (
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,6 +52,28 @@ func debugCopyFile(dst, src string) error {
 		return err
 	}
 	return os.WriteFile(dst, b, 0o755)
+}
+
+// stripSymtab removes .symtab and .strtab from the debug file dbg so that
+// SeparateDebugResolver has to take the DWARF path. GNU objcopy silently keeps
+// .symtab on an --only-keep-debug file, so llvm-objcopy is required and the
+// test is skipped without it. The result is checked with debug/elf so a tool
+// that keeps the table fails the test instead of passing it through the
+// .symtab path.
+func stripSymtab(t *testing.T, dbg string) {
+	t.Helper()
+	objcopy, err := exec.LookPath("llvm-objcopy")
+	if err != nil {
+		t.Skip("llvm-objcopy not available; cannot strip .symtab from the debug file")
+	}
+	out, err := exec.Command(objcopy, "--remove-section=.symtab", "--remove-section=.strtab", dbg).CombinedOutput()
+	require.NoErrorf(t, err, "llvm-objcopy --remove-section: %s", out)
+
+	f, err := elf.Open(dbg)
+	require.NoError(t, err)
+	defer f.Close()
+	_, err = f.Symbols()
+	require.ErrorIs(t, err, elf.ErrNoSymbols, "debug file still has a .symtab; the DWARF path would not be exercised")
 }
 
 func nameOffsets(t *testing.T, r trace.FunctionResolver) map[string]uint64 {
@@ -118,13 +141,12 @@ func TestSeparateDebugResolver_FiltersUndefined(t *testing.T) {
 }
 
 // TestSeparateDebugResolver_DWARFFallback resolves via DWARF subprograms when
-// the debug file has no .symtab.
+// the debug file has no .symtab. stripSymtab asserts the table is really gone,
+// so this test cannot pass through the .symtab path by mistake.
 func TestSeparateDebugResolver_DWARFFallback(t *testing.T) {
 	dir := t.TempDir()
 	_, dbg, stripped := buildDebugFixture(t, dir, "dw", debugFixtureSrc)
-
-	out, err := exec.Command("objcopy", "--remove-section=.symtab", "--remove-section=.strtab", dbg, dbg).CombinedOutput()
-	require.NoErrorf(t, err, "objcopy --remove-section: %s", out)
+	stripSymtab(t, dbg)
 
 	got := nameOffsets(t, trace.SeparateDebugResolver(stripped, dbg, testLogger, `^(alpha|beta|main)$`, "", nil, nil, false))
 	require.Contains(t, got, "alpha")
@@ -163,8 +185,7 @@ int main(){ Widget w; volatile int s = ns::helper(1)+w.method(2)+foo(3)+(int)foo
 	out, err = exec.Command("strip", "--strip-all", stripped).CombinedOutput()
 	require.NoErrorf(t, err, "strip: %s", out)
 	// Force the DWARF path by removing the symbol table from the debug file.
-	out, err = exec.Command("objcopy", "--remove-section=.symtab", "--remove-section=.strtab", dbg, dbg).CombinedOutput()
-	require.NoErrorf(t, err, "objcopy --remove-section: %s", out)
+	stripSymtab(t, dbg)
 
 	got := nameOffsets(t, trace.SeparateDebugResolver(stripped, dbg, testLogger, "", "", nil, nil, false))
 

@@ -174,8 +174,7 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 
 	link, err := p.bpfProg.AttachUprobeMulti(-1, exePath, offsets, cookies)
 	if err != nil {
-		p.logger.Warn().Err(errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies))
-		return nil
+		return errors.Wrapf(err, "error attaching uprobe for functions with cookies: %v", cookies)
 	}
 	p.links = append(p.links, link)
 	return nil
@@ -209,19 +208,25 @@ func (p *Probe) CloseEventBuf() {
 	p.EvtBuf.Close()
 }
 
-// CloseBPFMod destroys all BPF links (detaching uprobes) and then closes
-// the BPF module. Links must be explicitly destroyed because AttachUprobeMulti
+// DetachLinks destroys all BPF links, detaching the uprobes so no new events
+// are produced. Links must be explicitly destroyed because AttachUprobeMulti
 // and AttachUprobeWithOpts both return a BPFLink that is the sole owner of the
 // uprobe attachment - closing the module alone does not detach the probes.
-// Must be called after CloseEventBuf so the ring buffer poll goroutine has
-// already stopped.
-func (p *Probe) CloseBPFMod() {
+// It is safe to call more than once; CloseBPFMod calls it as well.
+func (p *Probe) DetachLinks() {
 	for _, link := range p.links {
 		if err := link.Destroy(); err != nil {
 			p.logger.Warn().Err(err).Msg("failed to destroy BPF link")
 		}
 	}
 	p.links = nil
+}
+
+// CloseBPFMod detaches any links still attached and then closes the BPF
+// module. Must be called after CloseEventBuf so the ring buffer poll goroutine
+// has already stopped.
+func (p *Probe) CloseBPFMod() {
+	p.DetachLinks()
 	if p.bpfMod != nil {
 		p.bpfMod.Close()
 	}

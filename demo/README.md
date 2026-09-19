@@ -24,8 +24,23 @@ script from its directory:
 ```shell
 make xcover                    # or: make xcover-userspace
 cd demo/basic
-sudo bash demo.sh              # userspace scenarios run without sudo
+sudo --preserve-env=TMUX,TMUX_PANE bash demo.sh   # userspace scenarios run without sudo
 ```
+
+## Log pane
+
+When a demo runs inside tmux it splits a pane on the right that tails
+`/tmp/xcover.log`, the file `xcover run --detach` writes to (the userspace
+scenarios tail `~/.bpftime/runtime.log` instead). sudo drops `TMUX` and
+`TMUX_PANE` from the environment by default, so the kernel demos need
+`sudo --preserve-env=TMUX,TMUX_PANE` (or a tmux server started as root) for the
+pane to open; with plain `sudo` the demo runs without a pane. Set
+`XCOVER_DEMO_TRACE_PIPE=1` to tail the kernel trace pipe instead, which shows
+the BPF program's `bpf_printk` output when the embedded object was compiled
+with it. The trace pipe is root-only and the pane is spawned by the tmux
+server, so this only works when tmux itself runs as root; otherwise the pane
+prints a notice and falls back to the log file. The pane is closed when the
+demo exits. Outside tmux nothing changes.
 
 ## Record and publish
 
@@ -35,6 +50,12 @@ asciinema rec -t "xcover - Functional Test Coverage Profiler" \
   --command "sudo ./demo.sh" xcover-demo.cast
 asciinema upload xcover-demo.cast
 ```
+
+asciinema records only the PTY it spawns, so the log pane, which the tmux
+server forks, never enters the cast. To capture the pane too, attach a
+recorded client first, for example
+`asciinema rec --command "tmux attach -t <session>"`, then run the demo inside
+that session.
 
 To change the recording embedded in the README, edit the asciicast link in
 `README.md.tpl` (not `README.md`, which is generated) and run `make docs`.

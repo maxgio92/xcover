@@ -1,7 +1,7 @@
 #!/bin/bash
 # Automated xcover stripped binary demo for asciinema
 # Demonstrates coverage profiling on a stripped C binary via kernel uprobes.
-# Run as: sudo bash demo.sh
+# Run as: sudo --preserve-env=TMUX,TMUX_PANE bash demo.sh   (TMUX and TMUX_PANE are needed for the log pane)
 
 set -euo pipefail
 
@@ -18,7 +18,11 @@ elif command -v batcat >/dev/null 2>&1; then
     SRC_VIEWER="batcat --paging=never"
 fi
 
+# shellcheck source=../lib/log-pane.sh
+source "${SCRIPT_DIR}/../lib/log-pane.sh"
+
 function cleanup() {
+    teardown_log_pane
     ${XCOVER} stop 2>/dev/null || true
     pkill -f "${XCOVER} run" 2>/dev/null || true
     rm -f $DEMO_APP
@@ -30,10 +34,11 @@ trap cleanup EXIT
 function main() {
 	# Check if running as root
 	if [ "$EUID" -ne 0 ]; then
-	    echo "Please run as root: sudo bash $0"
+	    echo "Please run as root: sudo --preserve-env=TMUX,TMUX_PANE bash $0"
 	    exit 1
 	fi
 
+	setup_log_pane kernel
 	clear
 	runCmd "# === xcover: Coverage on stripped binaries ==="
 	runCmd "# No source instrumentation. No debug info. Just the binary."
@@ -74,4 +79,4 @@ function runCmd() {
 	sleep "${SLEEP}"
 }
 
-main $@
+main "$@"

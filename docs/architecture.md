@@ -108,13 +108,18 @@ The socket is removed on every exit path.
 `bpf/trace.bpf.c` defines three maps: `events`, a 256 MB ring buffer;
 `seen_funcs`, a hash map whose `max_entries` is set to the traced function
 count before load by `resizeSeenFuncs` (the compiled default of 40960 applies
-only when the count is unknown); and `drops`, a one-slot array counter. The program reads the attach cookie, returns
-if the cookie is already in `seen_funcs`, otherwise reserves an 8-byte event,
-inserts the cookie and submits the event. A rejected insert discards the
-event and increments `drops`, which `Probe.Drops` reads on exit.
-`bpf_printk` is compiled out unless the object is built with `XCOVER_DEBUG`
-(`make xcover BPF_DEBUG=1`). The program only fires on function entry; there
-is no return probe.
+only when the count is unknown); and `drops`, a one-slot array counter. The
+program reads the attach cookie and returns if the cookie is already in
+`seen_funcs`. Otherwise it reserves an 8-byte event, inserts the cookie and
+submits the event. The insert comes after the reserve so a failed reserve
+does not mark the function as seen. A rejected insert discards the event and
+increments `drops`, which `Probe.Drops` reads on exit. The program only fires
+on function entry; there is no return probe.
+
+`make xcover/bpf` compiles the program with clang `-target bpf` and
+`-D__TARGET_ARCH_<arch>`, where `<arch>` is the libbpf spelling (`x86`,
+`arm64`) rather than the `uname -m` one. `bpf_printk` is compiled out unless
+the object is built with `XCOVER_DEBUG`, which `make xcover BPF_DEBUG=1` adds.
 
 Userspace polls the ring buffer with a 60 ms timeout into a channel of 4096
 events. A single consumer goroutine (`processEvents`) receives from that channel
@@ -127,7 +132,9 @@ probes so no new events are produced. It then keeps consuming the event channel
 until no event has arrived for 150 ms (`drainQuietPeriod`) and writes
 `xcover-report.json` in the current directory when `--report` is true. The quiet
 period is a heuristic, not a completion signal; the comment on
-`drainQuietPeriod` in `tracer.go` states what it does not guarantee.
+`drainQuietPeriod` in `tracer.go` states what it does not guarantee. After the drain, `warnDrops` reads the `drops` counter through `Probe.Drops`
+and logs a warning when it is not zero, whether or not `--report` is set: those calls were not recorded, so the
+report undercounts coverage.
 `funcs_traced` is every resolved function, `funcs_ack` the names found for
 acknowledged cookies, `cov_by_func` the ratio of acknowledged cookies to
 resolved functions times 100.

@@ -209,7 +209,7 @@ privileged; a rootless engine cannot grant them, since it runs in a user
 namespace itself. Userspace BPF mode needs neither; see
 [userspace-bpf.md](userspace-bpf.md).
 
-## `error attaching probe: error attaching uprobe for functions with cookies: [...]`
+## `error attaching probe: error attaching uprobe_multi link for N functions (first cookie 0x...)`
 
 Returned by `xcover run` when `uprobe_multi` refuses a batch of functions
 (`pkg/probe/probe.go`). The run exits before signalling readiness and writes

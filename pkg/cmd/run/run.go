@@ -330,16 +330,17 @@ func daemonArgs(fs *pflag.FlagSet) []string {
 }
 
 func (o *Options) daemonize(cmd *cobra.Command) error {
-	// Refuse a bad ring buffer size in the parent, before the running-daemon
-	// check and the preflight, so the rule reaches the user without root and
-	// no daemon is started only to fail at load.
-	if _, err := parseRingBufSize(o.ringBufSize); err != nil {
-		return err
-	}
-
 	// Validate the target before forking so the error reaches the user
 	// instead of only the daemon log.
 	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
+		return err
+	}
+
+	// Refuse a bad ring buffer size in the parent, in the same position setup
+	// checks it, before the running-daemon check and the preflight. The rule
+	// reaches the user without root and no daemon is started only to fail at
+	// load.
+	if _, err := parseRingBufSize(o.ringBufSize); err != nil {
 		return err
 	}
 

@@ -2,6 +2,7 @@ package stop
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -25,10 +26,35 @@ func withTempPidFile(t *testing.T) string {
 	return settings.PidFile
 }
 
+func withTempLogFile(t *testing.T) string {
+	t.Helper()
+
+	orig := settings.LogFile
+	settings.LogFile = filepath.Join(t.TempDir(), "xcover.log")
+	t.Cleanup(func() { settings.LogFile = orig })
+
+	return settings.LogFile
+}
+
+// seedLog writes two lines to a temp daemon log, the second wrapped in an
+// SGR sequence, and returns exactly what PrintLogTail must write for it.
+func seedLog(t *testing.T) string {
+	t.Helper()
+
+	path := withTempLogFile(t)
+	if err := os.WriteFile(path, []byte("failed to load bpf module trace\n\x1b[31mboom\x1b[0m\n"), 0644); err != nil {
+		t.Fatalf("failed to seed log file: %v", err)
+	}
+
+	return "tail of " + path + " (2 lines):\nfailed to load bpf module trace\nboom\n"
+}
+
 func TestRun_MissingPIDFile(t *testing.T) {
 	path := withTempPidFile(t)
+	wantTail := seedLog(t)
 
-	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
+	var buf bytes.Buffer
+	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout, errOut: &buf}
 
 	err := o.Run(nil, nil)
 	if !errors.Is(err, common.ErrNotRunning) {
@@ -36,6 +62,9 @@ func TestRun_MissingPIDFile(t *testing.T) {
 	}
 	if got, want := err.Error(), "xcover is not running: PID file "+path+" not found"; got != want {
 		t.Fatalf("Run() error = %q, want %q", got, want)
+	}
+	if got := buf.String(); got != wantTail {
+		t.Fatalf("Run() errOut = %q, want %q", got, wantTail)
 	}
 }
 
@@ -45,8 +74,10 @@ func TestRun_MalformedPIDFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not-a-pid"), 0644); err != nil {
 		t.Fatalf("failed to write malformed PID file: %v", err)
 	}
+	wantTail := seedLog(t)
 
-	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
+	var buf bytes.Buffer
+	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout, errOut: &buf}
 
 	err := o.Run(nil, nil)
 	if !errors.Is(err, ErrInvalidPIDFile) {
@@ -54,6 +85,9 @@ func TestRun_MalformedPIDFile(t *testing.T) {
 	}
 	if got, want := err.Error(), "invalid PID file "+path; got != want {
 		t.Fatalf("Run() error = %q, want %q", got, want)
+	}
+	if got := buf.String(); got != wantTail {
+		t.Fatalf("Run() errOut = %q, want %q", got, wantTail)
 	}
 }
 
@@ -65,8 +99,10 @@ func TestRun_StalePIDFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strconv.Itoa(1<<22+1)), 0644); err != nil {
 		t.Fatalf("failed to write stale PID file: %v", err)
 	}
+	wantTail := seedLog(t)
 
-	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
+	var buf bytes.Buffer
+	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout, errOut: &buf}
 
 	err := o.Run(nil, nil)
 	if !errors.Is(err, common.ErrNotRunning) {
@@ -74,6 +110,9 @@ func TestRun_StalePIDFile(t *testing.T) {
 	}
 	if got, want := err.Error(), "xcover is not running: stale PID file "+path+" (PID 4194305)"; got != want {
 		t.Fatalf("Run() error = %q, want %q", got, want)
+	}
+	if got := buf.String(); got != wantTail {
+		t.Fatalf("Run() errOut = %q, want %q", got, wantTail)
 	}
 }
 

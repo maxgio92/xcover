@@ -27,7 +27,9 @@ both `wait` and `stop` instead.
 **Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
 There is nothing to stop. A stale PID file stays until the next
 `xcover run --detach` overwrites it or you delete it by hand. An invalid PID
-file is replaced the same way.
+file is replaced the same way. `wait` and `stop` print the last lines of
+`/tmp/xcover.log` on stderr before either message, with colour codes
+removed.
 
 ## `xcover exited before becoming ready`
 
@@ -39,7 +41,8 @@ Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) when the daemon dies while
 uprobe attach returned an error, so it exited instead of signalling readiness.
 
 **Fix.** Read `/tmp/xcover.log` for the error and see the matching entry in
-this page.
+this page. `wait` prints the last lines of `/tmp/xcover.log` on stderr
+before the error.
 
 ## `timeout waiting for profiler readiness`
 
@@ -53,7 +56,8 @@ symptom.
 
 **Fix.** Raise the limit, for example `xcover wait --timeout 10m`, or narrow
 the probe set with `--scope project`, `--include` or `--exclude`. Check
-`/tmp/xcover.log` for progress or errors.
+`/tmp/xcover.log` for progress or errors. `wait` prints the last lines of
+`/tmp/xcover.log` on stderr before the error so recent progress is visible.
 
 ## `Daemon already running`
 

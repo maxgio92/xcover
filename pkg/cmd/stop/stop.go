@@ -2,6 +2,7 @@ package stop
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 	"time"
@@ -28,6 +29,9 @@ const (
 
 type Options struct {
 	timeout time.Duration
+	// errOut receives the daemon log tail before an error return. Nil
+	// means os.Stderr; tests inject a buffer.
+	errOut io.Writer
 	*options.Options
 }
 
@@ -48,8 +52,13 @@ func NewCommand(opts *options.Options) *cobra.Command {
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
+	if o.errOut == nil {
+		o.errOut = os.Stderr
+	}
+
 	pid, err := common.CheckRunning()
 	if err != nil {
+		common.PrintLogTail(o.errOut)
 		return err
 	}
 

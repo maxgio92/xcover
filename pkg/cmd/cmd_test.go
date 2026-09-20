@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 
 	log "github.com/rs/zerolog"
@@ -158,7 +160,32 @@ func TestCommandLogLevelFlag(t *testing.T) {
 	}
 }
 
+// withTempPidFile points settings.PidFile at a file under t.TempDir() for
+// the duration of the test.
+func withTempPidFile(t *testing.T) {
+	t.Helper()
+
+	orig := settings.PidFile
+	settings.PidFile = filepath.Join(t.TempDir(), "test.pid")
+	t.Cleanup(func() { settings.PidFile = orig })
+}
+
+// withTempLogFile points settings.LogFile at a file under t.TempDir() for
+// the duration of the test.
+func withTempLogFile(t *testing.T) {
+	t.Helper()
+
+	orig := settings.LogFile
+	settings.LogFile = filepath.Join(t.TempDir(), "xcover.log")
+	t.Cleanup(func() { settings.LogFile = orig })
+}
+
 func TestCommandLogLevelPropagatesToSubcommand(t *testing.T) {
+	// "wait" reads the PID file and prints the log tail, so keep both off
+	// the host paths.
+	withTempPidFile(t)
+	withTempLogFile(t)
+
 	tests := []struct {
 		name     string
 		logLevel string

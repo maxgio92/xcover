@@ -1,0 +1,6 @@
+# Defaults for vimto, used by the e2e-kernel CI job. Mirrors cilium/ebpf's
+# .vimto.toml. The workflow overrides only the kernel tag with -kernel :TAG.
+kernel = "ghcr.io/cilium/ci-kernels:stable"
+user = "root"
+memory = "1G"
+smp = "cpus=2"

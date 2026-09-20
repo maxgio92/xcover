@@ -209,7 +209,7 @@ jobs:
 
   e2e:
     name: E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
 
     steps:
@@ -217,6 +217,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+
+      - name: Show kernel
+        run: uname -r
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -312,6 +315,92 @@ jobs:
           name: coverage.txt
           path: coverage.txt
           retention-days: 7
+
+  # Runs the e2e suite inside a QEMU VM on a fixed kernel. vimto shares the
+  # host root filesystem and PATH, so the shared libraries that ldd ./xcover
+  # lists and the Go toolchain are reachable inside the VM. The command runs
+  # as root because .vimto.toml sets user. The guest gets an empty /tmp, so
+  # the test binary and the fixtures are built under the checkout, which is
+  # shared with the VM. The kernel image tags follow cilium/ebpf's ci.yml.
+  # Setup takes about two minutes, so the job limit leaves room for the
+  # 480 second timeout on the test step to fire first.
+  e2e-kernel:
+    name: E2E kernel ${{ matrix.kernel }}
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.6', '6.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r) \
+            gcc \
+            make \
+            pkg-config \
+            libelf-dev \
+            zlib1g-dev \
+            qemu-system-x86
+
+      - name: Install bpftool and libbpf
+        run: |
+          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          # Install libbpf first to get newer headers
+          cd /tmp/bpftool/libbpf/src
+          sudo make install
+          sudo ldconfig
+          # Then install bpftool
+          cd /tmp/bpftool/src
+          make
+          sudo make install
+
+      - name: Build xcover
+        run: make xcover
+
+      - name: Build e2e test binary
+        run: go test -c -tags e2e -o "$PWD/xcover-e2e.test" ./e2e
+
+      # Prebuilt on the host so the VM does not write GOCACHE into its
+      # ephemeral overlay tmpfs.
+      - name: Build e2e fixtures
+        run: make e2e-fixtures E2E_FIXTURES_DIR="$PWD/xcover-e2e-fixtures"
+
+      - name: Install vimto
+        run: |
+          sudo chmod 0666 /dev/kvm
+          # Pinned by hand, like the other pinned dependencies in this file.
+          # vimto exec refuses a cgo build ("binary is not statically linked").
+          CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0
+
+      # The runner hands each step a closed pipe on stdin. QEMU's stdio
+      # chardev reads EOF from it and marks the guest port disconnected,
+      # and the first write from the guest then blocks forever with no
+      # output. Redirecting stdin from /dev/null keeps the port connected.
+      # The boot check fails fast when the VM does not come up.
+      - name: Boot the VM
+        run: vimto -kernel :${{ matrix.kernel }} exec -- uname -r </dev/null
+
+      - name: Run e2e tests in VM
+        run: |
+          timeout 480 vimto -kernel :${{ matrix.kernel }} exec -- sh -c 'uname -r; id -u; XCOVER_E2E_BIN=$PWD/xcover XCOVER_E2E_REQUIRE=1 XCOVER_E2E_FIXTURES=$PWD/xcover-e2e-fixtures $PWD/xcover-e2e.test -test.v -test.count=1' </dev/null
 
   lint:
     name: Lint

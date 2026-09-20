@@ -94,6 +94,18 @@ test-e2e:
 	XCOVER_E2E_BIN=$(current_dir)/$(PROGRAM) \
 		go test -count=1 -tags e2e -v $(TEST_PATH)
 
+.PHONY: e2e-fixtures
+# Build one binary per fixture module under e2e/testdata. The e2e harness
+# uses them when XCOVER_E2E_FIXTURES points at E2E_FIXTURES_DIR. Needs no
+# cgo and no submodule.
+E2E_FIXTURES_DIR ?= /tmp/xcover-e2e-fixtures
+e2e-fixtures:
+	mkdir -p $(E2E_FIXTURES_DIR)
+	for d in $(current_dir)/e2e/testdata/*/; do \
+		s=$$(basename $$d); \
+		(cd $$d && go build -buildvcs=false -o $(E2E_FIXTURES_DIR)/$$s .) || exit 1; \
+	done
+
 .PHONY: docs
 docs:
 	CC=gcc \

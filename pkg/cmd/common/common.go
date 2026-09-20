@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,10 +12,20 @@ import (
 	"github.com/maxgio92/xcover/internal/settings"
 )
 
-// ErrInvalidPID is returned by ReadPID when the PID file exists but its
-// content cannot be parsed as a PID. Callers should use errors.Is to detect
-// this case rather than inspecting the underlying parse error.
-var ErrInvalidPID = errors.New("invalid PID")
+var (
+	// ErrInvalidPID is returned by ReadPID when the PID file exists but its
+	// content cannot be parsed as a PID. Callers should use errors.Is to detect
+	// this case rather than inspecting the underlying parse error.
+	ErrInvalidPID = errors.New("invalid PID")
+
+	// ErrNotRunning is the one message every command prints when no daemon
+	// runs. CheckRunning wraps it with the PID file detail.
+	ErrNotRunning = fmt.Errorf("%s is not running", settings.CmdName)
+
+	// ErrInvalidPIDFile is returned by CheckRunning when the PID file exists
+	// but does not hold a positive PID.
+	ErrInvalidPIDFile = errors.New("invalid PID file")
+)
 
 // WritePID writes the given PID to the PID file. The write is atomic: the
 // PID goes to a temp file in the same directory which is then renamed over
@@ -73,17 +84,56 @@ func RemovePID() error {
 	return os.Remove(settings.PidFile)
 }
 
-func IsDaemonRunning() bool {
+// CheckRunning reports whether the daemon named by the PID file is alive.
+// It returns the validated PID and nil for a live process, an error wrapping
+// ErrNotRunning when the file is missing or names a dead process, an error
+// wrapping ErrInvalidPIDFile when the content is not a positive PID, and a
+// plain error for any other read failure. Callers that need the PID use the
+// returned value instead of reading the file again, because the daemon can
+// exit between the two reads.
+func CheckRunning() (int, error) {
 	pid, err := ReadPID()
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return 0, fmt.Errorf("%w: PID file %s not found", ErrNotRunning, settings.PidFile)
+	case errors.Is(err, ErrInvalidPID):
+		return 0, fmt.Errorf("%w %s", ErrInvalidPIDFile, settings.PidFile)
+	case err != nil:
+		// os.ReadFile already names the path in its *fs.PathError; keep
+		// only the errno text so the path appears once.
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
+		return 0, fmt.Errorf("read PID file %s: %v", settings.PidFile, err)
+	case pid <= 0:
+		return 0, fmt.Errorf("%w %s", ErrInvalidPIDFile, settings.PidFile)
+	case !processAlive(pid):
+		return 0, fmt.Errorf("%w: stale PID file %s (PID %d)", ErrNotRunning, settings.PidFile, pid)
+	}
+
+	return pid, nil
+}
+
+// IsDaemonRunning reports whether CheckRunning finds a live daemon.
+func IsDaemonRunning() bool {
+	_, err := CheckRunning()
+
+	return err == nil
+}
+
+// processAlive reports whether pid names a live process. Signal 0 performs
+// the existence check without delivering anything: nil means the process
+// exists and this user may signal it, EPERM means it exists under another
+// user (a daemon started with sudo), ESRCH means it is gone. pid <= 0 is
+// rejected first because kill(0, 0) and kill(-1, 0) address a process group
+// or every process and succeed.
+func processAlive(pid int) bool {
+	if pid <= 0 {
 		return false
 	}
 
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
+	err := syscall.Kill(pid, 0)
 
-	// Check if process exists
-	return process.Signal(syscall.Signal(0)) == nil
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

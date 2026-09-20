@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 )
 
@@ -36,7 +37,39 @@ func TestRun_NotRunning(t *testing.T) {
 		timeout:    10 * time.Second,
 	}
 
-	require.ErrorIs(t, o.Run(nil, nil), ErrNotRunning)
+	err := o.Run(nil, nil)
+	require.ErrorIs(t, err, ErrNotRunning)
+	require.ErrorIs(t, err, common.ErrNotRunning)
+	require.EqualError(t, err, "xcover is not running: stale PID file "+path+" (PID 4194305)")
+}
+
+func TestRun_MissingPIDFile(t *testing.T) {
+	path := withTempPidFile(t)
+
+	o := &Options{
+		Options:    options.NewOptions(),
+		socketPath: filepath.Join(t.TempDir(), "missing.sock"),
+		timeout:    10 * time.Second,
+	}
+
+	err := o.Run(nil, nil)
+	require.ErrorIs(t, err, common.ErrNotRunning)
+	require.EqualError(t, err, "xcover is not running: PID file "+path+" not found")
+}
+
+func TestRun_MalformedPIDFile(t *testing.T) {
+	path := withTempPidFile(t)
+	require.NoError(t, os.WriteFile(path, []byte("not-a-pid"), 0644))
+
+	o := &Options{
+		Options:    options.NewOptions(),
+		socketPath: filepath.Join(t.TempDir(), "missing.sock"),
+		timeout:    10 * time.Second,
+	}
+
+	err := o.Run(nil, nil)
+	require.ErrorIs(t, err, common.ErrInvalidPIDFile)
+	require.EqualError(t, err, "invalid PID file "+path)
 }
 
 // TestRun_DaemonExitsWhilePolling asserts the polling loop fails fast once

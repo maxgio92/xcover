@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 )
 
@@ -25,13 +26,16 @@ func withTempPidFile(t *testing.T) string {
 }
 
 func TestRun_MissingPIDFile(t *testing.T) {
-	withTempPidFile(t)
+	path := withTempPidFile(t)
 
 	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
 
 	err := o.Run(nil, nil)
-	if !errors.Is(err, ErrNotRunningOrNotFound) {
-		t.Fatalf("Run() error = %v, want ErrNotRunningOrNotFound", err)
+	if !errors.Is(err, common.ErrNotRunning) {
+		t.Fatalf("Run() error = %v, want wrapping common.ErrNotRunning", err)
+	}
+	if got, want := err.Error(), "xcover is not running: PID file "+path+" not found"; got != want {
+		t.Fatalf("Run() error = %q, want %q", got, want)
 	}
 }
 
@@ -47,6 +51,29 @@ func TestRun_MalformedPIDFile(t *testing.T) {
 	err := o.Run(nil, nil)
 	if !errors.Is(err, ErrInvalidPIDFile) {
 		t.Fatalf("Run() error = %v, want ErrInvalidPIDFile", err)
+	}
+	if got, want := err.Error(), "invalid PID file "+path; got != want {
+		t.Fatalf("Run() error = %q, want %q", got, want)
+	}
+}
+
+func TestRun_StalePIDFile(t *testing.T) {
+	path := withTempPidFile(t)
+
+	// 1<<22 is the largest pid_max Linux accepts, so one past it never
+	// names a process.
+	if err := os.WriteFile(path, []byte(strconv.Itoa(1<<22+1)), 0644); err != nil {
+		t.Fatalf("failed to write stale PID file: %v", err)
+	}
+
+	o := &Options{Options: options.NewOptions(), timeout: defaultTimeout}
+
+	err := o.Run(nil, nil)
+	if !errors.Is(err, common.ErrNotRunning) {
+		t.Fatalf("Run() error = %v, want wrapping common.ErrNotRunning", err)
+	}
+	if got, want := err.Error(), "xcover is not running: stale PID file "+path+" (PID 4194305)"; got != want {
+		t.Fatalf("Run() error = %q, want %q", got, want)
 	}
 }
 

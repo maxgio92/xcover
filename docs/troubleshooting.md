@@ -9,15 +9,25 @@ command prints nothing useful.
 
 ## `xcover is not running`
 
-Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) and by `xcover status`
-(`pkg/cmd/status/status.go`).
+Printed by `xcover wait` (`pkg/cmd/wait/wait.go`), `xcover stop`
+(`pkg/cmd/stop/stop.go`) and `xcover status` (`pkg/cmd/status/status.go`).
+The three share one check in `pkg/cmd/common/common.go`. `wait` and `stop`
+append the reason: `: PID file /tmp/xcover.pid not found` when the file is
+missing, or `: stale PID file /tmp/xcover.pid (PID <n>)` when the file names
+a process that is gone. `status` prints the bare message and exits 0.
 
 **Cause.** `/tmp/xcover.pid` is missing, or the PID it names is not alive.
 Either `xcover run --detach` was never started, or the daemon exited before
 `wait` ran, most often because the BPF program failed to load or the function
-list was empty.
+list was empty. The daemon removes the PID file on a clean exit, so a stale
+file means it was killed or crashed. A PID file with unparsable content, or
+with a PID of zero or below, gives `invalid PID file /tmp/xcover.pid` from
+both `wait` and `stop` instead.
 
 **Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
+There is nothing to stop. A stale PID file stays until the next
+`xcover run --detach` overwrites it or you delete it by hand. An invalid PID
+file is replaced the same way.
 
 ## `xcover exited before becoming ready`
 
@@ -56,17 +66,6 @@ per host because the state paths are fixed.
 **Fix.** Run `sudo xcover status` to see the PID, then `sudo xcover stop` to
 end that session before starting a new one. If the PID belongs to an
 unrelated process that reused the number, remove `/tmp/xcover.pid` by hand.
-
-## `xcover not running or PID file not found`
-
-Printed by `xcover stop` (`pkg/cmd/stop/stop.go`).
-
-**Cause.** `/tmp/xcover.pid` cannot be read. The daemon already exited and
-removed it, or it was never started. A PID file with unparsable content gives
-`invalid PID file` instead.
-
-**Fix.** Nothing to stop. If you expected a running daemon, read
-`/tmp/xcover.log` to learn why it exited. Delete a corrupt PID file by hand.
 
 ## `xcover did not stop within the timeout and was force killed`
 

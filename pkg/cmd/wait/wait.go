@@ -21,7 +21,7 @@ import (
 const CmdName = "wait"
 
 var (
-	ErrNotRunning = errors.Errorf("%s is not running", settings.CmdName)
+	ErrNotRunning = common.ErrNotRunning
 	ErrExited     = errors.Errorf("%s exited before becoming ready", settings.CmdName)
 )
 
@@ -51,8 +51,8 @@ func NewCommand(opts *options.Options) *cobra.Command {
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	o.Logger = o.Logger.With().Str("component", "wait").Logger()
 
-	if !common.IsDaemonRunning() {
-		return ErrNotRunning
+	if _, err := common.CheckRunning(); err != nil {
+		return err
 	}
 
 	start := time.Now()

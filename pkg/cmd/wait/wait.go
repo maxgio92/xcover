@@ -2,6 +2,7 @@ package wait
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -21,13 +22,17 @@ import (
 const CmdName = "wait"
 
 var (
-	ErrNotRunning = errors.Errorf("%s is not running", settings.CmdName)
+	ErrNotRunning = common.ErrNotRunning
 	ErrExited     = errors.Errorf("%s exited before becoming ready", settings.CmdName)
+	ErrTimeout    = errors.New("timeout waiting for profiler readiness")
 )
 
 type Options struct {
 	socketPath string
 	timeout    time.Duration
+	// errOut receives the daemon log tail before an error return. Nil
+	// means os.Stderr; tests inject a buffer.
+	errOut io.Writer
 	*options.Options
 }
 
@@ -49,10 +54,15 @@ func NewCommand(opts *options.Options) *cobra.Command {
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
+	if o.errOut == nil {
+		o.errOut = os.Stderr
+	}
+
 	o.Logger = o.Logger.With().Str("component", "wait").Logger()
 
-	if !common.IsDaemonRunning() {
-		return ErrNotRunning
+	if _, err := common.CheckRunning(); err != nil {
+		common.PrintLogTail(o.errOut)
+		return err
 	}
 
 	start := time.Now()
@@ -61,12 +71,14 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	for {
 		if time.Since(start) >= o.timeout {
-			return errors.New("timeout waiting for profiler readiness")
+			common.PrintLogTail(o.errOut)
+			return ErrTimeout
 		}
 
 		// The daemon may fail after start-up (e.g. probe attach failure);
 		// fail fast instead of polling a socket that will never become ready.
 		if !common.IsDaemonRunning() {
+			common.PrintLogTail(o.errOut)
 			return ErrExited
 		}
 

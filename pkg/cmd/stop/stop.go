@@ -2,6 +2,7 @@ package stop
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 	"time"
@@ -15,11 +16,10 @@ import (
 )
 
 var (
-	ErrNotRunningOrNotFound = errors.Errorf("%s not running or PID file not found", settings.CmdName)
-	ErrInvalidPIDFile       = errors.New("invalid PID file")
-	ErrProcessNotFound      = errors.New("process not found")
-	ErrFailedToStop         = errors.Errorf("failed to stop %s", settings.CmdName)
-	ErrForceKilled          = errors.Errorf("%s did not stop within the timeout and was force killed", settings.CmdName)
+	ErrInvalidPIDFile  = common.ErrInvalidPIDFile
+	ErrProcessNotFound = errors.New("process not found")
+	ErrFailedToStop    = errors.Errorf("failed to stop %s", settings.CmdName)
+	ErrForceKilled     = errors.Errorf("%s did not stop within the timeout and was force killed", settings.CmdName)
 )
 
 const (
@@ -29,6 +29,9 @@ const (
 
 type Options struct {
 	timeout time.Duration
+	// errOut receives the daemon log tail before an error return. Nil
+	// means os.Stderr; tests inject a buffer.
+	errOut io.Writer
 	*options.Options
 }
 
@@ -49,13 +52,14 @@ func NewCommand(opts *options.Options) *cobra.Command {
 }
 
 func (o *Options) Run(cmd *cobra.Command, _ []string) error {
-	pid, err := common.ReadPID()
-	if err != nil {
-		if errors.Is(err, common.ErrInvalidPID) {
-			return ErrInvalidPIDFile
-		}
+	if o.errOut == nil {
+		o.errOut = os.Stderr
+	}
 
-		return ErrNotRunningOrNotFound
+	pid, err := common.CheckRunning()
+	if err != nil {
+		common.PrintLogTail(o.errOut)
+		return err
 	}
 
 	process, err := os.FindProcess(pid)

@@ -120,6 +120,16 @@ func runXcoverWithFixture(t *testing.T, scope string) coverage.CoverageReport {
 // configured, and skips when another xcover instance owns the fixed paths.
 func xcoverBinary(t *testing.T) string {
 	t.Helper()
+	xcover := xcoverBinaryPath(t)
+	requireNoRunningXcover(t)
+	return xcover
+}
+
+// xcoverBinaryPath returns the xcover binary under test or skips when it is
+// not configured or the test lacks privileges. Unlike xcoverBinary it does not
+// check the fixed state files, so a test can seed them on purpose.
+func xcoverBinaryPath(t *testing.T) string {
+	t.Helper()
 
 	xcover := os.Getenv(xcoverBinEnv)
 	if xcover == "" {
@@ -130,7 +140,6 @@ func xcoverBinary(t *testing.T) string {
 	}
 	t.Logf("using xcover binary: %s", xcover)
 	requirePrivileges(t)
-	requireNoRunningXcover(t)
 	return xcover
 }
 
@@ -138,6 +147,21 @@ func xcoverBinary(t *testing.T) string {
 // for readiness, calls exercise, stops the daemon and returns the report it
 // wrote to workDir.
 func runXcoverSession(t *testing.T, xcover, workDir string, runArgs []string, exercise func()) coverage.CoverageReport {
+	t.Helper()
+
+	startXcoverDaemon(t, xcover, workDir, runArgs)
+	exercise()
+	stopXcoverDaemon(t, xcover, workDir)
+
+	report := readReport(t, filepath.Join(workDir, reportFile))
+	t.Logf("read report with %d traced functions and %d acknowledged functions", len(report.FuncsTraced), len(report.FuncsAck))
+	return report
+}
+
+// startXcoverDaemon starts a detached xcover run in workDir with runArgs and
+// waits for readiness. A cleanup stops the daemon if the test ends while the
+// PID file still exists, so a failed test does not leak the daemon.
+func startXcoverDaemon(t *testing.T, xcover, workDir string, runArgs []string) {
 	t.Helper()
 
 	logOffset := fileSize(t, logFile)
@@ -149,12 +173,11 @@ func runXcoverSession(t *testing.T, xcover, workDir string, runArgs []string, ex
 	}
 	t.Log("xcover daemon start command returned")
 
-	stopped := false
-	defer func() {
-		if !stopped {
+	t.Cleanup(func() {
+		if _, err := os.Stat(pidFile); err == nil {
 			_, _ = commandOutput(workDir, 10*time.Second, xcover, "stop", "--timeout=5s")
 		}
-	}()
+	})
 
 	t.Log("waiting for xcover readiness")
 	if out, err := commandOutput(workDir, 20*time.Second, xcover, "wait", "--timeout=15s"); err != nil {
@@ -162,16 +185,14 @@ func runXcoverSession(t *testing.T, xcover, workDir string, runArgs []string, ex
 		t.Fatalf("xcover wait failed: %v\n%s\n%s", err, out, logTail)
 	}
 	t.Log("xcover reported ready")
+}
 
-	exercise()
-
+// stopXcoverDaemon stops the daemon started by startXcoverDaemon and fails the
+// test when stop does not exit cleanly.
+func stopXcoverDaemon(t *testing.T, xcover, workDir string) {
+	t.Helper()
 	t.Log("stopping xcover daemon")
 	runCommand(t, workDir, 10*time.Second, xcover, "stop", "--timeout=5s")
-	stopped = true
-
-	report := readReport(t, filepath.Join(workDir, reportFile))
-	t.Logf("read report with %d traced functions and %d acknowledged functions", len(report.FuncsTraced), len(report.FuncsAck))
-	return report
 }
 
 // skipOrFail skips the test because an environment precondition is unmet,
@@ -197,14 +218,19 @@ func requirePrivileges(t *testing.T) {
 	}
 }
 
+func requireNoStateFile(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		skipOrFail(t, "%s already exists", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed to inspect %s: %v", path, err)
+	}
+}
+
 func requireNoRunningXcover(t *testing.T) {
 	t.Helper()
 	for _, path := range []string{pidFile, socketFile} {
-		if _, err := os.Stat(path); err == nil {
-			skipOrFail(t, "%s already exists", path)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("failed to inspect %s: %v", path, err)
-		}
+		requireNoStateFile(t, path)
 	}
 
 	if _, err := os.Stat(logFile); err == nil {
@@ -231,6 +257,27 @@ func buildGoFixture(t *testing.T, workDir, scenario string) string {
 
 	bin := filepath.Join(workDir, scenario)
 	runCommand(t, srcDir, 30*time.Second, "go", "build", "-buildvcs=false", "-o", bin, ".")
+	return bin
+}
+
+// buildCppFixture copies the named testdata scenario into workDir and compiles
+// its main.cpp with g++ and debug info. Only the scenarios that call it skip
+// when g++ is missing.
+func buildCppFixture(t *testing.T, workDir, scenario string) string {
+	t.Helper()
+
+	if _, err := exec.LookPath("g++"); err != nil {
+		skipOrFail(t, "g++ is not installed: %v", err)
+	}
+
+	srcDir := filepath.Join(workDir, "fixture")
+	scenarioDir := fixtureScenarioDir(t, scenario)
+	if err := os.CopyFS(srcDir, os.DirFS(scenarioDir)); err != nil {
+		t.Fatalf("failed to copy fixture scenario %s: %v", scenario, err)
+	}
+
+	bin := filepath.Join(workDir, scenario)
+	runCommand(t, srcDir, 30*time.Second, "g++", "-g", "-O0", "-o", bin, "main.cpp")
 	return bin
 }
 

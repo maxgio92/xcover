@@ -232,6 +232,7 @@ jobs:
             libbpf-dev \
             linux-headers-$(uname -r) \
             gcc \
+            g++ \
             make \
             pkg-config \
             libelf-dev \

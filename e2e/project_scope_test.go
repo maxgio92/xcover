@@ -24,7 +24,11 @@ const (
 	// requireEnv, when set to "1", turns every environment-precondition skip
 	// (privileges, stale state files, missing binary) into a failure so CI
 	// cannot silently pass without running the suite.
-	requireEnv             = "XCOVER_E2E_REQUIRE"
+	requireEnv = "XCOVER_E2E_REQUIRE"
+	// fixturesEnv names a directory of prebuilt fixture binaries, one per
+	// scenario. When set, buildGoFixture uses them instead of running go
+	// build, so the suite can run where no Go toolchain is available.
+	fixturesEnv            = "XCOVER_E2E_FIXTURES"
 	reportFile             = "xcover-report.json"
 	projectScopeGoScenario = "project-scope-go-module"
 	projectScope           = "project"
@@ -245,9 +249,19 @@ func requireNoRunningXcover(t *testing.T) {
 }
 
 // buildGoFixture copies the named testdata scenario into workDir and builds
-// it as a Go module so project scope resolves its functions.
+// it as a Go module so project scope resolves its functions. When
+// XCOVER_E2E_FIXTURES is set, it returns <dir>/<scenario> instead and fails
+// if that file does not exist.
 func buildGoFixture(t *testing.T, workDir, scenario string) string {
 	t.Helper()
+
+	if dir := os.Getenv(fixturesEnv); dir != "" {
+		bin := filepath.Join(dir, scenario)
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatalf("%s is set but prebuilt fixture %s is unusable: %v", fixturesEnv, bin, err)
+		}
+		return bin
+	}
 
 	srcDir := filepath.Join(workDir, "fixture")
 	scenarioDir := fixtureScenarioDir(t, scenario)

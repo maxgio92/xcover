@@ -39,10 +39,10 @@ const (
 	logTailMaxBytes = 64 << 10
 )
 
-// ansiEscape matches one CSI sequence: ESC, "[", parameter bytes,
-// intermediate bytes, one final byte. zerolog emits only SGR ("ESC [ n m"),
-// which is a subset.
-var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+// ansiEscape matches one CSI sequence: ESC, "[", parameter bytes 0x30 to
+// 0x3F, intermediate bytes, one final byte. zerolog emits only SGR
+// ("ESC [ n m"), which is a subset.
+var ansiEscape = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
 
 // WritePID writes the given PID to the PID file. The write is atomic: the
 // PID goes to a temp file in the same directory which is then renamed over

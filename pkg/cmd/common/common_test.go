@@ -450,6 +450,11 @@ func TestLogTail(t *testing.T) {
 			want:    []string{"boom"},
 		},
 		{
+			name:    "ansi colon parameters stripped",
+			content: "\x1b[38:5:196mboom\x1b[0m",
+			want:    []string{"boom"},
+		},
+		{
 			name:    "carriage return split",
 			content: "\rA\rB\n",
 			want:    []string{"A", "B"},

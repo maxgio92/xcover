@@ -114,6 +114,27 @@ check for `SKIP` lines.
 Limit any Go target to a package with `TEST_PATH`, for example
 `make test-integration TEST_PATH=./pkg/trace`.
 
+CI also collects coverage from the unit tests and from the e2e-driven
+`./xcover` binary, then merges both into one `coverage.txt` artifact. To
+reproduce it locally, build the binary with `-cover`, point each run at its
+own `GOCOVERDIR`, and merge the two directories with `go tool covdata`:
+
+```shell
+rm -rf /tmp/cov-unit /tmp/cov-e2e && mkdir -p /tmp/cov-unit /tmp/cov-e2e
+make xcover GO_BUILD_FLAGS=-cover
+make test-integration GO_TEST_FLAGS="-cover -args -test.gocoverdir=/tmp/cov-unit"
+go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
+sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
+sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 GOCOVERDIR=/tmp/cov-e2e /tmp/xcover-e2e.test -test.v -test.count=1
+sudo chown -R "$(id -u):$(id -g)" /tmp/cov-e2e
+go tool covdata textfmt -i=/tmp/cov-unit,/tmp/cov-e2e -o coverage.txt
+go tool cover -func coverage.txt
+```
+
+`GOCOVERDIR` must go inside `sudo env`, because sudo resets the environment
+otherwise. The binary writes its counters as root, so chown the directory
+before reading it.
+
 ## Lint
 
 CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,

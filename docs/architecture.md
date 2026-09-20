@@ -126,7 +126,8 @@ The socket is removed on every exit path.
 
 ### 6. Events
 
-`bpf/trace.bpf.c` defines three maps: `events`, a 256 MB ring buffer;
+`bpf/trace.bpf.c` defines three maps: `events`, a 16 MiB ring buffer whose
+size `--ringbuf-size` sets before load through `resizeEventsRingBuf`;
 `seen_funcs`, a hash map whose `max_entries` is set to the traced function
 count before load by `resizeSeenFuncs` (the compiled default of 40960 applies
 only when the count is unknown); and `drops`, a one-slot array counter. The

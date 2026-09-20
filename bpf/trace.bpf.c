@@ -19,7 +19,7 @@ struct event_t {
 /* Function trace event ring buffer */
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 28); /* 256MB buffer */
+    __uint(max_entries, 1 << 24); /* 16 MiB buffer */
 } events SEC(".maps");
 
 /* Function trace report tracking map */
@@ -58,11 +58,13 @@ int handle_user_function(struct pt_regs *ctx) {
 		return 0;
 	}
 
-	/* A failed reserve is not counted. The 256 MiB ring holds about 16M
-	 * 16-byte records (header plus payload) and userspace drains it
-	 * continuously, so exhaustion needs millions of undrained records,
-	 * submitted or discarded, per drain. The kernel exposes no lost-record
-	 * counter for ring buffers to reconcile against. */
+	/* A failed reserve is not counted. The 16 MiB ring holds about one
+	 * million 16-byte records (header plus payload). The loader can resize
+	 * it before load. Userspace drains it continuously and each function
+	 * normally emits one record per session, so exhaustion needs about a
+	 * million undrained records, submitted or discarded, per drain. The
+	 * kernel exposes no lost-record counter for ring buffers to reconcile
+	 * against. */
 	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
 	if (!event) {
 		xcover_debug("error submitting event to ring buffer for user function with cookie %llu\n", cookie);

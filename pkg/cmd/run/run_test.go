@@ -11,6 +11,7 @@ import (
 	"time"
 
 	log "github.com/rs/zerolog"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -25,8 +26,10 @@ func newTestOptions(t *testing.T) *Options {
 
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	o := new(Options)
-	// Mirror the --pid flag default; the zero value is rejected by setup().
+	// Mirror the --pid and --ringbuf-size flag defaults; the zero values are
+	// rejected by setup().
 	o.pid = -1
+	o.ringBufSize = "16MiB"
 	o.Options = options.NewOptions(
 		options.WithContext(context.Background()),
 		options.WithLogger(logger),
@@ -50,6 +53,7 @@ func TestOptionsSetup(t *testing.T) {
 		userspaceBPF bool
 		include      string
 		exclude      string
+		ringBufSize  string // empty keeps the flag default
 		wantScope    trace.Scope
 		wantErr      bool
 		wantErrIs    error
@@ -158,6 +162,14 @@ func TestOptionsSetup(t *testing.T) {
 			userspaceBPF: true,
 			wantScope:    trace.ScopeBinary,
 		},
+		{
+			// libbpf would round this up to 128KiB silently.
+			name:        "bad ring buffer size is rejected",
+			scope:       string(trace.ScopeBinary),
+			pid:         -1,
+			ringBufSize: "100KiB",
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -168,6 +180,9 @@ func TestOptionsSetup(t *testing.T) {
 			o.userspaceBPF = tt.userspaceBPF
 			o.symIncludePattern = tt.include
 			o.symExcludePattern = tt.exclude
+			if tt.ringBufSize != "" {
+				o.ringBufSize = tt.ringBufSize
+			}
 
 			// A stale PID from another process must be replaced.
 			require.NoError(t, os.WriteFile(settings.PidFile, []byte("1"), 0644))
@@ -190,6 +205,54 @@ func TestOptionsSetup(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.wantScope, scope)
+			require.Equal(t, uint32(1<<24), o.ringBufBytes)
+		})
+	}
+}
+
+func TestParseRingBufSize(t *testing.T) {
+	accepted := []struct {
+		in   string
+		want uint32
+	}{
+		{strconv.Itoa(os.Getpagesize()), uint32(os.Getpagesize())},
+		{"64KiB", 64 << 10},
+		{"16MiB", 16 << 20},
+		{"1GiB", 1 << 30},
+		{"2GiB", 1 << 31},
+	}
+	for _, tt := range accepted {
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := parseRingBufSize(tt.in)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+
+	const suffixes = "use a byte count or a KiB, MiB or GiB suffix"
+	const rule = "must be a power of two, a multiple of the"
+	rejected := []struct {
+		in      string
+		wantErr string
+	}{
+		{"", suffixes},
+		{"16MB", suffixes},
+		{"16KB", suffixes},
+		{"16k", suffixes},
+		{"16m", suffixes},
+		{"16mib", suffixes},
+		{"-1", suffixes},
+		{"abc", suffixes},
+		{"100KiB", rule},
+		{"4GiB", rule},
+		// 2^64-1 GiB: the multiplication would wrap to a size that passes
+		// the rule.
+		{"18446744073709551615GiB", "does not fit in 64 bits"},
+	}
+	for _, tt := range rejected {
+		t.Run(strconv.Quote(tt.in), func(t *testing.T) {
+			_, err := parseRingBufSize(tt.in)
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
@@ -258,6 +321,25 @@ func TestValidatePIDThread(t *testing.T) {
 	require.ErrorContains(t, validatePID(1<<22+1, false), "no such process")
 }
 
+// TestOptionsDaemonizeRefusesBadRingBufSize proves the parent refuses a bad
+// --ringbuf-size before forking: the error reaches the caller instead of only
+// the daemon log, and no PID file names a daemon that never started.
+func TestOptionsDaemonizeRefusesBadRingBufSize(t *testing.T) {
+	origPidFile := settings.PidFile
+	settings.PidFile = filepath.Join(t.TempDir(), "xcover.pid")
+	t.Cleanup(func() { settings.PidFile = origPidFile })
+
+	o := newTestOptions(t)
+	o.ringBufSize = "100KiB"
+
+	// The refusal precedes every read of cmd, so an empty command suffices.
+	err := o.daemonize(&cobra.Command{})
+	require.ErrorContains(t, err, "must be a power of two")
+
+	_, err = os.Stat(settings.PidFile)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestOptionsBuildTracer(t *testing.T) {
 	o := newTestOptions(t)
 	o.comm = "/bin/true"
@@ -276,6 +358,7 @@ func newRunFlagSet() *pflag.FlagSet {
 	fs.String("include", "", "")
 	fs.String("debug-path", "", "")
 	fs.Bool("no-build-id-check", false, "")
+	fs.String("ringbuf-size", "16MiB", "")
 	fs.Bool("detach", false, "")
 	fs.Bool("verbose", false, "")
 	fs.Bool("report", true, "")
@@ -327,6 +410,14 @@ func TestForwardedFlagArgs(t *testing.T) {
 				require.NoError(t, fs.Set("log-level", "debug"))
 			},
 			want: []string{"--log-level=debug", "--path=/bin/true", "--pid=1234"},
+		},
+		{
+			name: "ringbuf-size is forwarded as typed",
+			set: func(fs *pflag.FlagSet) {
+				require.NoError(t, fs.Set("path", "/bin/true"))
+				require.NoError(t, fs.Set("ringbuf-size", "64KiB"))
+			},
+			want: []string{"--path=/bin/true", "--ringbuf-size=64KiB"},
 		},
 		{
 			name: "unset flags are not forwarded",

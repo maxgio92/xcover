@@ -207,6 +207,24 @@ See [docs/troubleshooting.md](docs/troubleshooting.md).
 The filter is kernel mode only: `--pid` is refused together with
 `--userspace-bpf`, because bpftime does not enforce the uprobe PID.
 
+### Ring buffer size
+
+```shell
+xcover run --path EXE_PATH --ringbuf-size SIZE
+```
+
+`--ringbuf-size` sets the size of the ring buffer that carries first hits
+from the BPF program to xcover. The default is `16MiB`. The value is a plain
+byte count or a number with a case-sensitive `KiB`, `MiB` or `GiB` suffix.
+It must be a power of two, a multiple of the page size and at most `2GiB`.
+Any other value is refused before the daemon forks, with the rule in the
+message.
+
+The kernel allocates the whole buffer when the BPF object loads. A failed
+load names the requested size and, when the kernel is out of memory,
+suggests lowering it. Each first hit occupies one 16-byte record, so 16 MiB
+holds about one million pending records.
+
 ## Symbolization
 
 xcover needs a name and an address for each function. It tries these sources in

@@ -100,6 +100,11 @@ script this flow; see [demo/README.md](../demo/README.md).
   failed attach (`attachSingleUprobes` in `pkg/probe/probe.go`) returns an
   error that aborts `xcover run` before readiness is signalled; the uprobes
   already attached are detached on close.
+- **Ring buffer size.** bpftime allocates about twice the ring buffer size
+  inside a shared memory segment that defaults to 50 MB. A `--ringbuf-size`
+  above about 24 MiB makes the process exit under `--userspace-bpf` instead
+  of failing the load with the error that names the requested size.
+  `BPFTIME_SHM_MEMORY_MB` raises the segment size.
 
 ## Binary support
 

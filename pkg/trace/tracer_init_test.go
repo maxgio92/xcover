@@ -116,6 +116,21 @@ func TestDefaultProbe_CarriesFuncCount(t *testing.T) {
 	require.Equal(t, 3, p.FuncCount())
 }
 
+// TestDefaultProbe_CarriesRingBufSize asserts the real probe is built with
+// the requested events ring buffer size so it can resize the map before
+// load, and that an unset size stays 0 to keep the compiled default.
+func TestDefaultProbe_CarriesRingBufSize(t *testing.T) {
+	tracer := NewUserTracer(WithTracerLogger(zerolog.Nop()), WithTracerRingBufSize(1<<20))
+	p, ok := tracer.defaultProbe(3).(*probe.Probe)
+	require.True(t, ok)
+	require.Equal(t, uint32(1<<20), p.RingBufSize())
+
+	tracer = NewUserTracer(WithTracerLogger(zerolog.Nop()))
+	p, ok = tracer.defaultProbe(3).(*probe.Probe)
+	require.True(t, ok)
+	require.Equal(t, uint32(0), p.RingBufSize())
+}
+
 // TestWarnDrops asserts the drop counter surfaces as a Warn only when calls
 // were dropped, since the report undercounts in that case.
 func TestWarnDrops(t *testing.T) {

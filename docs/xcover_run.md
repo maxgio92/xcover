@@ -16,20 +16,21 @@ xcover run [flags]
 ### Options
 
 ```
-      --debug-path string   Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary
-  -d, --detach              Run xcover as daemon
-      --exclude string      Regex pattern to exclude function symbol names, matched against the raw and the demangled name
-  -h, --help                help for run
-      --include string      Regex pattern to include function symbol names, matched against the raw and the demangled name
-      --no-build-id-check   Skip GNU build-id verification between --path and --debug-path
-  -p, --path string         Path to the ELF executable
-      --pid int             Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary) (default -1)
-      --report              Generate report (as xcover-report.json) (default true)
-      --scope string        Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
-      --skip-preflight      Skip the preflight checks: the kernel version advisory (Linux 6.6+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)
-      --status              Periodically print a status of the trace (default true)
-      --userspace-bpf       Run BPF programs in userspace via bpftime (experimental, implies --skip-preflight)
-      --verbose             Enable verbosity
+      --debug-path string     Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary
+  -d, --detach                Run xcover as daemon
+      --exclude string        Regex pattern to exclude function symbol names, matched against the raw and the demangled name
+  -h, --help                  help for run
+      --include string        Regex pattern to include function symbol names, matched against the raw and the demangled name
+      --no-build-id-check     Skip GNU build-id verification between --path and --debug-path
+  -p, --path string           Path to the ELF executable
+      --pid int               Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary) (default -1)
+      --report                Generate report (as xcover-report.json) (default true)
+      --ringbuf-size string   Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB (default "16MiB")
+      --scope string          Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
+      --skip-preflight        Skip the preflight checks: the kernel version advisory (Linux 6.6+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)
+      --status                Periodically print a status of the trace (default true)
+      --userspace-bpf         Run BPF programs in userspace via bpftime (experimental, implies --skip-preflight)
+      --verbose               Enable verbosity
 ```
 
 ### Options inherited from parent commands

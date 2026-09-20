@@ -43,6 +43,8 @@ BPFTIME := bpftime-libs
 # frontend
 
 LDFLAGS = # ASLR and PIE don't hurt. "-linkmode external -extldflags '-no-pie'"
+GO_BUILD_FLAGS ?= # CI sets this to -cover to collect coverage from the binary.
+GO_TEST_FLAGS ?= # CI sets this to -cover plus -args -test.gocoverdir=DIR to collect coverage.
 CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output" # Include libbpfgo headers.
 CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a" # Statically link to libbpf.
 
@@ -57,7 +59,7 @@ $(PROGRAM)/frontend:
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go build -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
+		go build $(GO_BUILD_FLAGS) -ldflags=${LDFLAGS} -v -o ${PROGRAM} .
 
 # xcover-userspace: build with bpftime userspace BPF support.
 .PHONY: $(PROGRAM)-userspace
@@ -66,7 +68,7 @@ $(PROGRAM)-userspace: $(LIBBPFGO)-static $(BPFTIME) $(PROGRAM)/bpf
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go build -tags userspace -ldflags=${LDFLAGS} -v -o ${PROGRAM}-userspace .
+		go build $(GO_BUILD_FLAGS) -tags userspace -ldflags=${LDFLAGS} -v -o ${PROGRAM}-userspace .
 
 .PHONY: test
 test: TEST_PATH ?= ./...
@@ -75,7 +77,7 @@ test: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -ldflags=${LDFLAGS} -v $(TEST_PATH)
+		go test -ldflags=${LDFLAGS} -v $(TEST_PATH) $(GO_TEST_FLAGS)
 
 .PHONY: test-integration
 test-integration: TEST_PATH ?= ./...
@@ -84,7 +86,7 @@ test-integration: $(LIBBPFGO)-static | $(PROGRAM)/bpf
 	CGO_CFLAGS=$(CGO_CFLAGS) \
 	CGO_LDFLAGS=$(CGO_LDFLAGS) \
 		GOARCH=$(GOARCH) \
-		go test -tags integration -ldflags=${LDFLAGS} -v $(TEST_PATH)
+		go test -tags integration -ldflags=${LDFLAGS} -v $(TEST_PATH) $(GO_TEST_FLAGS)
 
 .PHONY: test-e2e
 test-e2e: TEST_PATH ?= ./e2e

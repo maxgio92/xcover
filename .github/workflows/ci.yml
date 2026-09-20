@@ -183,7 +183,16 @@ jobs:
           sudo make install
 
       - name: Run tests
-        run: make test-integration
+        run: |
+          mkdir -p "$RUNNER_TEMP/covdata-unit"
+          make test-integration GO_TEST_FLAGS="-cover -args -test.gocoverdir=$RUNNER_TEMP/covdata-unit"
+
+      - name: Upload unit coverage data
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: covdata-unit
+          path: ${{ runner.temp }}/covdata-unit
+          retention-days: 7
 
       # Runs after make test-integration so libbpfgo/output exists, and uses the
       # Makefile's CGO env so cgo type-checks against the submodule's libbpf
@@ -240,16 +249,69 @@ jobs:
           make
           sudo make install
 
-      - name: Build xcover
-        run: make xcover
+      - name: Build xcover with coverage
+        run: make xcover GO_BUILD_FLAGS=-cover
 
       - name: Build e2e test binary
         run: go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
 
+      # GOCOVERDIR goes inside sudo env: sudo's env_reset drops it otherwise.
+      # The binary runs as root, so the covdata files need a chown before
+      # the runner user can read them.
+      # A -cover binary writes its counters when main returns or os.Exit runs,
+      # so normal and error exits keep them. A panic or a fatal signal loses
+      # the counters of that xcover process.
       - name: Run e2e tests
         run: |
+          mkdir -p "$RUNNER_TEMP/covdata-e2e"
           sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
-          sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v -test.count=1
+          sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 GOCOVERDIR="$RUNNER_TEMP/covdata-e2e" /tmp/xcover-e2e.test -test.v -test.count=1
+          sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/covdata-e2e"
+
+      - name: Upload e2e coverage data
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: covdata-e2e
+          path: ${{ runner.temp }}/covdata-e2e
+          retention-days: 7
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: [test, e2e]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download unit coverage data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: covdata-unit
+          path: covdata/unit
+
+      - name: Download e2e coverage data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: covdata-e2e
+          path: covdata/e2e
+
+      - name: Merge coverage
+        run: |
+          go tool covdata percent -i=covdata/unit,covdata/e2e
+          go tool covdata textfmt -i=covdata/unit,covdata/e2e -o coverage.txt
+
+      - name: Upload merged coverage profile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage.txt
+          path: coverage.txt
+          retention-days: 7
 
   lint:
     name: Lint

@@ -167,12 +167,21 @@ func runXcoverSession(t *testing.T, xcover, workDir string, runArgs []string, ex
 // PID file still exists, so a failed test does not leak the daemon.
 func startXcoverDaemon(t *testing.T, xcover, workDir string, runArgs []string) {
 	t.Helper()
+	startXcoverDaemonEnv(t, xcover, workDir, nil, runArgs)
+}
+
+// startXcoverDaemonEnv is startXcoverDaemon with extra KEY=VALUE entries set
+// on the `run --detach` process, which the detached daemon inherits. It
+// returns the size of the daemon log before the run command, so a test can
+// assert on the lines this session wrote with assertLogContains.
+func startXcoverDaemonEnv(t *testing.T, xcover, workDir string, env, runArgs []string) int64 {
+	t.Helper()
 
 	logOffset := fileSize(t, logFile)
 	args := append([]string{"--log-level=debug", "run", "--detach", "--status=false"}, runArgs...)
 
 	t.Logf("starting xcover daemon: %s", commandLine(xcover, args...))
-	if out, err := commandOutput(workDir, 10*time.Second, xcover, args...); err != nil {
+	if out, err := commandOutputEnv(workDir, 10*time.Second, env, xcover, args...); err != nil {
 		t.Fatalf("%s failed: %v\n%s", commandLine(xcover, args...), err, out)
 	}
 	t.Log("xcover daemon start command returned")
@@ -189,6 +198,7 @@ func startXcoverDaemon(t *testing.T, xcover, workDir string, runArgs []string) {
 		t.Fatalf("xcover wait failed: %v\n%s\n%s", err, out, logTail)
 	}
 	t.Log("xcover reported ready")
+	return logOffset
 }
 
 // stopXcoverDaemon stops the daemon started by startXcoverDaemon and fails the
@@ -313,11 +323,20 @@ func runCommand(t *testing.T, dir string, timeout time.Duration, name string, ar
 }
 
 func commandOutput(dir string, timeout time.Duration, name string, args ...string) (string, error) {
+	return commandOutputEnv(dir, timeout, nil, name, args...)
+}
+
+// commandOutputEnv is commandOutput with extra KEY=VALUE entries appended to
+// the inherited environment of the process.
+func commandOutputEnv(dir string, timeout time.Duration, env []string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		return string(out), fmt.Errorf("%s: %w", commandLine(name, args...), ctx.Err())
@@ -354,6 +373,18 @@ func readSince(t *testing.T, path string, offset int64) string {
 		return ""
 	}
 	return string(data[offset:])
+}
+
+// assertLogContains reads the daemon log from offset, fails with that tail
+// when substring is absent and returns the tail so the caller can run more
+// checks on it.
+func assertLogContains(t *testing.T, offset int64, substring string) string {
+	t.Helper()
+	tail := readSince(t, logFile, offset)
+	if !strings.Contains(tail, substring) {
+		t.Fatalf("daemon log since offset %d does not contain %q:\n%s", offset, substring, tail)
+	}
+	return tail
 }
 
 func readReport(t *testing.T, path string) coverage.CoverageReport {

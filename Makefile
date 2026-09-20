@@ -43,7 +43,7 @@ BPFTIME := bpftime-libs
 # frontend
 
 LDFLAGS = # ASLR and PIE don't hurt. "-linkmode external -extldflags '-no-pie'"
-GO_BUILD_FLAGS ?= # CI sets this to -cover to collect coverage from the binary.
+GO_BUILD_FLAGS ?= # CI sets this to -cover to collect coverage from the binary and -tags e2etest so the e2e suite can cap the seen_funcs map.
 GO_TEST_FLAGS ?= # CI sets this to -cover plus -args -test.gocoverdir=DIR to collect coverage.
 CGO_CFLAGS = "-I $(current_dir)/$(LIBBPFGO)/output" # Include libbpfgo headers.
 CGO_LDFLAGS = "-lelf -lz $(current_dir)/$(LIBBPFGO)/output/libbpf/libbpf.a" # Statically link to libbpf.

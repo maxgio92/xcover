@@ -9,7 +9,10 @@
 // build. Set XCOVER_E2E_FIXTURES to a directory holding one prebuilt binary
 // per scenario to skip that step (make e2e-fixtures produces it). The
 // harness checks for euid 0, so run the compiled test binary under sudo
-// rather than `sudo go test`:
+// rather than `sudo go test`. CI builds xcover with -tags e2etest so the
+// drops scenario can cap the seen_funcs map through
+// XCOVER_E2E_SEEN_FUNCS_MAX; a binary built without the tag ignores the
+// variable and that scenario fails:
 //
 //	go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
 //	sudo env XCOVER_E2E_BIN="$PWD/xcover" XCOVER_E2E_REQUIRE=1 /tmp/xcover-e2e.test -test.v
@@ -52,6 +55,9 @@
 //	stop force-kill        no e2e: unit-covered by pkg/cmd/stop tests (ErrForceKilled, exit 1); a mid-drain daemon cannot be timed deterministically in e2e
 //	stale PID file         TestStaleProcessFileIsOverwritten (daemon_lifecycle_test.go)
 //	merge build_id missing TestMergeAllowsMissingBuildID (merge_test.go)
+//	attach failure         TestAttachFailureExitsBeforeReady (attach_failure_test.go): a --debug-path pair whose executable is truncated past the included function's offset, so uprobe_register returns EINVAL before readiness
+//	seen_funcs drops warning TestDropsWarningReportsRejectedInserts (drops_warning_test.go): XCOVER_E2E_SEEN_FUNCS_MAX=1 caps the map to one function on a binary built with -tags e2etest, so the second distinct function hit drops and the log carries a positive dropped count
+//	--pid thread-filter warning TestPIDFilterWarnsOnThreadFilteringKernel (pid_filter_warning_test.go); skips with plain t.Skipf on a kernel that carries commit 46ba0e49b642, so XCOVER_E2E_REQUIRE=1 does not fail it; an inconclusive check fails in both cases
 //
 // C++ name demangling is covered by TestCppReportCarriesDemangledNames
 // (demangle_test.go), which skips when g++ is absent.

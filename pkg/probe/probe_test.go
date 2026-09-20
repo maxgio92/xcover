@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"debug/elf"
 	"encoding/binary"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestIsNoisyAttachFailure(t *testing.T) {
@@ -158,4 +161,110 @@ func TestEmbeddedObjectHasNoPrintk(t *testing.T) {
 func TestNewProbePID(t *testing.T) {
 	require.Equal(t, -1, NewProbe().pid, "default must trace every process")
 	require.Equal(t, 1234, NewProbe(WithPID(1234)).pid)
+}
+
+func TestWithRingBufSize(t *testing.T) {
+	require.Equal(t, uint32(1<<20), NewProbe(WithRingBufSize(1<<20)).RingBufSize())
+	require.Equal(t, uint32(0), NewProbe().RingBufSize(), "default must keep the compiled size")
+}
+
+// TestValidateRingBufSize pins the rule the parent enforces before the daemon
+// forks: the kernel rejects a ring buffer that is not a power-of-two multiple
+// of the page size with EINVAL, and libbpf would otherwise round the value up
+// silently. Every refusal names the rule.
+func TestValidateRingBufSize(t *testing.T) {
+	pageSize := os.Getpagesize()
+	rule := fmt.Sprintf("must be a power of two, a multiple of the %d byte page size, greater than zero and at most %d", pageSize, uint64(1)<<31)
+	tests := []struct {
+		name    string
+		size    uint64
+		wantErr bool
+	}{
+		{name: "zero is refused", size: 0, wantErr: true},
+		{name: "not a power of two is refused", size: 102400, wantErr: true},
+		{name: "below the page size is refused", size: 2048, wantErr: true},
+		{name: "one page is accepted", size: uint64(pageSize)},
+		{name: "the 2 GiB bound is accepted", size: 1 << 31},
+		{name: "above the bound is refused", size: 1 << 32, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRingBufSize(tt.size)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, fmt.Sprintf("invalid ring buffer size %d: %s", tt.size, rule))
+		})
+	}
+}
+
+// TestResizeEventsRingBuf asserts the pre-load resize Init applies to the
+// events ring buffer: zero keeps the max_entries compiled into the object and
+// a valid size replaces it unchanged.
+func TestResizeEventsRingBuf(t *testing.T) {
+	tests := []struct {
+		name string
+		size uint32
+		want func(compiled uint32) uint32
+	}{
+		{name: "zero keeps the object default", size: 0, want: func(c uint32) uint32 { return c }},
+		{name: "a valid size replaces the default", size: 1 << 20, want: func(uint32) uint32 { return 1 << 20 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mod := openEmbeddedModule(t)
+			events, err := mod.GetMap(evtRingBufBPFMapName)
+			require.NoError(t, err)
+			compiled := events.MaxEntries()
+			require.NotZero(t, compiled)
+
+			require.NoError(t, resizeEventsRingBuf(events, tt.size))
+			require.Equal(t, tt.want(compiled), events.MaxEntries())
+		})
+	}
+}
+
+// TestEmbeddedObjectRingBufDefault pins the events map the object ships with:
+// a 16 MiB BPF ring buffer, which the default --ringbuf-size mirrors.
+func TestEmbeddedObjectRingBufDefault(t *testing.T) {
+	mod := openEmbeddedModule(t)
+	events, err := mod.GetMap(evtRingBufBPFMapName)
+	require.NoError(t, err)
+	require.Equal(t, bpf.MapTypeRingbuf, events.Type())
+	require.Equal(t, uint32(1<<24), events.MaxEntries())
+}
+
+// TestLoadError pins the load failure text: the size the kernel was asked to
+// allocate is always named, the --ringbuf-size hint follows ENOMEM only, and
+// the errno stays reachable through errors.Is. The cause mirrors libbpfgo's
+// BPFLoadObject wrapping ("failed to load BPF object: %w").
+func TestLoadError(t *testing.T) {
+	tests := []struct {
+		name  string
+		errno unix.Errno
+		want  string
+	}{
+		{
+			name:  "ENOMEM names the size and hints at the flag",
+			errno: unix.ENOMEM,
+			want:  "failed to load bpf module handle_user_function with a 16777216 byte events ring buffer: failed to load BPF object: cannot allocate memory; lower --ringbuf-size",
+		},
+		{
+			name:  "EPERM names the size without the hint",
+			errno: unix.EPERM,
+			want:  "failed to load bpf module handle_user_function with a 16777216 byte events ring buffer: failed to load BPF object: operation not permitted",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cause := fmt.Errorf("failed to load BPF object: %w", tt.errno)
+			err := loadError(ProgName, 1<<24, cause)
+			require.EqualError(t, err, tt.want)
+			require.ErrorIs(t, err, tt.errno)
+		})
+	}
 }

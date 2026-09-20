@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"unsafe"
@@ -12,6 +13,7 @@ import (
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog"
+	"golang.org/x/sys/unix"
 )
 
 //go:embed output/*
@@ -26,6 +28,10 @@ const (
 	evtRingBufPollTimeout = 60
 	seenFuncsBPFMapName   = "seen_funcs"
 	dropsBPFMapName       = "drops"
+
+	// maxRingBufSize is the largest events ring buffer the kernel accepts:
+	// max_entries is a __u32 that must be a power of two.
+	maxRingBufSize uint64 = 1 << 31
 )
 
 type Probe struct {
@@ -40,6 +46,10 @@ type Probe struct {
 
 	userspaceBPF bool
 	funcCount    int
+
+	// ringBufSize is the events ring buffer capacity in bytes; 0 keeps the
+	// max_entries compiled into the BPF object.
+	ringBufSize uint32
 
 	// pid restricts uprobe attachment to one process (thread group); -1
 	// traces every process executing the target binary.
@@ -94,6 +104,60 @@ func resizeSeenFuncs(seenFuncs *bpf.BPFMap, funcCount int) error {
 		return errors.Wrapf(err, "failed to resize bpf map %s", seenFuncsBPFMapName)
 	}
 	return nil
+}
+
+// WithRingBufSize sets the events ring buffer capacity in bytes, applied
+// before the BPF object is loaded. With 0 (the default) the max_entries
+// compiled into the BPF object is kept. Callers validate n with
+// ValidateRingBufSize first: libbpf silently rounds any other value up to
+// the next power-of-two multiple of the page size.
+func WithRingBufSize(n uint32) Option {
+	return func(p *Probe) {
+		p.ringBufSize = n
+	}
+}
+
+// RingBufSize returns the events ring buffer size the probe was configured
+// with through WithRingBufSize (0 when unset).
+func (p *Probe) RingBufSize() uint32 {
+	return p.ringBufSize
+}
+
+// ValidateRingBufSize reports whether n is an events ring buffer size the
+// kernel accepts as is: a power of two, a multiple of the page size, greater
+// than zero and at most maxRingBufSize. The kernel rejects any other size
+// with EINVAL and libbpf would round a smaller one up silently, so the rule
+// is enforced here, where the caller can still name it.
+func ValidateRingBufSize(n uint64) error {
+	pageSize := uint64(os.Getpagesize())
+	if n == 0 || n&(n-1) != 0 || n%pageSize != 0 || n > maxRingBufSize {
+		return fmt.Errorf("invalid ring buffer size %d: must be a power of two, a multiple of the %d byte page size, greater than zero and at most %d", n, pageSize, maxRingBufSize)
+	}
+	return nil
+}
+
+// resizeEventsRingBuf sets the events ring buffer capacity in bytes before
+// the object is loaded; max_entries is immutable afterwards. With size 0 the
+// max_entries compiled into the object is kept.
+func resizeEventsRingBuf(events *bpf.BPFMap, size uint32) error {
+	if size == 0 {
+		return nil
+	}
+	if err := events.SetMaxEntries(size); err != nil {
+		return errors.Wrapf(err, "failed to resize bpf map %s", evtRingBufBPFMapName)
+	}
+	return nil
+}
+
+// loadError describes a failed BPF object load. The kernel allocates every
+// page of the events ring buffer at load, so the message names its size and,
+// when the cause is ENOMEM, suggests lowering it.
+func loadError(name string, size uint32, err error) error {
+	hint := ""
+	if errors.Is(err, unix.ENOMEM) {
+		hint = "; lower --ringbuf-size"
+	}
+	return fmt.Errorf("failed to load bpf module %s with a %d byte events ring buffer: %w%s", name, size, err, hint)
 }
 
 // WithPID restricts the uprobes to the given process. The default of -1
@@ -168,8 +232,20 @@ func (p *Probe) Init(_ context.Context) error {
 		return err
 	}
 
+	events, err := p.bpfMod.GetMap(evtRingBufBPFMapName)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get bpf map %s", evtRingBufBPFMapName)
+	}
+	if err := resizeEventsRingBuf(events, p.ringBufSize); err != nil {
+		return err
+	}
+	// libbpf may round the size, so read back what the kernel is asked to
+	// allocate at load.
+	effective := events.MaxEntries()
+	p.logger.Info().Uint32("bytes", effective).Msg("events ring buffer size")
+
 	if err := p.bpfMod.BPFLoadObject(); err != nil {
-		return errors.Wrapf(err, "failed to load bpf module %s", p.Name)
+		return loadError(p.Name, effective, err)
 	}
 
 	return nil

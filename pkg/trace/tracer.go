@@ -179,6 +179,7 @@ func (t *UserTracer) defaultProbe(funcCount int) Probe {
 		probe.WithLogger(t.logger),
 		probe.WithFuncCount(funcCount),
 		probe.WithPID(t.pid),
+		probe.WithRingBufSize(t.ringBufSize),
 	}
 	if t.userspaceBPF {
 		probeOpts = append(probeOpts, probe.WithUserspaceBPF())

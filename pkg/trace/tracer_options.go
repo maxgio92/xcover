@@ -14,6 +14,7 @@ type UserTracerOptions struct {
 	verbose      bool
 	userspaceBPF bool
 	pid          int
+	ringBufSize  uint32
 	writer       io.Writer
 
 	logger log.Logger
@@ -77,5 +78,14 @@ func WithTracerProbe(p Probe) UserTracerOpt {
 func WithTracerPID(pid int) UserTracerOpt {
 	return func(opts *UserTracer) {
 		opts.pid = pid
+	}
+}
+
+// WithTracerRingBufSize sets the events ring buffer size in bytes that the
+// tracer passes to the probe it builds. The default of 0 keeps the size
+// compiled into the BPF object.
+func WithTracerRingBufSize(n uint32) UserTracerOpt {
+	return func(opts *UserTracer) {
+		opts.ringBufSize = n
 	}
 }

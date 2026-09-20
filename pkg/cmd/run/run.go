@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 
 	"github.com/pkg/errors"
@@ -17,6 +18,7 @@ import (
 	"github.com/maxgio92/xcover/pkg/bpftime"
 	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
+	"github.com/maxgio92/xcover/pkg/probe"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
 
@@ -32,6 +34,11 @@ type Options struct {
 
 	debugPath      string
 	noBuildIDCheck bool
+
+	// ringBufSize is the --ringbuf-size value as typed; ringBufBytes is the
+	// validated size parseRingBufSize derives from it in setup.
+	ringBufSize  string
+	ringBufBytes uint32
 
 	detach        bool
 	skipPreflight bool
@@ -65,6 +72,7 @@ It supports programs compiled to ELF.
 
 	cmd.Flags().StringVar(&o.debugPath, "debug-path", "", "Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary")
 	cmd.Flags().BoolVar(&o.noBuildIDCheck, "no-build-id-check", false, "Skip GNU build-id verification between --path and --debug-path")
+	cmd.Flags().StringVar(&o.ringBufSize, "ringbuf-size", "16MiB", "Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB")
 
 	cmd.Flags().BoolVarP(&o.detach, "detach", "d", false, fmt.Sprintf("Run %s as daemon", settings.CmdName))
 	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
@@ -135,6 +143,12 @@ func (o *Options) setup() (trace.Scope, error) {
 		return "", err
 	}
 
+	ringBufBytes, err := parseRingBufSize(o.ringBufSize)
+	if err != nil {
+		return "", err
+	}
+	o.ringBufBytes = ringBufBytes
+
 	scope, err := trace.ParseScope(o.scope)
 	if err != nil {
 		return "", err
@@ -203,6 +217,49 @@ func validatePID(pid int, userspaceBPF bool) error {
 	return nil
 }
 
+// ringBufSizeUnits maps the accepted --ringbuf-size suffixes to their byte
+// multiplier. The match is case-sensitive: KB, MB, k, m and mib are refused
+// rather than guessed at.
+var ringBufSizeUnits = map[string]uint64{
+	"KiB": 1 << 10,
+	"MiB": 1 << 20,
+	"GiB": 1 << 30,
+}
+
+// parseRingBufSize parses a --ringbuf-size value: a decimal byte count with
+// an optional KiB, MiB or GiB suffix. The result must satisfy
+// probe.ValidateRingBufSize, so the rule reaches the user here instead of
+// libbpf rounding the value up silently or the kernel refusing it at load.
+func parseRingBufSize(s string) (uint32, error) {
+	digits, unit := s, ""
+	for i, r := range s {
+		if r < '0' || r > '9' {
+			digits, unit = s[:i], s[i:]
+			break
+		}
+	}
+	mult := uint64(1)
+	if unit != "" {
+		var ok bool
+		if mult, ok = ringBufSizeUnits[unit]; !ok {
+			return 0, errors.Errorf("invalid --ringbuf-size %q: use a byte count or a KiB, MiB or GiB suffix", s)
+		}
+	}
+	n, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil {
+		return 0, errors.Errorf("invalid --ringbuf-size %q: use a byte count or a KiB, MiB or GiB suffix", s)
+	}
+	if n > math.MaxUint64/mult {
+		return 0, errors.Errorf("invalid --ringbuf-size %q: does not fit in 64 bits", s)
+	}
+	size := n * mult
+	if err := probe.ValidateRingBufSize(size); err != nil {
+		return 0, errors.Wrapf(err, "--ringbuf-size %s", s)
+	}
+
+	return uint32(size), nil
+}
+
 // buildTracer constructs the tracee to trace and the tracer that drives it,
 // applying the resolved scope and all tracer-related options.
 func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
@@ -230,6 +287,7 @@ func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
 		trace.WithTracerStatus(o.status),
 		trace.WithTracerUserspaceBPF(o.userspaceBPF),
 		trace.WithTracerPID(o.pid),
+		trace.WithTracerRingBufSize(o.ringBufBytes),
 		trace.WithTracerTracee(tracee),
 	)
 }
@@ -275,6 +333,14 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Validate the target before forking so the error reaches the user
 	// instead of only the daemon log.
 	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
+		return err
+	}
+
+	// Refuse a bad ring buffer size in the parent, in the same position setup
+	// checks it, before the running-daemon check and the preflight. The rule
+	// reaches the user without root and no daemon is started only to fail at
+	// load.
+	if _, err := parseRingBufSize(o.ringBufSize); err != nil {
 		return err
 	}
 

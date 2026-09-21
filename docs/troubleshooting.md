@@ -208,9 +208,10 @@ Printed by `xcover run`, wrapped in `failed to resolve functions` and
 `failed to init tracer` (`pkg/trace/tracee.go`). The daemon exits and
 `xcover wait` reports `xcover is not running`.
 
-**Cause.** The binary has neither `.symtab` nor `.gopclntab`, so xcover would
-fall back to function recovery, which names functions `func_0x<offset>`. An
-`--include` or `--exclude` pattern written for real names cannot match those
+**Cause.** The binary has neither `.symtab` nor `.gopclntab` (or its
+`.gopclntab` could not be used; the message names the cause), so xcover
+would fall back to function recovery, which names functions `func_0x<offset>`.
+An `--include` or `--exclude` pattern written for real names cannot match those
 synthetic names, so xcover refuses to run instead of silently ignoring the
 filters. The library-only bind filters (`WithTraceeSymBindInclude`,
 `WithTraceeSymBindExclude`) trigger the same refusal.

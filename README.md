@@ -258,7 +258,7 @@ are named `func_0x<offset>` because no real name is available. Recall drops
 sharply on optimised builds, so prefer a debug file when you have one.
 
 A pattern written for real symbols cannot match these synthetic names, so
-recovery currently refuses `--include` and `--exclude` (and the library bind
+recovery refuses `--include` and `--exclude` (and the library bind
 filters) and the run stops with `symbol filters need a symbol table; this
 binary has none`. To filter a stripped non-Go binary, pass a matching debug
 file with `--debug-path` or trace an unstripped build.

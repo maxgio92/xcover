@@ -26,9 +26,11 @@ type UserTraceeOptions struct {
 // hasSymFilter reports whether any name or bind filter is set. Recovery names
 // functions func_0x<addr>, so patterns written for real symbols cannot match
 // them; the fallback refuses to run with filters rather than ignore them.
+// The bind checks mirror symFilter.shouldInclude: an empty non-nil include
+// excludes every symbol, while an empty exclude excludes nothing.
 func (o *UserTraceeOptions) hasSymFilter() bool {
 	return o.symPatternInclude != "" || o.symPatternExclude != "" ||
-		o.symBindInclude != nil || o.symBindExclude != nil
+		o.symBindInclude != nil || len(o.symBindExclude) > 0
 }
 
 type UserTraceeOption func(*UserTracee)

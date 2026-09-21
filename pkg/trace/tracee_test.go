@@ -52,8 +52,9 @@ func TestUserTracee_Validate(t *testing.T) {
 func TestUserTracee_Init_RecoveryRefusesFilters(t *testing.T) {
 	const fallbackMsg = "falling back to binary recovery"
 
+	stubErr := errors.Wrap(trace.ErrNoSymbolTable, "stub: no symbol table")
 	noSymbolTable := func(context.Context) ([]trace.FunctionEntry, error) {
-		return nil, errors.Wrap(trace.ErrNoSymbolTable, "no symbol table")
+		return nil, stubErr
 	}
 
 	notELF := filepath.Join(t.TempDir(), "not-an-elf")
@@ -98,6 +99,19 @@ func TestUserTracee_Init_RecoveryRefusesFilters(t *testing.T) {
 			exePath: notELF,
 			opts:    []trace.UserTraceeOption{trace.WithTraceeSymBindInclude()},
 		},
+		{
+			name:    "empty bind include slice",
+			exePath: testBinary,
+			opts:    []trace.UserTraceeOption{trace.WithTraceeSymBindInclude([]elf.SymBind{}...)},
+			refuses: true,
+		},
+		{
+			// A non-nil empty exclude filters nothing in shouldInclude, so it
+			// must not count as a filter here either.
+			name:    "empty bind exclude slice",
+			exePath: notELF,
+			opts:    []trace.UserTraceeOption{trace.WithTraceeSymBindExclude([]elf.SymBind{}...)},
+		},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +129,7 @@ func TestUserTracee_Init_RecoveryRefusesFilters(t *testing.T) {
 
 			if tt.refuses {
 				require.ErrorIs(t, err, trace.ErrFilterNeedsSymbols)
+				require.Contains(t, err.Error(), stubErr.Error())
 				require.NotContains(t, buf.String(), fallbackMsg)
 				return
 			}

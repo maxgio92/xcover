@@ -278,7 +278,7 @@ func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg
 
 // warnDrops reads the BPF drop counter and warns when calls could not be
 // recorded because the ring buffer was full or the seen_funcs insert was
-// rejected: their functions are missing from the report.
+// rejected: their functions may be missing from the report.
 func (t *UserTracer) warnDrops() {
 	drops, err := t.probe.Drops()
 	if err != nil {
@@ -287,7 +287,7 @@ func (t *UserTracer) warnDrops() {
 	}
 	if drops > 0 {
 		t.logger.Warn().Uint64("dropped", drops).
-			Msg("calls not recorded: the ring buffer was full (raise --ringbuf-size) or the seen_funcs map rejected the insert (narrow the probe set with --scope or --exclude); the report undercounts coverage")
+			Msg("calls not recorded: the ring buffer was full (raise --ringbuf-size) or the seen_funcs map rejected the insert (narrow the probe set with --scope or --exclude); the report may undercount coverage")
 	}
 }
 

@@ -316,7 +316,7 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 - The BPF program dropped calls. `xcover run` logs
   `calls not recorded: the ring buffer was full (raise --ringbuf-size) or the
   seen_funcs map rejected the insert (narrow the probe set with --scope or
-  --exclude); the report undercounts coverage` on exit with the `drops`
+  --exclude); the report may undercount coverage` on exit with the `drops`
   counter in the `dropped` field (`pkg/trace/tracer.go`, counter in
   `bpf/trace.bpf.c`). The warning lists both possible causes and cannot tell
   them apart, because both paths add to the same counter. Either the ring

@@ -132,7 +132,7 @@ func TestDefaultProbe_CarriesRingBufSize(t *testing.T) {
 }
 
 // TestWarnDrops asserts the drop counter surfaces as a Warn only when calls
-// were dropped, since the report undercounts in that case.
+// were dropped, since the report may undercount in that case.
 func TestWarnDrops(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
@@ -152,7 +152,7 @@ func TestWarnDrops(t *testing.T) {
 			if tt.warn {
 				require.Contains(t, out.String(), `"level":"warn"`)
 				require.Contains(t, out.String(), `"dropped":3`)
-				require.Contains(t, out.String(), "undercounts")
+				require.Contains(t, out.String(), "undercount")
 				require.Contains(t, out.String(), "--ringbuf-size")
 				require.Contains(t, out.String(), "--scope")
 			} else {

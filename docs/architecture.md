@@ -66,6 +66,9 @@ xcover run --path BIN
   and names them `func_0x<offset>`. `Init` refuses this fallback with
   `ErrFilterNeedsSymbols` when any name or bind filter is set, because the
   synthetic names cannot match a pattern written for real symbols.
+  `GoProjectResolver` returns the same error, without `ErrNoSymbolTable` in
+  its chain, when the module path is readable but the delegate finds no
+  table, so `--scope=project` is refused rather than ignored by recovery.
 
 Virtual addresses become file offsets by walking `PT_LOAD` segments. Because
 uprobes are addressed by file offset, PIE and ASLR need no special handling.

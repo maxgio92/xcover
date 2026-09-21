@@ -260,8 +260,11 @@ sharply on optimised builds, so prefer a debug file when you have one.
 A pattern written for real symbols cannot match these synthetic names, so
 recovery refuses `--include` and `--exclude` (and the library bind
 filters) and the run stops with `symbol filters need a symbol table; this
-binary has none`. To filter a stripped non-Go binary, pass a matching debug
-file with `--debug-path` or trace an unstripped build.
+binary has none`. A Go binary with both `.symtab` and `.gopclntab` removed
+(for example by `strip` followed by `objcopy --remove-section .gopclntab`) but
+readable build info refuses `--scope=project` the same way, because recovery
+cannot tell module functions apart. To filter a stripped binary, pass
+a matching debug file with `--debug-path` or trace an unstripped build.
 
 ### 4. Separate debug file
 

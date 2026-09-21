@@ -216,9 +216,9 @@ synthetic names, so xcover refuses to run instead of silently ignoring the
 filters. The library-only bind filters (`WithTraceeSymBindInclude`,
 `WithTraceeSymBindExclude`) trigger the same refusal.
 
-**Fix.** Drop `--include` and `--exclude` to trace every recovered function,
-pass `--debug-path` with a debug file that matches the binary, or trace an
-unstripped build.
+**Fix.** Drop `--include`, `--exclude` and `--scope=project` to trace every
+recovered function, pass `--debug-path` with a debug file that matches the
+binary, or trace an unstripped build.
 
 ## `cannot verify the debug file belongs to the executable` and other build-id errors
 

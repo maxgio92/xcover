@@ -21,8 +21,10 @@ import (
 //
 // Returns ErrProjectScopeUnsupported (via errors.Is) if the binary does not
 // carry the metadata needed for project-scoped resolution (missing build info,
-// built as command-line-arguments, etc.).
+// built as command-line-arguments, etc.), and ErrFilterNeedsSymbols if the
+// module path is readable but the binary has no symbol table to filter.
 func GoProjectResolver(path string, logger log.Logger, include, exclude string, bindInclude, bindExclude []elf.SymBind) FunctionResolver {
+	symbols := SymbolTableResolver(path, logger, include, exclude, bindInclude, bindExclude)
 	return func(ctx context.Context) ([]FunctionEntry, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -32,35 +34,47 @@ func GoProjectResolver(path string, logger log.Logger, include, exclude string, 
 		if err := ValidateSymPatterns(include, exclude); err != nil {
 			return nil, err
 		}
-
-		modPath, err := goModulePath(path)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to detect Go module path")
-		}
-
-		logger.Info().
-			Str("module", modPath).
-			Msg("project scope: filtering functions to module")
-
-		// Resolve all functions first, then filter.
-		all := SymbolTableResolver(path, logger, include, exclude, bindInclude, bindExclude)
-		entries, err := all(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		filtered := filterByModulePath(entries, modPath)
-		if len(filtered) == 0 {
-			return nil, errors.Errorf("no functions found for module %q", modPath)
-		}
-
-		logger.Info().
-			Int("total", len(entries)).
-			Int("project", len(filtered)).
-			Msg("project scope: filtered functions")
-
-		return filtered, nil
+		return resolveProject(ctx, path, logger, symbols)
 	}
+}
+
+// resolveProject reads the module path from the binary at path, resolves
+// every function through symbols and keeps those belonging to the module.
+func resolveProject(ctx context.Context, path string, logger log.Logger, symbols FunctionResolver) ([]FunctionEntry, error) {
+	modPath, err := goModulePath(path)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to detect Go module path")
+	}
+
+	logger.Info().
+		Str("module", modPath).
+		Msg("project scope: filtering functions to module")
+
+	entries, err := symbols(ctx)
+	if err != nil {
+		// A Go binary with both .symtab and .gopclntab removed (for example
+		// by strip followed by objcopy --remove-section .gopclntab) still has
+		// readable build info.
+		// Recovery would trace every func_0x<addr> and ignore the module
+		// scope, so refuse as Init does for name filters. The wrap drops
+		// ErrNoSymbolTable so Init does not reach that fallback.
+		if errors.Is(err, ErrNoSymbolTable) {
+			return nil, errors.Wrap(ErrFilterNeedsSymbols, err.Error())
+		}
+		return nil, err
+	}
+
+	filtered := filterByModulePath(entries, modPath)
+	if len(filtered) == 0 {
+		return nil, errors.Errorf("no functions found for module %q", modPath)
+	}
+
+	logger.Info().
+		Int("total", len(entries)).
+		Int("project", len(filtered)).
+		Msg("project scope: filtered functions")
+
+	return filtered, nil
 }
 
 // goModulePath extracts the Go module path from the binary's embedded build info.

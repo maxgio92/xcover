@@ -195,3 +195,34 @@ func TestWithProjectFallback_PropagatesOtherErrors(t *testing.T) {
 		t.Errorf("expected sentinel error, got %v", err)
 	}
 }
+
+// TestResolveProject_RefusesWithoutSymbolTable pins the project-scope
+// refusal on a binary whose build info is readable but whose symbol
+// resolver reports ErrNoSymbolTable, as a Go binary with both .symtab and
+// .gopclntab removed (strip, then objcopy --remove-section .gopclntab) does.
+// The error must carry ErrFilterNeedsSymbols so Init returns it, and must
+// not carry ErrNoSymbolTable, which would send Init into the recovery
+// fallback that ignores the module scope. The test executable stands in for
+// the binary because it carries a main module path.
+func TestResolveProject_RefusesWithoutSymbolTable(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	stubErr := errors.Wrap(ErrNoSymbolTable, "stub: no symbol table")
+	_, err = resolveProject(t.Context(), exe, log.Nop(), staticResolver(nil, stubErr))
+	require.ErrorIs(t, err, ErrFilterNeedsSymbols)
+	require.NotErrorIs(t, err, ErrNoSymbolTable)
+	require.NotErrorIs(t, err, ErrProjectScopeUnsupported)
+	require.Contains(t, err.Error(), stubErr.Error())
+}
+
+// TestResolveProject_PassesOtherErrors checks that an error other than
+// ErrNoSymbolTable from the symbol resolver is returned unchanged.
+func TestResolveProject_PassesOtherErrors(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	_, err = resolveProject(t.Context(), exe, log.Nop(), staticResolver(nil, ErrNoFunctionSymbols))
+	require.ErrorIs(t, err, ErrNoFunctionSymbols)
+	require.NotErrorIs(t, err, ErrFilterNeedsSymbols)
+}

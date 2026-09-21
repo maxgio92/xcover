@@ -402,6 +402,38 @@ func TestUserTracee_Init_NoMatch(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoFunctionSymbols)
 }
 
+// TestUserTracee_Init_NoMatchStripped verifies that an include pattern
+// matching nothing in a stripped Go binary surfaces ErrNoFunctionSymbols from
+// the .gopclntab path, not ErrNoSymbolTable or ErrFilterNeedsSymbols: the
+// binary has a function table, only the pattern is wrong.
+func TestUserTracee_Init_NoMatchStripped(t *testing.T) {
+	tmpDir := t.TempDir()
+	src := filepath.Join(tmpDir, "main.go")
+	require.NoError(t, os.WriteFile(src, []byte("package main\n\nfunc main() { println(\"hi\") }\n"), 0o644))
+
+	bin := filepath.Join(tmpDir, "prog")
+	out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput()
+	require.NoError(t, err, "go build: %s", out)
+	require.NoError(t, exec.Command("strip", bin).Run())
+
+	f, err := elf.Open(bin)
+	require.NoError(t, err)
+	_, err = f.Symbols()
+	require.ErrorIs(t, err, elf.ErrNoSymbols, "strip should drop .symtab")
+	require.NotNil(t, f.Section(".gopclntab"), ".gopclntab must survive strip")
+	f.Close()
+
+	tracee := NewUserTracee(
+		WithTraceeExePath(bin),
+		WithTraceeSymPatternInclude("^nonexistentSymbol$"),
+		WithTraceeLogger(zerolog.Nop()),
+	)
+	err = tracee.Init(t.Context())
+	require.ErrorIs(t, err, ErrNoFunctionSymbols)
+	require.NotErrorIs(t, err, ErrNoSymbolTable)
+	require.NotErrorIs(t, err, ErrFilterNeedsSymbols)
+}
+
 // TestGoPclntab_Go126Compat verifies that the .gopclntab resolver produces
 // correct file offsets on binaries compiled with Go 1.26+.
 //

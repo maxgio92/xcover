@@ -158,16 +158,10 @@ func TestSymbolTableResolver_CppUnmangledPassThrough(t *testing.T) {
 	}, got)
 }
 
-// TestRecoveryResolver verifies that RecoveryResolver returns
-// entries with synthesized func_0x<addr> names and valid file offsets
-// from a stripped C binary.
-func TestRecoveryResolver(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "xcover-recovery-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	src := filepath.Join(tmpDir, "main.c")
-	err = os.WriteFile(src, []byte(`
+// recoveryFixtureSrc is a C program with three defined functions. Once
+// stripped, its .symtab is gone but .eh_frame stays, so RecoveryResolver
+// finds greet, farewell, main and the _start entry point: four functions.
+const recoveryFixtureSrc = `
 #include <stdio.h>
 
 void greet(const char *name) {
@@ -183,15 +177,13 @@ int main() {
 	farewell("world");
 	return 0;
 }
-`), 0644)
-	require.NoError(t, err)
+`
 
-	bin := filepath.Join(tmpDir, "bin")
-	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
-	if err != nil {
-		t.Errorf("gcc not available: %v: %s", err, out)
-	}
-	require.NoError(t, exec.Command("strip", bin).Run())
+// TestRecoveryResolver verifies that RecoveryResolver returns
+// entries with synthesized func_0x<addr> names and valid file offsets
+// from a stripped C binary.
+func TestRecoveryResolver(t *testing.T) {
+	bin := buildStrippedCBinary(t)
 
 	resolver := trace.RecoveryResolver(bin, testLogger)
 	entries, err := resolver(t.Context())
@@ -204,6 +196,57 @@ int main() {
 		assert.Equal(t, e.Name, e.Demangled, "synthetic names carry no mangling")
 		assert.NotZero(t, e.Offset)
 	}
+}
+
+// buildStrippedCBinary compiles recoveryFixtureSrc and strips it, returning
+// the binary path. It skips the test when gcc is unavailable.
+func buildStrippedCBinary(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc not available")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.c")
+	require.NoError(t, os.WriteFile(src, []byte(recoveryFixtureSrc), 0o644))
+
+	bin := filepath.Join(dir, "bin")
+	if out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput(); err != nil {
+		t.Fatalf("gcc failed: %v: %s", err, out)
+	}
+	require.NoError(t, exec.Command("strip", bin).Run())
+	return bin
+}
+
+// TestUserTracee_Init_RecoveryWithoutFilters runs the default resolver chain
+// on a stripped C binary: SymbolTableResolver finds neither .symtab nor
+// .gopclntab and returns ErrNoSymbolTable, so Init falls back to recovery and
+// collects the four functions with no filter set.
+func TestUserTracee_Init_RecoveryWithoutFilters(t *testing.T) {
+	bin := buildStrippedCBinary(t)
+
+	tracee := trace.NewUserTracee(
+		trace.WithTraceeExePath(bin),
+		trace.WithTraceeLogger(testLogger),
+	)
+	require.NoError(t, tracee.Init(t.Context()))
+	assert.Len(t, tracee.GetFuncNames(), 4)
+}
+
+// TestUserTracee_Init_RecoveryRefusesInclude runs the same chain with an
+// include pattern. Recovery names functions func_0x<addr>, which the pattern
+// cannot match, so Init refuses with ErrFilterNeedsSymbols instead of
+// silently ignoring the filter.
+func TestUserTracee_Init_RecoveryRefusesInclude(t *testing.T) {
+	bin := buildStrippedCBinary(t)
+
+	tracee := trace.NewUserTracee(
+		trace.WithTraceeExePath(bin),
+		trace.WithTraceeLogger(testLogger),
+		trace.WithTraceeSymPatternInclude("^greet$"),
+	)
+	err := tracee.Init(t.Context())
+	require.ErrorIs(t, err, trace.ErrFilterNeedsSymbols)
+	require.Contains(t, err.Error(), "failed to resolve functions")
 }
 
 // TestSymbolTableResolver_PIESkipsUndefinedImports compiles a dynamically

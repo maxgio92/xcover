@@ -57,6 +57,7 @@
 //	stale PID file         TestStaleProcessFileIsOverwritten (daemon_lifecycle_test.go)
 //	merge build_id missing TestMergeAllowsMissingBuildID (merge_test.go)
 //	attach failure         TestAttachFailureExitsBeforeReady (attach_failure_test.go): a --debug-path pair whose executable is truncated past the included function's offset, so uprobe_register returns EINVAL before readiness
+//	recovery filter refusal TestRecoveryRefusesFiltersBeforeReady (recovery_filter_test.go): a stripped C++ fixture with neither .symtab nor .gopclntab run with --include, so Init fails with ErrFilterNeedsSymbols before readiness instead of recovering func_0x<offset> names that the pattern cannot match
 //	seen_funcs drops warning TestDropsWarningReportsRejectedInserts (drops_warning_test.go): XCOVER_E2E_SEEN_FUNCS_MAX=1 caps the map to one function on a binary built with -tags e2etest, so the second distinct function hit drops and the log carries a positive dropped count
 //	--pid thread-filter warning TestPIDFilterWarnsOnThreadFilteringKernel (pid_filter_warning_test.go); skips with plain t.Skipf on a kernel that carries commit 46ba0e49b642, so XCOVER_E2E_REQUIRE=1 does not fail it; an inconclusive check fails in both cases
 //

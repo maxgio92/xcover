@@ -59,10 +59,16 @@ xcover run --path BIN
 - `SymbolTableResolver` (`resolver.go`) otherwise. It reads `STT_FUNC` symbols
   from `.symtab`. If the section is missing it parses `.gopclntab` with
   `debug/gosym`, using the `.text` section header as the text base. If that
-  fails it returns `ErrNoSymbolTable`.
+  fails it returns `ErrNoSymbolTable`; a filter that matches nothing in
+  `.gopclntab` returns `ErrNoFunctionSymbols` instead, as it does for `.symtab`.
 - `RecoveryResolver` (`resolver.go`) when `ErrNoSymbolTable` comes back. It
   runs resurgo's `.eh_frame` based detection, keeps `ConfidenceHigh` candidates
-  and names them `func_0x<offset>`.
+  and names them `func_0x<offset>`. `Init` refuses this fallback with
+  `ErrFilterNeedsSymbols` when any name or bind filter is set, because the
+  synthetic names cannot match a pattern written for real symbols.
+  `GoProjectResolver` returns the same error, without `ErrNoSymbolTable` in
+  its chain, when the module path is readable but the delegate finds no
+  table, so `--scope=project` is refused rather than ignored by recovery.
 
 Virtual addresses become file offsets by walking `PT_LOAD` segments. Because
 uprobes are addressed by file offset, PIE and ASLR need no special handling.

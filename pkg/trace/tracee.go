@@ -59,6 +59,11 @@ func (t *UserTracee) Init(ctx context.Context) error {
 		if !errors.Is(err, ErrNoSymbolTable) {
 			return errors.Wrap(err, "failed to resolve functions")
 		}
+		if t.hasSymFilter() {
+			// Keep the resolver's error text in the message: a .gopclntab that
+			// exists but fails to parse must not read as a binary with no table.
+			return errors.Wrap(errors.Wrap(ErrFilterNeedsSymbols, err.Error()), "failed to resolve functions")
+		}
 		t.logger.Info().Msg("binary is stripped, falling back to binary recovery")
 		entries, err = RecoveryResolver(t.exePath, t.logger)(ctx)
 		if err != nil {

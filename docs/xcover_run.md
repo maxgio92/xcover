@@ -25,7 +25,7 @@ xcover run [flags]
   -p, --path string           Path to the ELF executable
       --pid int               Only trace the process with this PID (kernel mode only; -1 traces every process executing the binary) (default -1)
       --report                Generate report (as xcover-report.json) (default true)
-      --ringbuf-size string   Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB (default "16MiB")
+      --ringbuf-size string   Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB. Under --userspace-bpf the size must fit the bpftime shared segment set by BPFTIME_SHM_MEMORY_MB (default "16MiB")
       --scope string          Function scope: "binary" (all functions) or "project" (project module only, Go binaries) (default "binary")
       --skip-preflight        Skip the preflight checks: the kernel version advisory (Linux 6.6+ upstream, or a backport of uprobe_multi) and the capability check (CAP_BPF and CAP_PERFMON, or CAP_SYS_ADMIN)
       --status                Periodically print a status of the trace (default true)

@@ -47,6 +47,10 @@ func TestOptionsSetup(t *testing.T) {
 	origPidFile := settings.PidFile
 	settings.PidFile = filepath.Join(t.TempDir(), "xcover.pid")
 	t.Cleanup(func() { settings.PidFile = origPidFile })
+	// Pin the bpftime segment size so the developer's shell environment
+	// cannot flip the userspace ring buffer rows.
+	t.Setenv("BPFTIME_SHM_MEMORY_MB", "50")
+	t.Setenv("BPFTIME_GLOBAL_SHM_NAME", "xcover-test-absent-segment")
 
 	tests := []struct {
 		name         string
@@ -172,6 +176,15 @@ func TestOptionsSetup(t *testing.T) {
 			ringBufSize: "100KiB",
 			wantErr:     true,
 		},
+		{
+			// The foreground path must refuse before any daemon starts.
+			name:         "userspace 32MiB does not fit the segment",
+			scope:        string(trace.ScopeBinary),
+			pid:          -1,
+			userspaceBPF: true,
+			ringBufSize:  "32MiB",
+			wantErr:      true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -259,6 +272,122 @@ func TestParseRingBufSize(t *testing.T) {
 	}
 }
 
+// segmentInfo is the os.FileInfo of a regular file with the given size.
+type segmentInfo struct {
+	os.FileInfo
+	size int64
+}
+
+func (s segmentInfo) Size() int64       { return s.size }
+func (s segmentInfo) Mode() os.FileMode { return 0o644 }
+
+func TestValidateUserspaceRingBufSize(t *testing.T) {
+	env := func(kv map[string]string) func(string) (string, bool) {
+		return func(k string) (string, bool) {
+			v, ok := kv[k]
+			return v, ok
+		}
+	}
+	unset := env(nil)
+	set := func(v string) func(string) (string, bool) {
+		return env(map[string]string{"BPFTIME_SHM_MEMORY_MB": v})
+	}
+	noSegment := func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+	segment := func(size int64) func(string) (os.FileInfo, error) {
+		return func(string) (os.FileInfo, error) { return segmentInfo{size: size}, nil }
+	}
+	defaultPath := "/dev/shm/bpftime_maps_shm"
+	// exact is the byte count bpftime allocates for a 16MiB ring buffer.
+	exact := int64(2*(16<<20) + 2*os.Getpagesize())
+
+	tests := []struct {
+		name     string
+		size     uint32
+		env      func(string) (string, bool)
+		stat     func(string) (os.FileInfo, error)
+		wantPath string
+		wantErr  []string
+	}{
+		{"16MiB unset", 16 << 20, unset, noSegment, "", nil},
+		{"32MiB unset", 32 << 20, unset, noSegment, "", []string{"32MiB", "50 MiB", "BPFTIME_SHM_MEMORY_MB", "applies only when " + defaultPath + " is created"}},
+		{"32MiB with 128", 32 << 20, set("128"), noSegment, "", nil},
+		// 16MiB needs twice its size plus two pages, so a 32 MiB segment is
+		// two pages short and 33 is the next whole MiB that fits.
+		{"16MiB with 32 is too small", 16 << 20, set("32"), noSegment, "", []string{"16MiB", "32 MiB"}},
+		{"16MiB with 33 fits", 16 << 20, set("33"), noSegment, "", nil},
+		{"1MiB with 0 clamps to 1", 1 << 20, set("0"), noSegment, "", []string{"1MiB", "1 MiB"}},
+		{"2GiB fits under a large value", 1 << 31, set("99999"), noSegment, "", nil},
+		{"32MiB with abc falls back", 32 << 20, set("abc"), noSegment, "", []string{"50 MiB"}},
+		{"16MiB with abc falls back", 16 << 20, set("abc"), noSegment, "", nil},
+		{"32MiB with empty falls back", 32 << 20, set(""), noSegment, "", []string{"50 MiB"}},
+		{"16MiB with empty falls back", 16 << 20, set(""), noSegment, "", nil},
+		{"leading space and trailing text still parse", 32 << 20, set(" 128MB"), noSegment, "", nil},
+		{"32MiB with overflow falls back", 32 << 20, set("99999999999999999999"), noSegment, "", []string{"50 MiB"}},
+		// An existing segment keeps its size: the env value is ignored in both
+		// directions.
+		{"32MiB with 128 but a 50MiB segment", 32 << 20, set("128"), segment(50 << 20), defaultPath, []string{"32MiB", "50 MiB", "existing segment " + defaultPath, "Stop any running xcover", "remove it"}},
+		{"32MiB with 50 but a 128MiB segment", 32 << 20, set("50"), segment(128 << 20), defaultPath, nil},
+		{"32MiB unset but a 128MiB segment", 32 << 20, unset, segment(128 << 20), defaultPath, nil},
+		{"16MiB with 128 but a 20MiB segment", 16 << 20, set("128"), segment(20 << 20), defaultPath, []string{"20 MiB", "existing segment"}},
+		// The rule is strict: a segment of exactly the needed size fails.
+		{"16MiB with an exact segment", 16 << 20, unset, segment(exact), defaultPath, []string{"16MiB", strconv.FormatInt(exact, 10) + " bytes", "existing segment"}},
+		{"16MiB with an exact segment plus one byte", 16 << 20, unset, segment(exact + 1), defaultPath, nil},
+		{"32MiB with a renamed 128MiB segment", 32 << 20, env(map[string]string{"BPFTIME_GLOBAL_SHM_NAME": "custom"}), segment(128 << 20), "/dev/shm/custom", nil},
+		{"32MiB with stat error falls back to env", 32 << 20, set("128"), func(string) (os.FileInfo, error) { return nil, os.ErrPermission }, "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath string
+			stat := func(path string) (os.FileInfo, error) {
+				gotPath = path
+				return tt.stat(path)
+			}
+			err := validateUserspaceRingBufSize(tt.size, tt.env, stat)
+			if tt.wantPath != "" {
+				require.Equal(t, tt.wantPath, gotPath)
+			}
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			for _, want := range tt.wantErr {
+				require.ErrorContains(t, err, want)
+			}
+		})
+	}
+}
+
+func TestBpftimeShmMemoryMiB(t *testing.T) {
+	set := func(v string) func(string) (string, bool) {
+		return func(string) (string, bool) { return v, true }
+	}
+	unset := func(string) (string, bool) { return "", false }
+
+	// Each row mirrors what std::stoi does with the same text.
+	tests := []struct {
+		name string
+		env  func(string) (string, bool)
+		want int
+	}{
+		{"unset", unset, 50},
+		{"empty", set(""), 50},
+		{"sign only", set("+"), 50},
+		{"negative zero clamps to min", set("-0"), 1},
+		{"negative clamps to min", set("-5"), 1},
+		{"hex prefix parses zero", set("0x10"), 1},
+		{"exponent stops at e", set("1e3"), 1},
+		{"leading space", set(" 64"), 64},
+		{"trailing text", set("64abc"), 64},
+		{"int overflow falls back", set("99999999999"), 50},
+		{"clamps to max", set("20000"), 10240},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, bpftimeShmMemoryMiB(tt.env))
+		})
+	}
+}
+
 // TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf proves the detached
 // child leaves a PID file that already names it untouched: no truncate and no
 // rename, so the inode survives setup().
@@ -340,6 +469,51 @@ func TestOptionsDaemonizeRefusesBadRingBufSize(t *testing.T) {
 
 	_, err = os.Stat(settings.PidFile)
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestOptionsDaemonizeRefusesUserspaceRingBufSize proves the parent refuses
+// a --ringbuf-size the bpftime segment cannot hold before forking, and that a
+// size that fits passes the check.
+func TestOptionsDaemonizeRefusesUserspaceRingBufSize(t *testing.T) {
+	origPidFile := settings.PidFile
+	settings.PidFile = filepath.Join(t.TempDir(), "xcover.pid")
+	t.Cleanup(func() { settings.PidFile = origPidFile })
+	t.Setenv("BPFTIME_SHM_MEMORY_MB", "50")
+	t.Setenv("BPFTIME_GLOBAL_SHM_NAME", "xcover-test-absent-segment")
+
+	t.Run("32MiB refused", func(t *testing.T) {
+		o := newTestOptions(t)
+		o.userspaceBPF = true
+		o.ringBufSize = "32MiB"
+
+		err := o.daemonize(&cobra.Command{})
+		require.ErrorContains(t, err, "BPFTIME_SHM_MEMORY_MB")
+
+		_, err = os.Stat(settings.PidFile)
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+
+	t.Run("16MiB passes", func(t *testing.T) {
+		o := newTestOptions(t)
+		o.userspaceBPF = true
+		o.ringBufSize = "16MiB"
+		// Stop daemonize at the next check so nothing starts.
+		o.symIncludePattern = "("
+
+		err := o.daemonize(&cobra.Command{})
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "BPFTIME_SHM_MEMORY_MB")
+	})
+
+	t.Run("32MiB kernel mode unchecked", func(t *testing.T) {
+		o := newTestOptions(t)
+		o.ringBufSize = "32MiB"
+		o.symIncludePattern = "("
+
+		err := o.daemonize(&cobra.Command{})
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "BPFTIME_SHM_MEMORY_MB")
+	})
 }
 
 func TestOptionsBuildTracer(t *testing.T) {

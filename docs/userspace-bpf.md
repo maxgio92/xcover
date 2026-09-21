@@ -100,11 +100,17 @@ script this flow; see [demo/README.md](../demo/README.md).
   failed attach (`attachSingleUprobes` in `pkg/probe/probe.go`) returns an
   error that aborts `xcover run` before readiness is signalled; the uprobes
   already attached are detached on close.
-- **Ring buffer size.** bpftime allocates about twice the ring buffer size
-  inside a shared memory segment that defaults to 50 MB. A `--ringbuf-size`
-  above about 24 MiB makes the process exit under `--userspace-bpf` instead
-  of failing the load with the error that names the requested size.
-  `BPFTIME_SHM_MEMORY_MB` raises the segment size.
+- **Ring buffer size.** bpftime needs about twice the ring buffer size plus
+  two pages inside a shared memory segment of `BPFTIME_SHM_MEMORY_MB` MiB
+  (default 50, clamped to 1 to 10240). `xcover run` refuses up front, before
+  any daemon starts, a `--ringbuf-size` that does not fit, and names the limit
+  in the error. The limit is an upper bound because other maps share the
+  segment. Set `BPFTIME_SHM_MEMORY_MB` to raise it. The variable applies only
+  when bpftime creates the segment: an existing `/dev/shm/bpftime_maps_shm`
+  left by an earlier run keeps its size. Stop any running xcover or other
+  bpftime process that uses the segment, then remove it (`rm`, or `bpftimetool
+  remove`) before the new value takes effect. `xcover run` checks the size of
+  an existing segment file rather than the variable.
 
 ## Binary support
 

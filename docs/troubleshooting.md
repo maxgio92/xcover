@@ -127,6 +127,26 @@ than zero and at most 2 GiB.
 
 **Fix.** Pass a value such as `8MiB`, `64MiB` or `1GiB`, or omit the flag.
 
+## `--ringbuf-size N does not fit the bpftime shared segment of M MiB`
+
+Printed by `xcover run --userspace-bpf` (`pkg/cmd/run/run.go`) before the
+daemon starts, so the message reaches the terminal with `--detach` too.
+
+**Cause.** bpftime allocates about twice the ring buffer size plus two pages
+inside a shared memory segment of `BPFTIME_SHM_MEMORY_MB` MiB (default 50,
+clamped to 1 to 10240). The requested size does not fit. The limit is an
+upper bound because other maps share the segment.
+
+**Fix.** Lower `--ringbuf-size`, or set `BPFTIME_SHM_MEMORY_MB` to a larger
+value in MiB before running `xcover run`. The variable applies only when
+bpftime creates the segment. bpftime opens an existing
+`/dev/shm/bpftime_maps_shm` (or the name in `BPFTIME_GLOBAL_SHM_NAME`) at its
+current size and ignores the variable, and a normal exit leaves the file in
+place. `xcover run` reads the size of an existing file and names it in the
+error. Stop any running xcover or other bpftime process that uses the
+segment. Then remove the file (`rm /dev/shm/bpftime_maps_shm`, or `bpftimetool
+remove`) before the new value takes effect.
+
 ## `xcover was not built with userspace BPF support; rebuild with -tags userspace`
 
 Printed when `--userspace-bpf` is passed to the plain `xcover` binary

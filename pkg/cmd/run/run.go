@@ -5,7 +5,9 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/pkg/errors"
@@ -72,7 +74,7 @@ It supports programs compiled to ELF.
 
 	cmd.Flags().StringVar(&o.debugPath, "debug-path", "", "Path to a separate debug/symbol file (e.g. objcopy --only-keep-debug output) to resolve function names for a stripped --path binary")
 	cmd.Flags().BoolVar(&o.noBuildIDCheck, "no-build-id-check", false, "Skip GNU build-id verification between --path and --debug-path")
-	cmd.Flags().StringVar(&o.ringBufSize, "ringbuf-size", "16MiB", "Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB")
+	cmd.Flags().StringVar(&o.ringBufSize, "ringbuf-size", "16MiB", "Size of the events ring buffer, in bytes or with a KiB, MiB or GiB suffix; must be a power of two multiple of the page size, at most 2GiB. Under --userspace-bpf the size must fit the bpftime shared segment set by BPFTIME_SHM_MEMORY_MB")
 
 	cmd.Flags().BoolVarP(&o.detach, "detach", "d", false, fmt.Sprintf("Run %s as daemon", settings.CmdName))
 	cmd.Flags().BoolVar(&o.verbose, "verbose", false, "Enable verbosity")
@@ -146,6 +148,11 @@ func (o *Options) setup() (trace.Scope, error) {
 	ringBufBytes, err := parseRingBufSize(o.ringBufSize)
 	if err != nil {
 		return "", err
+	}
+	if o.userspaceBPF {
+		if err := validateUserspaceRingBufSize(ringBufBytes, os.LookupEnv, os.Stat); err != nil {
+			return "", err
+		}
 	}
 	o.ringBufBytes = ringBufBytes
 
@@ -260,6 +267,114 @@ func parseRingBufSize(s string) (uint32, error) {
 	return uint32(size), nil
 }
 
+// bpftime allocates userspace maps inside one shared memory segment whose
+// size in MiB comes from BPFTIME_SHM_MEMORY_MB (runtime/src/bpftime_config.cpp
+// parse_numeric_env<int>(name, 1, 10240), default 50 MiB).
+const (
+	bpftimeShmMemoryEnv     = "BPFTIME_SHM_MEMORY_MB"
+	bpftimeShmMemoryDefault = 50
+	bpftimeShmMemoryMin     = 1
+	bpftimeShmMemoryMax     = 10240
+)
+
+// bpftimeShmMemoryMiB returns the segment size in MiB bpftime derives from the
+// environment, mirroring parse_numeric_env<int>. An unset or unparsable value
+// falls back to the default; a parsed value clamps to the allowed range.
+// std::stoi skips leading whitespace, accepts an optional sign and ignores
+// trailing text after the digits, and throws on overflow, so the same applies
+// here.
+func bpftimeShmMemoryMiB(lookupEnv func(string) (string, bool)) int {
+	raw, ok := lookupEnv(bpftimeShmMemoryEnv)
+	if !ok {
+		return bpftimeShmMemoryDefault
+	}
+	s := strings.TrimLeft(raw, " \t\n\v\f\r")
+	end := 0
+	if end < len(s) && (s[end] == '+' || s[end] == '-') {
+		end++
+	}
+	start := end
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	if end == start {
+		return bpftimeShmMemoryDefault
+	}
+	mib, err := strconv.ParseInt(s[:end], 10, 32)
+	if err != nil {
+		return bpftimeShmMemoryDefault
+	}
+	if mib < bpftimeShmMemoryMin {
+		return bpftimeShmMemoryMin
+	}
+	if mib > bpftimeShmMemoryMax {
+		return bpftimeShmMemoryMax
+	}
+
+	return int(mib)
+}
+
+// bpftime backs the segment with a boost shared_memory_object, a file under
+// /dev/shm named by BPFTIME_GLOBAL_SHM_NAME (handler_manager.hpp
+// get_global_shm_name, default bpftime_maps_shm). The syscall server opens it
+// with open_or_create, so an existing file keeps its size and the
+// BPFTIME_SHM_MEMORY_MB value applies only when the file is created.
+const (
+	bpftimeShmNameEnv     = "BPFTIME_GLOBAL_SHM_NAME"
+	bpftimeShmNameDefault = "bpftime_maps_shm"
+	bpftimeShmDir         = "/dev/shm"
+)
+
+// bpftimeShmPath returns the path of the segment file bpftime opens.
+func bpftimeShmPath(lookupEnv func(string) (string, bool)) string {
+	name, ok := lookupEnv(bpftimeShmNameEnv)
+	if !ok {
+		name = bpftimeShmNameDefault
+	}
+
+	return filepath.Join(bpftimeShmDir, name)
+}
+
+// bpftimeShmSegment returns the size in bytes of the segment bpftime will use
+// and whether that size comes from an existing segment file. An existing file
+// wins because bpftime opens it as is; otherwise the environment decides.
+func bpftimeShmSegment(lookupEnv func(string) (string, bool), stat func(string) (os.FileInfo, error)) (uint64, bool) {
+	if fi, err := stat(bpftimeShmPath(lookupEnv)); err == nil && fi.Mode().IsRegular() {
+		return uint64(fi.Size()), true
+	}
+
+	return uint64(bpftimeShmMemoryMiB(lookupEnv)) << 20, false
+}
+
+// validateUserspaceRingBufSize refuses a ring buffer bpftime cannot place in
+// its shared segment. bpftime's ringbuf_map.cpp allocates
+// getpagesize()*2 + max_entries*2 bytes for the buffer; the segment also holds
+// every other map, so fitting the segment is an upper bound, not a promise.
+// bpftime exits the traced process on that allocation failure without a
+// libbpf error, hence the check happens here, before anything starts.
+func validateUserspaceRingBufSize(size uint32, lookupEnv func(string) (string, bool), stat func(string) (os.FileInfo, error)) error {
+	segment, existing := bpftimeShmSegment(lookupEnv, stat)
+	need := 2*uint64(size) + 2*uint64(os.Getpagesize())
+	if need < segment {
+		return nil
+	}
+	requested := fmt.Sprintf("%d bytes", size)
+	if size%(1<<20) == 0 {
+		requested = fmt.Sprintf("%d bytes (%dMiB)", size, size>>20)
+	}
+	segmentMiB := fmt.Sprintf("%d MiB", segment>>20)
+	if segment%(1<<20) != 0 {
+		segmentMiB = fmt.Sprintf("%d bytes", segment)
+	}
+	path := bpftimeShmPath(lookupEnv)
+	fix := fmt.Sprintf("Set %s to a larger value in MiB to raise it; the value applies only when %s is created", bpftimeShmMemoryEnv, path)
+	if existing {
+		fix = fmt.Sprintf("The size comes from the existing segment %s, which bpftime reuses as is. Stop any running xcover or other bpftime process that uses the segment, remove it, and set %s to a larger value in MiB to raise it", path, bpftimeShmMemoryEnv)
+	}
+
+	return errors.Errorf("--ringbuf-size %s does not fit the bpftime shared segment of %s. bpftime needs about twice the ring buffer size plus two pages, and other maps share the segment, so the limit is an upper bound. %s", requested, segmentMiB, fix)
+}
+
 // buildTracer constructs the tracee to trace and the tracer that drives it,
 // applying the resolved scope and all tracer-related options.
 func (o *Options) buildTracer(scope trace.Scope) *trace.UserTracer {
@@ -343,9 +458,15 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Refuse a bad ring buffer size in the parent, in the same position setup
 	// checks it, before the running-daemon check and the preflight. The rule
 	// reaches the user without root and no daemon is started only to fail at
-	// load.
-	if _, err := parseRingBufSize(o.ringBufSize); err != nil {
+	// load. The userspace segment rule is checked in the same spot.
+	ringBufBytes, err := parseRingBufSize(o.ringBufSize)
+	if err != nil {
 		return err
+	}
+	if o.userspaceBPF {
+		if err := validateUserspaceRingBufSize(ringBufBytes, os.LookupEnv, os.Stat); err != nil {
+			return err
+		}
 	}
 
 	// Reject invalid symbol patterns here, in the parent: the daemon would
@@ -383,7 +504,7 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 		daemonCmd.Stderr = f
 	}
 
-	err := daemonCmd.Start()
+	err = daemonCmd.Start()
 	if err != nil {
 		o.Logger.Error().Err(err).Msgf("failed to start %s", settings.CmdName)
 		return err

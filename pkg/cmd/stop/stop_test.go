@@ -3,11 +3,13 @@ package stop
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -182,5 +184,60 @@ func TestRun_ForceKill(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("PID file still present after force kill: %v", err)
+	}
+}
+
+// TestRun_ContextCanceled points the PID file at a child that ignores SIGTERM
+// and asserts a cancelled o.Ctx ends the grace loop at once, leaving the
+// child, its PID file and the log tail alone.
+func TestRun_ContextCanceled(t *testing.T) {
+	path := withTempPidFile(t)
+	seedLog(t)
+
+	child := exec.Command("sh", "-c", `trap "" TERM; echo ready; while :; do sleep 1; done`)
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	// Block until sh has installed the trap, so SIGTERM cannot arrive first.
+	if _, err := bufio.NewReader(stdout).ReadString('\n'); err != nil {
+		t.Fatalf("wait for child readiness: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(strconv.Itoa(child.Process.Pid)), 0644); err != nil {
+		t.Fatalf("write PID file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var buf bytes.Buffer
+	o := &Options{Options: options.NewOptions(options.WithContext(ctx)), timeout: 5 * time.Second, errOut: &buf}
+
+	start := time.Now()
+	err = o.Run(nil, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed >= o.timeout {
+		t.Fatalf("Run() returned after %v, reached the %v grace period", elapsed, o.timeout)
+	}
+
+	// Cancellation must not force kill the child or remove its PID file.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("PID file missing after cancellation: %v", err)
+	}
+	if err := syscall.Kill(child.Process.Pid, 0); err != nil {
+		t.Fatalf("child not alive after cancellation: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("Run() errOut = %q, want no log tail", buf.String())
 	}
 }

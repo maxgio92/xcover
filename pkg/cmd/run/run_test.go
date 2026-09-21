@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 	"github.com/maxgio92/xcover/pkg/trace"
 )
@@ -468,4 +470,202 @@ func TestDaemonArgs(t *testing.T) {
 			require.ElementsMatch(t, tt.want, daemonArgs(fs))
 		})
 	}
+}
+
+// withTempDaemonFiles points the PID and log file settings at per-test paths
+// so daemonize never touches a real daemon's files.
+func withTempDaemonFiles(t *testing.T) (pidFile, logFile string) {
+	t.Helper()
+
+	origPid, origLog := settings.PidFile, settings.LogFile
+	dir := t.TempDir()
+	settings.PidFile = filepath.Join(dir, "xcover.pid")
+	settings.LogFile = filepath.Join(dir, "xcover.log")
+	t.Cleanup(func() {
+		settings.PidFile = origPid
+		settings.LogFile = origLog
+	})
+
+	return settings.PidFile, settings.LogFile
+}
+
+// fakeExec records the command daemonize asked for and returns cmd in its
+// place. It restores the real exec seam when the test ends.
+type fakeExec struct {
+	calls int
+	name  string
+	args  []string
+	cmd   *exec.Cmd
+}
+
+func swapExecCommand(t *testing.T, cmd *exec.Cmd) *fakeExec {
+	t.Helper()
+
+	f := &fakeExec{cmd: cmd}
+	orig := execCommand
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		f.calls++
+		f.name = name
+		f.args = args
+		return f.cmd
+	}
+	t.Cleanup(func() { execCommand = orig })
+
+	return f
+}
+
+// newDaemonizeCommand attaches the run flag set to a cobra command and
+// parses args, so daemonize sees flags the way a user invocation sets them.
+func newDaemonizeCommand(t *testing.T, args ...string) *cobra.Command {
+	t.Helper()
+
+	cmd := &cobra.Command{Use: CmdName}
+	cmd.Flags().AddFlagSet(newRunFlagSet())
+	require.NoError(t, cmd.ParseFlags(args))
+
+	return cmd
+}
+
+func TestDaemonize(t *testing.T) {
+	pidFile, logFile := withTempDaemonFiles(t)
+
+	fake := swapExecCommand(t, exec.Command("true"))
+
+	o := newTestOptions(t)
+	o.skipPreflight = true
+	o.pid = os.Getpid()
+	cmd := newDaemonizeCommand(t,
+		"--detach",
+		"--skip-preflight=true",
+		"--pid="+strconv.Itoa(os.Getpid()),
+		"--verbose",
+	)
+
+	require.NoError(t, o.daemonize(cmd))
+
+	require.Equal(t, 1, fake.calls)
+	require.Equal(t, os.Args[0], fake.name)
+	require.NotEmpty(t, fake.args)
+	require.Equal(t, "run", fake.args[0])
+	require.Contains(t, fake.args, "--verbose=true")
+	require.Contains(t, fake.args, "--skip-preflight=true")
+	require.Contains(t, fake.args, "--pid="+strconv.Itoa(os.Getpid()))
+	for _, a := range fake.args {
+		require.NotContains(t, a, "--detach")
+	}
+
+	require.NotNil(t, fake.cmd.Process)
+	pid, err := common.ReadPID()
+	require.NoError(t, err)
+	require.Equal(t, fake.cmd.Process.Pid, pid)
+	_, err = os.Stat(pidFile)
+	require.NoError(t, err)
+	_, err = os.Stat(logFile)
+	require.NoError(t, err)
+
+	// Reap the child so no process outlives the test.
+	require.NoError(t, fake.cmd.Wait())
+}
+
+func TestDaemonize_AlreadyRunning(t *testing.T) {
+	withTempDaemonFiles(t)
+	require.NoError(t, common.WritePID(os.Getpid()))
+
+	fake := swapExecCommand(t, exec.Command("true"))
+
+	o := newTestOptions(t)
+	o.skipPreflight = true
+	cmd := newDaemonizeCommand(t, "--detach", "--skip-preflight=true")
+
+	require.NoError(t, o.daemonize(cmd))
+	require.Equal(t, 0, fake.calls)
+}
+
+func TestDaemonize_PreForkErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(o *Options)
+		skip  func() bool
+	}{
+		{
+			name:  "invalid pid",
+			setup: func(o *Options) { o.pid = 0 },
+		},
+		{
+			name:  "invalid symbol pattern",
+			setup: func(o *Options) { o.symIncludePattern = "(" },
+		},
+		{
+			// Preflight rejects a process without BPF capabilities. Root
+			// passes it, so the case only runs unprivileged.
+			name:  "preflight failure",
+			setup: func(o *Options) { o.skipPreflight = false },
+			skip:  func() bool { return os.Geteuid() == 0 },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skip != nil && tt.skip() {
+				t.Skip("requires an unprivileged test process")
+			}
+			pidFile, _ := withTempDaemonFiles(t)
+			fake := swapExecCommand(t, exec.Command("true"))
+
+			o := newTestOptions(t)
+			o.skipPreflight = true
+			tt.setup(o)
+			cmd := newDaemonizeCommand(t, "--detach")
+
+			require.Error(t, o.daemonize(cmd))
+			require.Equal(t, 0, fake.calls)
+			_, err := os.Stat(pidFile)
+			require.True(t, os.IsNotExist(err))
+		})
+	}
+}
+
+func TestDaemonize_StartFailure(t *testing.T) {
+	pidFile, _ := withTempDaemonFiles(t)
+	fake := swapExecCommand(t, exec.Command("/nonexistent/binary"))
+
+	o := newTestOptions(t)
+	o.skipPreflight = true
+	cmd := newDaemonizeCommand(t, "--detach", "--skip-preflight=true")
+
+	require.Error(t, o.daemonize(cmd))
+	require.Equal(t, 1, fake.calls)
+	_, err := os.Stat(pidFile)
+	require.True(t, os.IsNotExist(err))
+}
+
+func TestRun_DetachRoutesToDaemonize(t *testing.T) {
+	withTempDaemonFiles(t)
+	fake := swapExecCommand(t, exec.Command("true"))
+
+	o := newTestOptions(t)
+	o.detach = true
+	o.skipPreflight = true
+	cmd := newDaemonizeCommand(t, "--detach", "--skip-preflight=true")
+
+	require.NoError(t, o.Run(cmd, nil))
+	require.Equal(t, 1, fake.calls)
+	require.NoError(t, fake.cmd.Wait())
+}
+
+func TestDaemonize_LogFileOpenFailure(t *testing.T) {
+	pidFile, _ := withTempDaemonFiles(t)
+	// A directory cannot be opened for writing, so the log file open fails.
+	settings.LogFile = t.TempDir()
+	fake := swapExecCommand(t, exec.Command("true"))
+
+	o := newTestOptions(t)
+	o.skipPreflight = true
+	cmd := newDaemonizeCommand(t, "--detach", "--skip-preflight=true")
+
+	require.Error(t, o.daemonize(cmd))
+	require.Equal(t, 1, fake.calls)
+	require.Nil(t, fake.cmd.Process)
+	_, err := os.Stat(pidFile)
+	require.True(t, os.IsNotExist(err))
 }

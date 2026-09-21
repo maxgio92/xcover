@@ -299,6 +299,10 @@ var daemonizeSkipFlags = map[string]bool{
 	"detach": true,
 }
 
+// execCommand builds the daemon child process. Tests swap it to observe the
+// arguments and to avoid spawning a real daemon.
+var execCommand = exec.Command
+
 // forwardedFlagArgs walks the flags known to fs and returns the "--name=value"
 // arguments needed to reproduce every flag the user explicitly set, skipping
 // any flag named in skip. This lets a re-exec'd subprocess inherit whatever
@@ -365,7 +369,7 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 	// Start the daemon process, forwarding every flag the user set.
 	args := append([]string{"run"}, daemonArgs(cmd.Flags())...)
 
-	daemonCmd := exec.Command(os.Args[0], args...)
+	daemonCmd := execCommand(os.Args[0], args...)
 	daemonCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Redirect output to log file.

@@ -69,8 +69,9 @@ type Probe interface {
 	CloseEventBuf()
 	DetachLinks()
 	CloseBPFMod()
-	// Drops returns how many calls the BPF program could not record because
-	// the seen_funcs insert failed.
+	// Drops returns how many calls the BPF program could not record. A call
+	// is lost when the ring buffer was full or the seen_funcs insert was
+	// rejected.
 	Drops() (uint64, error)
 	// CheckPIDFilter reports whether the kernel applies the uprobe_multi PID
 	// filter to the whole thread group: nil when it does,
@@ -276,8 +277,8 @@ func (t *UserTracer) waitAndReport(ctx context.Context, stop chan<- struct{}, wg
 }
 
 // warnDrops reads the BPF drop counter and warns when calls could not be
-// recorded because the seen_funcs insert failed: their functions are missing
-// from the report.
+// recorded because the ring buffer was full or the seen_funcs insert was
+// rejected: their functions are missing from the report.
 func (t *UserTracer) warnDrops() {
 	drops, err := t.probe.Drops()
 	if err != nil {
@@ -286,7 +287,7 @@ func (t *UserTracer) warnDrops() {
 	}
 	if drops > 0 {
 		t.logger.Warn().Uint64("dropped", drops).
-			Msg("calls not recorded because the seen_funcs map rejected the insert; the report undercounts coverage, narrow the probe set with --scope or --exclude")
+			Msg("calls not recorded: the ring buffer was full (raise --ringbuf-size) or the seen_funcs map rejected the insert (narrow the probe set with --scope or --exclude); the report undercounts coverage")
 	}
 }
 

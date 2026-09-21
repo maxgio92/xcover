@@ -313,15 +313,19 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 
 - Functions the compiler inlined have a symbol but no entry point, so their
   probe never fires.
-- The kernel rejected a `seen_funcs` insert. The map is sized to the traced
-  function count, so this is rare; when it happens `xcover run` logs
-  `calls not recorded because the seen_funcs map rejected the insert; the
-  report undercounts coverage, narrow the probe set with --scope or --exclude`
-  on exit with the `drops` counter in the `dropped` field
-  (`pkg/trace/tracer.go`, counter in `bpf/trace.bpf.c`). The counter is the
-  number of calls whose event was discarded because the function could not be
-  recorded in `seen_funcs`, so it can exceed the number of functions missing
-  from the report.
+- The BPF program dropped calls. `xcover run` logs
+  `calls not recorded: the ring buffer was full (raise --ringbuf-size) or the
+  seen_funcs map rejected the insert (narrow the probe set with --scope or
+  --exclude); the report undercounts coverage` on exit with the `drops`
+  counter in the `dropped` field (`pkg/trace/tracer.go`, counter in
+  `bpf/trace.bpf.c`). The warning lists both possible causes and cannot tell
+  them apart, because both paths add to the same counter. Either the ring
+  buffer was full, which happens with a small `--ringbuf-size` (one 4 KiB page
+  holds 255 records) when a burst of first hits outruns the poller, or the
+  kernel rejected a `seen_funcs` insert. The map is sized to the traced
+  function count, so the second case is rare. The counter is the number of
+  dropped calls, so it can exceed the number of functions missing from the
+  report.
 - `--pid` was set and the target process exited after attach, or forked and
   the work ran in a child: only the named process is traced
   (`pkg/probe/probe.go`), so hits from other processes running the binary are
@@ -331,6 +335,8 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
   warning section above.
 
 **Fix.** Read `/tmp/xcover.log`, then narrow the probe set with
-`--scope project`, `--include` or `--exclude`. Compare `funcs_traced` with
+`--scope project`, `--include` or `--exclude`. For the drops warning, raise
+`--ringbuf-size` first if it was lowered below the default. Otherwise narrow
+the probe set with `--scope` or `--exclude`. Compare `funcs_traced` with
 `funcs_ack` to see which functions never fired; for C++ and Rust binaries each
 `functions[]` entry carries `demangled` when it differs from `name`.

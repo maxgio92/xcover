@@ -153,6 +153,8 @@ func TestWarnDrops(t *testing.T) {
 				require.Contains(t, out.String(), `"level":"warn"`)
 				require.Contains(t, out.String(), `"dropped":3`)
 				require.Contains(t, out.String(), "undercounts")
+				require.Contains(t, out.String(), "--ringbuf-size")
+				require.Contains(t, out.String(), "--scope")
 			} else {
 				require.Empty(t, out.String())
 			}

@@ -39,6 +39,7 @@
 //	--no-build-id-check    TestDebugPathTracesStrippedBinary (debug_path_test.go)
 //	--verbose              TestVerboseLogsFunctionNames (verbose_test.go)
 //	--skip-preflight       no e2e: unit tests in internal/preflight
+//	--ringbuf-size         TestRingBufSizeSmall and TestRingBufSizeOnePageWarnsDrops (ringbuf_size_test.go); the one-page scenario pauses the daemon with SIGSTOP while the fixture runs so the page fills, and skips with plain t.Skipf on pages above 4 KiB, so XCOVER_E2E_REQUIRE=1 does not fail it
 //	--userspace-bpf        no e2e: not in CI, userspace builds only
 //
 // Commands:

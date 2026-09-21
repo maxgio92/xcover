@@ -326,8 +326,9 @@ func (p *Probe) Attach(_ context.Context, exePath string, offsets, cookies []uin
 }
 
 // Drops returns how many calls the BPF program could not record because the
-// seen_funcs insert failed. It counts every such call, not distinct
-// functions, so it is an upper bound on the functions missing from the report.
+// ring buffer was full or the seen_funcs insert was rejected. It counts every
+// such call, not distinct functions, so it is an upper bound on the functions
+// missing from the report.
 func (p *Probe) Drops() (uint64, error) {
 	m, err := p.bpfMod.GetMap(dropsBPFMapName)
 	if err != nil {

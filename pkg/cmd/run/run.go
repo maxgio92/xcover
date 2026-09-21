@@ -38,7 +38,7 @@ type Options struct {
 	noBuildIDCheck bool
 
 	// ringBufSize is the --ringbuf-size value as typed; ringBufBytes is the
-	// validated size parseRingBufSize derives from it in setup.
+	// validated size parseRingBufSize derives from it in validate.
 	ringBufSize  string
 	ringBufBytes uint32
 
@@ -96,11 +96,17 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		return o.daemonize(cmd)
 	}
 
-	scope, err := o.setup()
-	defer common.RemovePID()
+	scope, err := o.validate()
 	if err != nil {
 		return err
 	}
+
+	if err := o.refuseIfDaemonRunning(); err != nil {
+		return err
+	}
+
+	o.setup()
+	defer common.RemovePID()
 
 	if err := o.preflight(); err != nil {
 		return err
@@ -124,23 +130,12 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// setup performs the PID file bookkeeping, function scope parsing and symbol
-// pattern validation needed before a tracer can be built. The PID file is
-// written before any parsing so that the caller's deferred removal, armed
-// right after this call, always cleans it up regardless of the returned
-// error. A detached child skips the write when the file already names it.
-// When the child runs ahead of the parent's write in daemonize it writes
-// atomically, and the parent's later write carries the same PID, so a reader
-// never sees the file truncated. Log-level configuration is handled centrally
-// by the parent command's PersistentPreRunE before RunE runs, so o.Logger is
-// already at the requested level here.
-func (o *Options) setup() (trace.Scope, error) {
-	if pid, err := common.ReadPID(); err != nil || pid != os.Getpid() {
-		if err := common.WritePID(os.Getpid()); err != nil {
-			o.Logger.Warn().Err(err).Msg("failed to write PID file")
-		}
-	}
-
+// validate checks the flags shared by the foreground run and the detached
+// parent in one place, so both paths refuse the same input with the same
+// first error: --pid, then --ringbuf-size, then --scope, then the symbol
+// patterns. The parsed ring buffer size is stored in o.ringBufBytes for
+// buildTracer.
+func (o *Options) validate() (trace.Scope, error) {
 	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
 		return "", err
 	}
@@ -166,6 +161,40 @@ func (o *Options) setup() (trace.Scope, error) {
 	}
 
 	return scope, nil
+}
+
+// daemonRunningMsg is the text both paths report when the PID file names a
+// live daemon. The foreground run returns it as an error. The detached parent
+// prints it and exits 0.
+const daemonRunningMsg = "Daemon already running"
+
+// refuseIfDaemonRunning refuses a foreground run while the PID file names
+// another live process, so setup never takes over that daemon's PID file. A
+// missing, stale or invalid file falls through to setup, which rewrites it.
+// The detached child finds its own PID in the file, written by the parent
+// after Start, and passes. The guard only reads the file.
+func (o *Options) refuseIfDaemonRunning() error {
+	pid, err := common.CheckRunning()
+	if err != nil || pid == os.Getpid() {
+		return nil
+	}
+
+	return errors.New(daemonRunningMsg)
+}
+
+// setup writes this process's PID to the PID file. A detached child skips the
+// write when the file already names it. When the child runs ahead of the
+// parent's write in daemonize it writes atomically, and the parent's later
+// write carries the same PID, so a reader never sees the file truncated.
+// Log-level configuration is handled centrally by the parent command's
+// PersistentPreRunE before RunE runs, so o.Logger is already at the
+// requested level here.
+func (o *Options) setup() {
+	if pid, err := common.ReadPID(); err != nil || pid != os.Getpid() {
+		if err := common.WritePID(os.Getpid()); err != nil {
+			o.Logger.Warn().Err(err).Msg("failed to write PID file")
+		}
+	}
 }
 
 // preflight warns on an old-looking kernel and validates privileges before
@@ -449,35 +478,16 @@ func daemonArgs(fs *pflag.FlagSet) []string {
 }
 
 func (o *Options) daemonize(cmd *cobra.Command) error {
-	// Validate the target before forking so the error reaches the user
-	// instead of only the daemon log.
-	if err := validatePID(o.pid, o.userspaceBPF); err != nil {
-		return err
-	}
-
-	// Refuse a bad ring buffer size in the parent, in the same position setup
-	// checks it, before the running-daemon check and the preflight. The rule
-	// reaches the user without root and no daemon is started only to fail at
-	// load. The userspace segment rule is checked in the same spot.
-	ringBufBytes, err := parseRingBufSize(o.ringBufSize)
-	if err != nil {
-		return err
-	}
-	if o.userspaceBPF {
-		if err := validateUserspaceRingBufSize(ringBufBytes, os.LookupEnv, os.Stat); err != nil {
-			return err
-		}
-	}
-
-	// Reject invalid symbol patterns here, in the parent: the daemon would
-	// otherwise fail after this process has already returned success.
-	if err := trace.ValidateSymPatterns(o.symIncludePattern, o.symExcludePattern); err != nil {
+	// Refuse bad flags in the parent, before the running-daemon check, the
+	// preflight and the fork, so the error reaches the user instead of only
+	// the daemon log.
+	if _, err := o.validate(); err != nil {
 		return err
 	}
 
 	// Check if already running.
 	if common.IsDaemonRunning() {
-		fmt.Println("Daemon already running")
+		fmt.Println(daemonRunningMsg)
 		return nil
 	}
 
@@ -504,7 +514,7 @@ func (o *Options) daemonize(cmd *cobra.Command) error {
 		daemonCmd.Stderr = f
 	}
 
-	err = daemonCmd.Start()
+	err := daemonCmd.Start()
 	if err != nil {
 		o.Logger.Error().Err(err).Msgf("failed to start %s", settings.CmdName)
 		return err

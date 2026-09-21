@@ -85,6 +85,24 @@ func TestHealthCheckServer_InitializeListener(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotZero(t, fi.Mode()&os.ModeSocket)
 	})
+
+	t.Run("dangling symlink is replaced", func(t *testing.T) {
+		dir := t.TempDir()
+		socketPath := filepath.Join(dir, "hc.sock")
+
+		// The symlink occupies the path, so the bind would fail with
+		// EADDRINUSE, while a stat that follows it reports nothing there.
+		require.NoError(t, os.Symlink(filepath.Join(dir, "gone.sock"), socketPath))
+
+		hcs := NewHealthCheckServer(socketPath, zerolog.Nop())
+		require.NoError(t, hcs.InitializeListener(t.Context()))
+		t.Cleanup(func() { _ = hcs.ShutdownListener() })
+
+		// Lstat proves the symlink itself gave way to a socket.
+		fi, err := os.Lstat(socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+	})
 }
 
 func TestHealthCheckServer_removeStaleSocket(t *testing.T) {

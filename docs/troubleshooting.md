@@ -83,10 +83,11 @@ returned through the tracer's `Init` (`pkg/trace/tracer.go`) and wrapped by
 detached run writes it only to `/tmp/xcover.log`; `xcover run --detach`
 itself still exits 0.
 
-**Cause.** A live xcover daemon holds the socket while `/tmp/xcover.pid` no
-longer names it, for example after the PID file was removed by hand. The PID
-check passed, so the run reached the socket. A socket that still answers is
-left in place; only one nothing answers on is replaced.
+**Cause.** Another process, usually a live xcover daemon whose PID file no
+longer names it, holds the socket, for example after `/tmp/xcover.pid` was
+removed by hand. The PID check passed, so the run reached the socket. A socket
+that still answers is left in place; only a socket that refuses the connection
+is replaced.
 
 **Fix.** Find the process that holds the socket with `ss -xlp` or
 `fuser /tmp/xcover.sock` and stop it. Or write its PID back to

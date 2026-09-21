@@ -61,12 +61,14 @@ func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
 }
 
 // removeStaleSocket unlinks the socket path only when nothing answers on it.
-// A regular file or a socket with no listener refuses the probe and is
-// removed. A live listener accepts it and is reported as an error naming the
-// path. Any other probe failure, such as EACCES or a timeout on a wedged
-// listener, is reported without removing anything.
+// A regular file, a socket with no listener or a dangling symlink refuses the
+// probe and is removed. A live listener accepts it and is reported as an
+// error naming the path. Any other probe failure, such as EACCES or a timeout
+// on a wedged listener, is reported without removing anything.
 func (s *HealthCheckServer) removeStaleSocket(ctx context.Context) error {
-	if _, err := os.Stat(s.socketPath); err != nil {
+	// Lstat: a dangling symlink still occupies the path and would fail the
+	// bind, so it must be probed and removed, not reported absent.
+	if _, err := os.Lstat(s.socketPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}

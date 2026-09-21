@@ -733,18 +733,21 @@ func TestDaemonArgs(t *testing.T) {
 	}
 }
 
-// withTempDaemonFiles points the PID and log file settings at per-test paths
-// so daemonize never touches a real daemon's files.
+// withTempDaemonFiles points the PID, log and socket path settings at
+// per-test paths so neither daemonize nor a run that reaches the tracer
+// touches a real daemon's files.
 func withTempDaemonFiles(t *testing.T) (pidFile, logFile string) {
 	t.Helper()
 
-	origPid, origLog := settings.PidFile, settings.LogFile
+	origPid, origLog, origSock := settings.PidFile, settings.LogFile, trace.HealthCheckSockPath
 	dir := t.TempDir()
 	settings.PidFile = filepath.Join(dir, "xcover.pid")
 	settings.LogFile = filepath.Join(dir, "xcover.log")
+	trace.HealthCheckSockPath = filepath.Join(dir, "xcover.sock")
 	t.Cleanup(func() {
 		settings.PidFile = origPid
 		settings.LogFile = origLog
+		trace.HealthCheckSockPath = origSock
 	})
 
 	return settings.PidFile, settings.LogFile

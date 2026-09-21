@@ -81,7 +81,7 @@ set by the Makefile and the embedded BPF object.
 |---|---|---|---|
 | Unit | `make test` | no | `go test ./...` |
 | Integration | `make test-integration` | no | Adds files tagged `integration` under `pkg/trace`. This is what CI runs. |
-| End to end | `make test-e2e` or see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary, so run `make xcover` first. |
+| End to end | `make test-e2e` or see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary, so run `make xcover GO_BUILD_FLAGS='-tags e2etest'` first. |
 | Benchmark | `make -C benchmark bench` | yes for kernel mode | See [benchmark/README.md](benchmark/README.md). |
 
 `make test-e2e` runs `go test -count=1 -tags e2e ./e2e` as the current user
@@ -93,7 +93,7 @@ compile the test binary as your user and run only that binary under `sudo`,
 so `go` and its cache stay yours:
 
 ```shell
-make xcover
+make xcover GO_BUILD_FLAGS='-tags e2etest'
 go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
 sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
 sudo env XCOVER_E2E_BIN="$PWD/xcover" /tmp/xcover-e2e.test -test.v -test.count=1
@@ -111,6 +111,10 @@ Any xcover error past the preconditions, including a denied BPF load, fails
 the test. A green run without root and without the variable proves little;
 check for `SKIP` lines.
 
+The recipes above build xcover with `-tags e2etest`, as CI does: such a binary
+honours `XCOVER_E2E_SEEN_FUNCS_MAX` to cap the `seen_funcs` map so the e2e
+suite can provoke the drops warning, while release builds ignore the variable.
+
 Limit any Go target to a package with `TEST_PATH`, for example
 `make test-integration TEST_PATH=./pkg/trace`.
 
@@ -121,7 +125,7 @@ own `GOCOVERDIR`, and merge the two directories with `go tool covdata`:
 
 ```shell
 rm -rf /tmp/cov-unit /tmp/cov-e2e && mkdir -p /tmp/cov-unit /tmp/cov-e2e
-make xcover GO_BUILD_FLAGS=-cover
+make xcover GO_BUILD_FLAGS='-cover -tags e2etest'
 make test-integration GO_TEST_FLAGS="-cover -args -test.gocoverdir=/tmp/cov-unit"
 go test -c -tags e2e -o /tmp/xcover-e2e.test ./e2e
 sudo rm -f /tmp/xcover.sock /tmp/xcover.pid /tmp/xcover.log
@@ -138,7 +142,7 @@ before reading it.
 ## Lint
 
 CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,
-`integration` and `docs` build tags. Run `gofmt -w .` before pushing.
+`e2etest`, `integration` and `docs` build tags. Run `gofmt -w .` before pushing.
 
 ## Documentation
 

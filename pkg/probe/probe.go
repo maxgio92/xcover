@@ -95,10 +95,15 @@ func (p *Probe) FuncCount() int {
 // object is loaded; max_entries is immutable afterwards. A preallocated BPF
 // hash holds exactly max_entries distinct keys and cookies are bounded by the
 // traced function count, so no headroom is needed. With funcCount <= 0 the
-// max_entries compiled into the object is kept.
+// max_entries compiled into the object is kept. A binary built with the
+// e2etest tag may cap the size further through seenFuncsCapOverride so the
+// e2e suite can provoke the drops warning.
 func resizeSeenFuncs(seenFuncs *bpf.BPFMap, funcCount int) error {
 	if funcCount <= 0 {
 		return nil
+	}
+	if capOverride := seenFuncsCapOverride(); capOverride > 0 && capOverride < funcCount {
+		funcCount = capOverride
 	}
 	if err := seenFuncs.SetMaxEntries(uint32(funcCount)); err != nil {
 		return errors.Wrapf(err, "failed to resize bpf map %s", seenFuncsBPFMapName)

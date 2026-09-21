@@ -210,9 +210,10 @@ CI runs `make docs` and fails when the generated files differ from the commit.
   `feat(trace): ...`, `fix(probe): ...`, `docs: ...`, `ci: ...`,
   `chore(deps): ...`. Scopes in use include `bpf`, `trace`, `probe`, `cmd`,
   `benchmark`, `demo`, `bpftime`, `makefile`, `release`.
-- The release changelog groups `feat`, `fix`, `perf` and `refactor` and drops
-  `docs`, `test`, `chore` and `ci`. A subject outside the convention lands in
-  "Other changes".
+- The release changelog groups `feat`, `fix` and `perf` and drops `docs`,
+  `test`, `chore`, `ci`, `build` and `refactor`. The release notes show those
+  groups plus "Other Changes" for subjects outside the convention, and link to
+  the full changelog.
 - Open pull requests against `main`. Keep them focused; CI must pass
   (`build`, `submodule-sync`, `test`, `e2e`, `e2e-kernel`, `coverage`,
   `lint`).
@@ -227,10 +228,8 @@ archives with GoReleaser and publishes them with a `checksums.txt`. A PR that
 touches only `.github/workflows/release.yml` or `.goreleaser.yml` runs a
 snapshot build without publishing.
 
-When tagging, check the release page. If archives now publish, update the
-Install section of `README.md.tpl` and the status line of
-`docs/userspace-bpf.md` so neither still tells readers to build from source
-or wait for a release.
+When tagging, check the release page. Confirm the README Install section and
+any experimental status note in `docs/` match the published assets.
 
 ## Reporting bugs and asking questions
 

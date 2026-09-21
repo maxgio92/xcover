@@ -79,27 +79,26 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
+      - '^docs(\([^)]*\))?!?:'
+      - '^test(\([^)]*\))?!?:'
+      - '^chore(\([^)]*\))?!?:'
+      - '^ci(\([^)]*\))?!?:'
+      - '^build(\([^)]*\))?!?:'
+      - '^refactor(\([^)]*\))?!?:'
       - 'merge conflict'
       - Merge pull request
       - Merge remote-tracking branch
       - Merge branch
   groups:
     - title: Features
-      regexp: '^feat:.*'
+      regexp: '^feat(\([^)]*\))?!?:'
       order: 0
     - title: Bug Fixes
-      regexp: '^fix:.*'
+      regexp: '^fix(\([^)]*\))?!?:'
       order: 1
     - title: Performance Improvements
-      regexp: '^perf:.*'
+      regexp: '^perf(\([^)]*\))?!?:'
       order: 2
-    - title: Refactors
-      regexp: '^refactor:.*'
-      order: 3
     - title: Other Changes
       order: 999
 
@@ -113,30 +112,19 @@ release:
   header: |
     ## xcover {{ .Tag }}
 
-    A cross-language functional test coverage profiler leveraging eBPF.
+    Functional test coverage from eBPF uprobes, for any compiled language.
 
-    ### Installation
-
-    Download the appropriate binary for your platform below, extract it, and add it to your PATH.
+    ### Install
 
     ```bash
-    # Example for Linux amd64
     curl -LO https://github.com/maxgio92/xcover/releases/download/{{ .Tag }}/xcover_{{ .Tag }}_linux_x86_64.tar.gz
+    curl -LO https://github.com/maxgio92/xcover/releases/download/{{ .Tag }}/checksums.txt
+    sha256sum --ignore-missing -c checksums.txt
     tar -xzf xcover_{{ .Tag }}_linux_x86_64.tar.gz
     sudo mv xcover /usr/local/bin/
     ```
-
-    ### Verify checksums
-
-    ```bash
-    sha256sum -c checksums.txt
-    ```
   footer: |
     **Full Changelog**: https://github.com/maxgio92/xcover/compare/{{ .PreviousTag }}...{{ .Tag }}
-
-    ---
-
-    Built with [GoReleaser](https://goreleaser.com)
 
 # Announcement settings for integrations
 announce:

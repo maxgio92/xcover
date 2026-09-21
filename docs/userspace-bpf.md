@@ -5,9 +5,10 @@ xcover can run its BPF program in userspace through the
 kernel. Every probed call then stays in the tracee's process and skips the
 kernel trap.
 
-> **Status:** experimental. Check the
-> [release notes](https://github.com/maxgio92/xcover/releases) for the first
-> release that includes it. The [benchmark](../benchmark/README.md) measures
+> **Status:** experimental. The source first included it in
+> [0.6.0](https://github.com/maxgio92/xcover/releases/tag/0.6.0); release
+> archives do not include it. Build it with `make xcover-userspace`.
+> The [benchmark](../benchmark/README.md) measures
 > about 65% lower per-call cost on the already-seen path and 63% on the
 > first-hit path compared to kernel uprobes (one machine, 100 probes, 10
 > rounds). It also runs without `CAP_BPF`.

@@ -28,10 +28,11 @@ func newTestOptions(t *testing.T) *Options {
 
 	logger := log.New(log.ConsoleWriter{Out: os.Stderr})
 	o := new(Options)
-	// Mirror the --pid and --ringbuf-size flag defaults; the zero values are
-	// rejected by setup().
+	// Mirror the --pid, --ringbuf-size and --scope flag defaults; the zero
+	// values are rejected by validate().
 	o.pid = -1
 	o.ringBufSize = "16MiB"
+	o.scope = string(trace.ScopeBinary)
 	o.Options = options.NewOptions(
 		options.WithContext(context.Background()),
 		options.WithLogger(logger),
@@ -41,28 +42,24 @@ func newTestOptions(t *testing.T) *Options {
 	return o
 }
 
-func TestOptionsSetup(t *testing.T) {
-	// setup() writes to the shared settings.PidFile path, so point it at a
-	// per-test temp file to avoid clobbering a real daemon's PID file.
-	origPidFile := settings.PidFile
-	settings.PidFile = filepath.Join(t.TempDir(), "xcover.pid")
-	t.Cleanup(func() { settings.PidFile = origPidFile })
+func TestOptionsValidate(t *testing.T) {
 	// Pin the bpftime segment size so the developer's shell environment
 	// cannot flip the userspace ring buffer rows.
 	t.Setenv("BPFTIME_SHM_MEMORY_MB", "50")
 	t.Setenv("BPFTIME_GLOBAL_SHM_NAME", "xcover-test-absent-segment")
 
 	tests := []struct {
-		name         string
-		scope        string
-		pid          int
-		userspaceBPF bool
-		include      string
-		exclude      string
-		ringBufSize  string // empty keeps the flag default
-		wantScope    trace.Scope
-		wantErr      bool
-		wantErrIs    error
+		name            string
+		scope           string
+		pid             int
+		userspaceBPF    bool
+		include         string
+		exclude         string
+		ringBufSize     string // empty keeps the flag default
+		wantScope       trace.Scope
+		wantErr         bool
+		wantErrIs       error
+		wantErrContains string
 	}{
 		{
 			name:      "binary scope",
@@ -177,13 +174,23 @@ func TestOptionsSetup(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			// The foreground path must refuse before any daemon starts.
-			name:         "userspace 32MiB does not fit the segment",
-			scope:        string(trace.ScopeBinary),
-			pid:          -1,
-			userspaceBPF: true,
-			ringBufSize:  "32MiB",
-			wantErr:      true,
+			// Both run paths refuse before any daemon starts: validate runs
+			// in the foreground run and in the detached parent.
+			name:            "userspace 32MiB does not fit the segment",
+			scope:           string(trace.ScopeBinary),
+			pid:             -1,
+			userspaceBPF:    true,
+			ringBufSize:     "32MiB",
+			wantErr:         true,
+			wantErrContains: "BPFTIME_SHM_MEMORY_MB",
+		},
+		{
+			// The checks run in flag order, so --pid is reported first.
+			name:            "invalid pid before invalid scope",
+			scope:           "bogus",
+			pid:             0,
+			wantErr:         true,
+			wantErrContains: "invalid --pid 0",
 		},
 	}
 
@@ -199,22 +206,15 @@ func TestOptionsSetup(t *testing.T) {
 				o.ringBufSize = tt.ringBufSize
 			}
 
-			// A stale PID from another process must be replaced.
-			require.NoError(t, os.WriteFile(settings.PidFile, []byte("1"), 0644))
-			t.Cleanup(func() { _ = os.Remove(settings.PidFile) })
-
-			scope, err := o.setup()
-
-			// setup() writes the PID file before parsing anything, so the
-			// caller can unconditionally defer its removal.
-			got, readErr := os.ReadFile(settings.PidFile)
-			require.NoError(t, readErr)
-			require.Equal(t, strconv.Itoa(os.Getpid()), string(got))
+			scope, err := o.validate()
 
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
 					require.ErrorIs(t, err, tt.wantErrIs)
+				}
+				if tt.wantErrContains != "" {
+					require.ErrorContains(t, err, tt.wantErrContains)
 				}
 				return
 			}
@@ -388,6 +388,20 @@ func TestBpftimeShmMemoryMiB(t *testing.T) {
 	}
 }
 
+// TestOptionsSetup proves setup replaces a PID file naming another process
+// with this process's PID.
+func TestOptionsSetup(t *testing.T) {
+	pidFile, _ := withTempDaemonFiles(t)
+	require.NoError(t, os.WriteFile(pidFile, []byte("1"), 0644))
+
+	o := newTestOptions(t)
+	o.setup()
+
+	got, err := os.ReadFile(pidFile)
+	require.NoError(t, err)
+	require.Equal(t, strconv.Itoa(os.Getpid()), string(got))
+}
+
 // TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf proves the detached
 // child leaves a PID file that already names it untouched: no truncate and no
 // rename, so the inode survives setup().
@@ -405,9 +419,7 @@ func TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf(t *testing.T) {
 	require.NoError(t, err)
 
 	o := newTestOptions(t)
-	o.scope = string(trace.ScopeBinary)
-	_, err = o.setup()
-	require.NoError(t, err)
+	o.setup()
 
 	got, err := os.ReadFile(settings.PidFile)
 	require.NoError(t, err)
@@ -417,6 +429,81 @@ func TestOptionsSetup_SkipsRewriteWhenPIDFileNamesSelf(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, os.SameFile(before, after), "setup replaced the PID file")
 	require.Equal(t, before.ModTime(), after.ModTime(), "setup wrote the PID file")
+}
+
+// TestOptionsRefuseIfDaemonRunning_SelfPID proves the guard lets the detached
+// child through when the PID file already names it, and leaves the file
+// untouched: no truncate and no rename.
+func TestOptionsRefuseIfDaemonRunning_SelfPID(t *testing.T) {
+	pidFile, _ := withTempDaemonFiles(t)
+
+	want := strconv.Itoa(os.Getpid())
+	require.NoError(t, os.WriteFile(pidFile, []byte(want), 0644))
+	// Age the file so any write, in place or by rename, moves its mtime.
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(pidFile, old, old))
+	before, err := os.Stat(pidFile)
+	require.NoError(t, err)
+
+	o := newTestOptions(t)
+	require.NoError(t, o.refuseIfDaemonRunning())
+
+	got, err := os.ReadFile(pidFile)
+	require.NoError(t, err)
+	require.Equal(t, want, string(got))
+
+	after, err := os.Stat(pidFile)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "guard replaced the PID file")
+	require.Equal(t, before.ModTime(), after.ModTime(), "guard wrote the PID file")
+}
+
+// TestOptionsRefuseIfDaemonRunning proves the guard refuses only a PID file
+// naming another live process. Every other state falls through to setup.
+func TestOptionsRefuseIfDaemonRunning(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string // empty writes no PID file
+		wantErr string
+	}{
+		{
+			name: "no pid file",
+		},
+		{
+			// Above pid_max on every Linux configuration, so never alive.
+			name:    "stale pid",
+			content: strconv.Itoa(1<<22 + 1),
+		},
+		{
+			name:    "invalid content",
+			content: "abc",
+		},
+		{
+			// PID 1 counts alive for every caller: kill succeeds as root and
+			// fails with EPERM unprivileged, which processAlive treats as alive.
+			name:    "live other pid",
+			content: "1",
+			wantErr: "Daemon already running",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pidFile, _ := withTempDaemonFiles(t)
+			if tt.content != "" {
+				require.NoError(t, os.WriteFile(pidFile, []byte(tt.content), 0644))
+			}
+
+			o := newTestOptions(t)
+			err := o.refuseIfDaemonRunning()
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 // TestValidatePIDThread proves the pre-check rejects a non-leader thread id:
@@ -646,18 +733,21 @@ func TestDaemonArgs(t *testing.T) {
 	}
 }
 
-// withTempDaemonFiles points the PID and log file settings at per-test paths
-// so daemonize never touches a real daemon's files.
+// withTempDaemonFiles points the PID, log and socket path settings at
+// per-test paths so neither daemonize nor a run that reaches the tracer
+// touches a real daemon's files.
 func withTempDaemonFiles(t *testing.T) (pidFile, logFile string) {
 	t.Helper()
 
-	origPid, origLog := settings.PidFile, settings.LogFile
+	origPid, origLog, origSock := settings.PidFile, settings.LogFile, trace.HealthCheckSockPath
 	dir := t.TempDir()
 	settings.PidFile = filepath.Join(dir, "xcover.pid")
 	settings.LogFile = filepath.Join(dir, "xcover.log")
+	trace.HealthCheckSockPath = filepath.Join(dir, "xcover.sock")
 	t.Cleanup(func() {
 		settings.PidFile = origPid
 		settings.LogFile = origLog
+		trace.HealthCheckSockPath = origSock
 	})
 
 	return settings.PidFile, settings.LogFile
@@ -757,9 +847,10 @@ func TestDaemonize_AlreadyRunning(t *testing.T) {
 
 func TestDaemonize_PreForkErrors(t *testing.T) {
 	tests := []struct {
-		name  string
-		setup func(o *Options)
-		skip  func() bool
+		name    string
+		setup   func(o *Options)
+		skip    func() bool
+		wantErr string // empty accepts any error
 	}{
 		{
 			name:  "invalid pid",
@@ -768,6 +859,18 @@ func TestDaemonize_PreForkErrors(t *testing.T) {
 		{
 			name:  "invalid symbol pattern",
 			setup: func(o *Options) { o.symIncludePattern = "(" },
+		},
+		{
+			name:    "invalid scope",
+			setup:   func(o *Options) { o.scope = "bogus" },
+			wantErr: `unknown scope "bogus"`,
+		},
+		{
+			// The parent checks the flags in the same order as the foreground
+			// run, so --pid is reported first.
+			name:    "invalid pid before invalid scope",
+			setup:   func(o *Options) { o.pid = 0; o.scope = "bogus" },
+			wantErr: "invalid --pid 0",
 		},
 		{
 			// Preflight rejects a process without BPF capabilities. Root
@@ -791,9 +894,13 @@ func TestDaemonize_PreForkErrors(t *testing.T) {
 			tt.setup(o)
 			cmd := newDaemonizeCommand(t, "--detach")
 
-			require.Error(t, o.daemonize(cmd))
+			err := o.daemonize(cmd)
+			require.Error(t, err)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
 			require.Equal(t, 0, fake.calls)
-			_, err := os.Stat(pidFile)
+			_, err = os.Stat(pidFile)
 			require.True(t, os.IsNotExist(err))
 		})
 	}
@@ -825,6 +932,50 @@ func TestRun_DetachRoutesToDaemonize(t *testing.T) {
 	require.NoError(t, o.Run(cmd, nil))
 	require.Equal(t, 1, fake.calls)
 	require.NoError(t, fake.cmd.Wait())
+}
+
+// TestRun_RefusesWhenDaemonRunning proves a foreground run refuses to start
+// while the PID file names another live process, and that the refusal leaves
+// the file in place: RemovePID is armed only after the guard passes. The
+// second case proves a bad flag is reported before the guard.
+func TestRun_RefusesWhenDaemonRunning(t *testing.T) {
+	tests := []struct {
+		name    string
+		scope   string // empty keeps the flag default
+		wantErr string
+	}{
+		{
+			name:    "live daemon",
+			wantErr: "Daemon already running",
+		},
+		{
+			name:    "bad flag before the guard",
+			scope:   "bogus",
+			wantErr: `unknown scope "bogus"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pidFile, _ := withTempDaemonFiles(t)
+			require.NoError(t, os.WriteFile(pidFile, []byte("1"), 0644))
+
+			o := newTestOptions(t)
+			o.skipPreflight = true
+			o.comm = "/bin/true"
+			if tt.scope != "" {
+				o.scope = tt.scope
+			}
+
+			// Run reads cmd only under --detach, so an empty command suffices.
+			err := o.Run(&cobra.Command{}, nil)
+			require.ErrorContains(t, err, tt.wantErr)
+
+			got, err := os.ReadFile(pidFile)
+			require.NoError(t, err)
+			require.Equal(t, "1", string(got))
+		})
+	}
 }
 
 func TestDaemonize_LogFileOpenFailure(t *testing.T) {

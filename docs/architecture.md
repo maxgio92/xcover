@@ -120,7 +120,10 @@ In userspace BPF mode bpftime does not implement `uprobe_multi`, so
 ### 5. Readiness
 
 The healthcheck listener on `/tmp/xcover.sock` starts before the BPF module is
-loaded, so `xcover wait` can connect early. Each connection blocks until the
+loaded, so `xcover wait` can connect early. Before binding, the listener probes
+an existing socket at that path: one that answers makes the listener refuse to
+start, one that refuses the connection is replaced; any other probe failure
+stops the start and keeps the path. Each connection blocks until the
 tracer closes its ready channel after attach, then receives one byte `0x01`.
 The socket is removed on every exit path.
 
@@ -185,8 +188,11 @@ that was set except `--detach`, redirecting output to `/tmp/xcover.log` and
 writing the child PID to `/tmp/xcover.pid`. The child process is built through
 the package-level `execCommand` variable, which tests replace to inspect the
 arguments without spawning a daemon. Before re-executing, the parent
-validates `--include` and `--exclude` with `ValidateSymPatterns`, so a bad
-pattern fails in the foreground instead of in the log file. `WritePID` writes
+validates `--pid`, `--ringbuf-size`, `--scope` and the symbol patterns, in
+that order, with the same function the foreground run uses, so a bad flag
+fails in the foreground instead of in the log file. A foreground run refuses
+to start with `Daemon already running` when the PID file names another live
+process. `WritePID` writes
 the PID to a temp file in `/tmp` and renames it over `/tmp/xcover.pid`, so a
 concurrent `wait`, `status` or `stop` reads the old content or the new PID,
 never an empty file. The child's `setup` writes its own PID only when the file

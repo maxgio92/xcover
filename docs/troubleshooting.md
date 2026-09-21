@@ -64,7 +64,8 @@ the probe set with `--scope project`, `--include` or `--exclude`. Check
 ## `Daemon already running`
 
 Printed by `xcover run --detach` (`pkg/cmd/run/run.go`). The command exits 0
-and starts nothing.
+and starts nothing. A foreground `xcover run` returns the same text as an
+error on stderr and exits 1, leaving `/tmp/xcover.pid` untouched.
 
 **Cause.** `/tmp/xcover.pid` names a live process. Only one daemon can run
 per host because the state paths are fixed.
@@ -72,6 +73,25 @@ per host because the state paths are fixed.
 **Fix.** Run `sudo xcover status` to see the PID, then `sudo xcover stop` to
 end that session before starting a new one. If the PID belongs to an
 unrelated process that reused the number, remove `/tmp/xcover.pid` by hand.
+
+## `/tmp/xcover.sock is in use by a running listener`
+
+Printed by `xcover run` (`pkg/healthcheck/healthcheck.go`). The error is
+returned through the tracer's `Init` (`pkg/trace/tracer.go`) and wrapped by
+`pkg/cmd/run/run.go`. A foreground run prints `Error: failed to init tracer:
+/tmp/xcover.sock is in use by a running listener` on stderr and exits 1. A
+detached run writes it only to `/tmp/xcover.log`; `xcover run --detach`
+itself still exits 0.
+
+**Cause.** Another process, usually a live xcover daemon whose PID file no
+longer names it, holds the socket, for example after `/tmp/xcover.pid` was
+removed by hand. The PID check passed, so the run reached the socket. A socket
+that still answers is left in place; only a socket that refuses the connection
+is replaced.
+
+**Fix.** Find the process that holds the socket with `ss -xlp` or
+`fuser /tmp/xcover.sock` and stop it. Or write its PID back to
+`/tmp/xcover.pid` and run `sudo xcover stop`.
 
 ## `xcover did not stop within the timeout and was force killed`
 

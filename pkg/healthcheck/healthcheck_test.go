@@ -48,6 +48,87 @@ func TestHealthCheckServer_InitializeListener(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotZero(t, fi.Mode()&os.ModeSocket)
 	})
+
+	t.Run("keeps a live socket", func(t *testing.T) {
+		hcs := newTestServer(t)
+
+		// The refused server never gets ShutdownListener: that would unlink
+		// the live socket even though it holds no listener.
+		second := NewHealthCheckServer(hcs.socketPath, zerolog.Nop())
+		err := second.InitializeListener(t.Context())
+		require.ErrorContains(t, err, hcs.socketPath)
+		assert.Nil(t, second.ln)
+
+		fi, err := os.Stat(hcs.socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+
+		conn, err := net.DialTimeout("unix", hcs.socketPath, time.Second)
+		require.NoError(t, err)
+		require.NoError(t, conn.Close())
+	})
+
+	t.Run("replaces a dead socket", func(t *testing.T) {
+		socketPath := filepath.Join(t.TempDir(), "hc.sock")
+
+		// Leave the socket file behind with no listener on it.
+		ln, err := net.Listen("unix", socketPath)
+		require.NoError(t, err)
+		ln.(*net.UnixListener).SetUnlinkOnClose(false)
+		require.NoError(t, ln.Close())
+
+		hcs := NewHealthCheckServer(socketPath, zerolog.Nop())
+		require.NoError(t, hcs.InitializeListener(t.Context()))
+		t.Cleanup(func() { _ = hcs.ShutdownListener() })
+
+		fi, err := os.Stat(socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+	})
+
+	t.Run("dangling symlink is replaced", func(t *testing.T) {
+		dir := t.TempDir()
+		socketPath := filepath.Join(dir, "hc.sock")
+
+		// The symlink occupies the path, so the bind would fail with
+		// EADDRINUSE, while a stat that follows it reports nothing there.
+		require.NoError(t, os.Symlink(filepath.Join(dir, "gone.sock"), socketPath))
+
+		hcs := NewHealthCheckServer(socketPath, zerolog.Nop())
+		require.NoError(t, hcs.InitializeListener(t.Context()))
+		t.Cleanup(func() { _ = hcs.ShutdownListener() })
+
+		// Lstat proves the symlink itself gave way to a socket.
+		fi, err := os.Lstat(socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+	})
+}
+
+func TestHealthCheckServer_removeStaleSocket(t *testing.T) {
+	t.Run("keeps the path when the probe fails", func(t *testing.T) {
+		socketPath := filepath.Join(t.TempDir(), "hc.sock")
+
+		// Leave the socket file behind with no listener on it.
+		ln, err := net.Listen("unix", socketPath)
+		require.NoError(t, err)
+		ln.(*net.UnixListener).SetUnlinkOnClose(false)
+		require.NoError(t, ln.Close())
+
+		// A cancelled context fails the probe with "operation was canceled",
+		// which is neither ECONNREFUSED nor ErrNotExist. Nothing proved the
+		// socket stale, so it must stay in place.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		hcs := NewHealthCheckServer(socketPath, zerolog.Nop())
+		err = hcs.removeStaleSocket(ctx)
+		require.ErrorContains(t, err, "failed to probe")
+
+		fi, err := os.Stat(socketPath)
+		require.NoError(t, err)
+		assert.NotZero(t, fi.Mode()&os.ModeSocket)
+	})
 }
 
 func TestHealthCheckServer_NotifyReadiness(t *testing.T) {

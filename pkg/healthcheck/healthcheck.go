@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -34,9 +35,12 @@ func NewHealthCheckServer(socketPath string, logger log.Logger) *HealthCheckServ
 }
 
 // InitializeListener starts the UDS listener for accepting connections.
+// A socket path that a running listener still answers on is left in place
+// and reported as an error, so the listener is never bound.
 func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
-	// Remove socket if it already exists.
-	os.Remove(s.socketPath)
+	if err := s.removeStaleSocket(ctx); err != nil {
+		return err
+	}
 
 	// Create UDS listener.
 	ln, err := net.Listen("unix", s.socketPath)
@@ -53,6 +57,38 @@ func (s *HealthCheckServer) InitializeListener(ctx context.Context) error {
 		s.acceptConnections(ctx)
 	}()
 
+	return nil
+}
+
+// removeStaleSocket unlinks the socket path only when nothing answers on it.
+// A regular file, a socket with no listener or a dangling symlink refuses the
+// probe and is removed. A live listener accepts it and is reported as an
+// error naming the path. Any other probe failure, such as EACCES or a timeout
+// on a wedged listener, is reported without removing anything.
+func (s *HealthCheckServer) removeStaleSocket(ctx context.Context) error {
+	// Lstat: a dangling symlink still occupies the path and would fail the
+	// bind, so it must be probed and removed, not reported absent.
+	if _, err := os.Lstat(s.socketPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrapf(err, "failed to stat %s", s.socketPath)
+	}
+
+	// The timeout keeps a listener that never accepts from stalling startup.
+	dialer := net.Dialer{Timeout: time.Second}
+	conn, err := dialer.DialContext(ctx, "unix", s.socketPath)
+	if err == nil {
+		conn.Close()
+		return errors.Errorf("%s is in use by a running listener", s.socketPath)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, os.ErrNotExist) {
+		return errors.Wrapf(err, "failed to probe %s", s.socketPath)
+	}
+
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		return errors.Wrapf(err, "failed to remove stale socket %s", s.socketPath)
+	}
 	return nil
 }
 

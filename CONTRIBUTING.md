@@ -81,7 +81,7 @@ set by the Makefile and the embedded BPF object.
 |---|---|---|---|
 | Unit | `make test` | no | `go test ./...` |
 | Integration | `make test-integration` | no | Adds files tagged `integration` under `pkg/trace`. This is what CI runs. |
-| End to end | `make test-e2e` or see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary, so run `make xcover GO_BUILD_FLAGS='-tags e2etest'` first. |
+| End to end | `make test-e2e` or see below | yes | Files tagged `e2e` under `e2e/`. Drives the real `./xcover` binary, so run `make xcover GO_BUILD_FLAGS='-tags e2etest'` first. The C++ scenario needs `g++` and skips without it, or fails when `XCOVER_E2E_REQUIRE=1` is set. |
 | Benchmark | `make -C benchmark bench` | yes for kernel mode | See [benchmark/README.md](benchmark/README.md). |
 
 `make test-e2e` runs `go test -count=1 -tags e2e ./e2e` as the current user
@@ -115,6 +115,17 @@ The recipes above build xcover with `-tags e2etest`, as CI does: such a binary
 honours `XCOVER_E2E_SEEN_FUNCS_MAX` to cap the `seen_funcs` map so the e2e
 suite can provoke the drops warning, while release builds ignore the variable.
 
+The e2e tests build their Go fixture programs from `e2e/testdata` with
+`go build` at run time. `make e2e-fixtures` builds them ahead of time, one
+binary per module, into `E2E_FIXTURES_DIR` (default `/tmp/xcover-e2e-fixtures`).
+Point `XCOVER_E2E_FIXTURES` at that directory and the harness uses the
+prebuilt binaries instead. The C++ fixture is not covered; it compiles in the
+test.
+
+`e2e/doc.go` holds a feature matrix that maps every `run` flag, command and
+failure path to the scenario that covers it, or states why none does. When
+you add a flag or a command, add a scenario and a row.
+
 Limit any Go target to a package with `TEST_PATH`, for example
 `make test-integration TEST_PATH=./pkg/trace`.
 
@@ -139,6 +150,34 @@ go tool cover -func coverage.txt
 otherwise. The binary writes its counters as root, so chown the directory
 before reading it.
 
+### Kernel matrix
+
+The `e2e` job runs on the `ubuntu-24.04` runner kernel and logs `uname -r`.
+The `e2e-kernel` job runs the same suite on Linux 6.6 and 6.12 inside a QEMU
+VM booted by [vimto](https://github.com/lmb/vimto), with the kernel images
+from `ghcr.io/cilium/ci-kernels`. `.vimto.toml` sets the image, root user,
+memory and CPUs; the job overrides only the tag with `-kernel :TAG`. The VM
+shares the host root filesystem, so the binaries built on the host run inside
+it, but `/tmp` is empty, so the job builds the test binary and the fixtures
+under the checkout. To reproduce one kernel locally (needs `/dev/kvm` and
+`qemu-system-x86`):
+
+```shell
+make xcover GO_BUILD_FLAGS='-tags e2etest'
+go test -c -tags e2e -o "$PWD/xcover-e2e.test" ./e2e
+make e2e-fixtures E2E_FIXTURES_DIR="$PWD/xcover-e2e-fixtures"
+CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0
+vimto -kernel :6.6 exec -- sh -c 'XCOVER_E2E_BIN=$PWD/xcover XCOVER_E2E_REQUIRE=1 XCOVER_E2E_FIXTURES=$PWD/xcover-e2e-fixtures $PWD/xcover-e2e.test -test.v -test.count=1' </dev/null
+```
+
+`vimto exec` refuses a cgo build, hence `CGO_ENABLED=0`. Redirect stdin from
+`/dev/null`: with a closed pipe on stdin QEMU marks the guest console
+disconnected and the first write from the guest blocks. The `--pid`
+thread-filter warning scenario skips with a plain `t.Skipf` on kernels that
+carry the upstream fix (6.6.35, 6.9.5, 6.10 or newer), so a `SKIP` line for
+`TestPIDFilterWarnsOnThreadFilteringKernel` is expected there even with
+`XCOVER_E2E_REQUIRE=1`.
+
 ## Lint
 
 CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,
@@ -158,7 +197,9 @@ Edit `README.md.tpl`, never `README.md`, and run `make docs` (or
 Also run it after changing any command `Short`, `Long` or flag help text.
 Every other page under `docs/` is hand-written and the generator does not
 touch it. When you add a page, link it from [docs/README.md](docs/README.md),
-which is the index by reader intent.
+which is the index by reader intent. The e2e feature matrix lives in
+`e2e/doc.go`, not under `docs/`; a new `run` flag or command gets a row there
+next to its scenario.
 
 The generator does not delete pages for removed commands; delete them by hand.
 CI runs `make docs` and fails when the generated files differ from the commit.
@@ -173,7 +214,8 @@ CI runs `make docs` and fails when the generated files differ from the commit.
   `docs`, `test`, `chore` and `ci`. A subject outside the convention lands in
   "Other changes".
 - Open pull requests against `main`. Keep them focused; CI must pass
-  (`build`, `submodule-sync`, `test`, `e2e`, `lint`).
+  (`build`, `submodule-sync`, `test`, `e2e`, `e2e-kernel`, `coverage`,
+  `lint`).
 - Changes to `bpf/trace.bpf.c` need a rebuilt BPF object; run at least
   `make xcover` and the e2e tests locally.
 

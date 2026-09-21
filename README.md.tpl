@@ -45,6 +45,8 @@ More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 | Target binary | An ELF executable with function symbols (`.symtab`), a Go `.gopclntab` section, or a separate debug file passed with `--debug-path`. Static or dynamic linking both work. |
 
 A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
+CI runs the end-to-end suite on the `ubuntu-24.04` runner kernel and on Linux
+6.6 and 6.12 in a VM; see the kernel matrix in [CONTRIBUTING.md](CONTRIBUTING.md#kernel-matrix).
 
 What xcover does with its privileges:
 
@@ -297,8 +299,10 @@ the report, then sends `SIGKILL` and exits with an error. A daemon killed with
 If `/tmp/xcover.pid` names a live process, `run --detach` prints
 `Daemon already running`, exits 0 and starts nothing. Run `xcover status` to
 see the PID and `xcover stop` to end that session before starting a new one.
-`run --detach` also exits 0 as soon as the daemon process has started; an
-error a moment later, such as a failed BPF load, is only in `/tmp/xcover.log`.
+`run --detach` also exits 0 as soon as the daemon process has started. An
+error a moment later, such as a failed BPF load, lands in `/tmp/xcover.log`.
+`xcover wait` and `xcover stop` print its last 20 lines on stderr when the
+daemon is gone.
 
 ## Output and logging
 

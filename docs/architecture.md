@@ -9,7 +9,7 @@ should start with the [README](../README.md).
 |---|---|
 | `main.go` | Entry point, calls `pkg/cmd.Execute`. |
 | `bpf/trace.bpf.c` | The single BPF program attached to every function. `bpf/vmlinux.h` is generated at build time. |
-| `pkg/cmd` | Cobra commands: `run`, `wait`, `status`, `stop`; `agent` under the `userspace` build tag. `pkg/cmd/common` holds PID-file helpers, `pkg/cmd/options` the shared logger plumbing. |
+| `pkg/cmd` | Cobra commands: `run`, `wait`, `status`, `stop`, `merge`; `agent` under the `userspace` build tag. `pkg/cmd/common` holds PID-file helpers, `pkg/cmd/options` the shared logger plumbing. |
 | `pkg/trace` | Core: function resolvers, C++ and Rust demangling, scope filtering, the tracee model, the tracer event loop, report assembly. |
 | `pkg/probe` | libbpfgo wrapper: loads the embedded BPF object, attaches uprobes, polls the ring buffer. `pkg/probe/output` receives the compiled object. |
 | `pkg/coverage` | The `CoverageReport` type and its JSON encoding. |
@@ -19,7 +19,7 @@ should start with the [README](../README.md).
 | `internal/settings` | Command name and the fixed `/tmp/xcover.{pid,log,sock}` paths. |
 | `internal/output` | Terminal status bar. |
 | `internal/utils` | Small helpers. |
-| `e2e/` | Black-box tests tagged `e2e` that drive the built binary. |
+| `e2e/` | Black-box tests tagged `e2e` that drive the built binary. `e2e/doc.go` carries the feature matrix from every `run` flag, command and failure path to its scenario. |
 | `benchmark/` | Per-call latency benchmark with its own Makefile and C targets. |
 | `demo/` | asciinema demo scripts, one directory per scenario; see `demo/README.md`. |
 | `patches/bpftime/` | Patches applied to the pinned bpftime checkout, each documented in its README. |
@@ -130,7 +130,11 @@ The socket is removed on every exit path.
 size `--ringbuf-size` sets before load through `resizeEventsRingBuf`;
 `seen_funcs`, a hash map whose `max_entries` is set to the traced function
 count before load by `resizeSeenFuncs` (the compiled default of 40960 applies
-only when the count is unknown); and `drops`, a one-slot array counter. The
+only when the count is unknown); and `drops`, a one-slot array counter. A
+binary built with `-tags e2etest` lets `XCOVER_E2E_SEEN_FUNCS_MAX` cap
+`seen_funcs` below the function count (`pkg/probe/seenfuncs_cap_e2etest.go`),
+which is how the e2e suite provokes the drops warning; release builds compile
+the stub that returns no cap. The
 program reads the attach cookie and returns if the cookie is already in
 `seen_funcs`. Otherwise it reserves an 8-byte event, inserts the cookie and
 submits the event. The insert comes after the reserve so a failed reserve
@@ -174,10 +178,16 @@ name.
 
 `--detach` re-executes `os.Args[0] run ...` with `Setsid`, forwarding every flag
 that was set except `--detach`, redirecting output to `/tmp/xcover.log` and
-writing the child PID to `/tmp/xcover.pid`. Before re-executing, the parent
+writing the child PID to `/tmp/xcover.pid`. The child process is built through
+the package-level `execCommand` variable, which tests replace to inspect the
+arguments without spawning a daemon. Before re-executing, the parent
 validates `--include` and `--exclude` with `ValidateSymPatterns`, so a bad
-pattern fails in the foreground instead of in the log file. `status` checks
-the PID with signal 0. `stop` sends `SIGTERM` and polls every 100 ms for up to
+pattern fails in the foreground instead of in the log file. `WritePID` writes
+the PID to a temp file in `/tmp` and renames it over `/tmp/xcover.pid`, so a
+concurrent `wait`, `status` or `stop` reads the old content or the new PID,
+never an empty file. The child's `setup` writes its own PID only when the file
+does not already name it; when the child runs ahead of the parent, both
+writes carry the same PID. `status` checks the PID with signal 0. `stop` sends `SIGTERM` and polls every 100 ms for up to
 `--timeout` (default 30 seconds). If the daemon is still alive it sends
 `SIGKILL`, removes the PID file and exits with an error; if `SIGKILL` itself
 fails the PID file is kept.

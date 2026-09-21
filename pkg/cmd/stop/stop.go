@@ -1,6 +1,7 @@
 package stop
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -56,6 +57,12 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		o.errOut = os.Stderr
 	}
 
+	// Tests build Options without a context.
+	ctx := o.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	pid, err := common.CheckRunning()
 	if err != nil {
 		common.PrintLogTail(o.errOut)
@@ -84,7 +91,13 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 		if time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(pollInterval)
+		// On cancellation leave the daemon to the SIGTERM already sent and keep
+		// its PID file; do not fall through to the force kill.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
 	}
 
 	// Force kill if still running. The daemon writes its report on SIGTERM,

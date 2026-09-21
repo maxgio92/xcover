@@ -2,6 +2,8 @@ package wait
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -187,4 +189,96 @@ func TestRun_Timeout(t *testing.T) {
 	require.ErrorIs(t, err, ErrTimeout)
 	require.EqualError(t, err, "timeout waiting for profiler readiness")
 	require.Equal(t, want, buf.String())
+}
+
+// TestRun_OneConnectionPerPoll asserts every poll closes its readiness
+// connection before the next one opens. The listener serves one connection
+// at a time and drains it to EOF before accepting the next, so a connection
+// held across polls stalls the drain and fails the test on its deadline.
+func TestRun_OneConnectionPerPoll(t *testing.T) {
+	path := withTempPidFile(t)
+	// Seed the log so an empty buffer proves no tail was printed.
+	seedLog(t)
+
+	child := exec.Command("sleep", "60")
+	require.NoError(t, child.Start())
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	require.NoError(t, os.WriteFile(path, []byte(strconv.Itoa(child.Process.Pid)), 0644))
+
+	sockPath := filepath.Join(t.TempDir(), "hc.sock")
+	ln, err := net.Listen("unix", sockPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	require.NoError(t, ln.(*net.UnixListener).SetDeadline(time.Now().Add(5*time.Second)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var buf bytes.Buffer
+	o := &Options{
+		Options:       options.NewOptions(options.WithContext(ctx)),
+		socketPath:    sockPath,
+		timeout:       30 * time.Second,
+		retryInterval: 20 * time.Millisecond,
+		errOut:        &buf,
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- o.Run(nil, nil) }()
+
+	// EOF arrives only when Run closes its end. Accept alone would not do:
+	// the kernel completes unix connections into the backlog before Accept,
+	// so three accepts could succeed with three connections still open.
+	for i := 1; i <= 3; i++ {
+		conn, err := ln.Accept()
+		require.NoError(t, err, "poll %d", i)
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+		_, err = io.Copy(io.Discard, conn)
+		require.NoError(t, err, "poll %d did not close its connection", i)
+		require.NoError(t, conn.Close())
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+		require.Empty(t, buf.String())
+	case <-time.After(5 * time.Second):
+		t.Fatal("wait did not return after cancellation")
+	}
+}
+
+// TestRun_ContextCanceled asserts a cancelled o.Ctx ends the poll loop within
+// one retry interval, with no log tail written.
+func TestRun_ContextCanceled(t *testing.T) {
+	path := withTempPidFile(t)
+	seedLog(t)
+
+	child := exec.Command("sleep", "60")
+	require.NoError(t, child.Start())
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	require.NoError(t, os.WriteFile(path, []byte(strconv.Itoa(child.Process.Pid)), 0644))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var buf bytes.Buffer
+	o := &Options{
+		Options:    options.NewOptions(options.WithContext(ctx)),
+		socketPath: filepath.Join(t.TempDir(), "missing.sock"),
+		timeout:    10 * time.Second,
+		errOut:     &buf,
+	}
+
+	start := time.Now()
+	err := o.Run(nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, time.Since(start), 500*time.Millisecond)
+	require.Empty(t, buf.String())
 }

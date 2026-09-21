@@ -23,6 +23,14 @@ type UserTraceeOptions struct {
 	logger log.Logger
 }
 
+// hasSymFilter reports whether any name or bind filter is set. Recovery names
+// functions func_0x<addr>, so patterns written for real symbols cannot match
+// them; the fallback refuses to run with filters rather than ignore them.
+func (o *UserTraceeOptions) hasSymFilter() bool {
+	return o.symPatternInclude != "" || o.symPatternExclude != "" ||
+		o.symBindInclude != nil || o.symBindExclude != nil
+}
+
 type UserTraceeOption func(*UserTracee)
 
 func WithTraceeExePath(path string) UserTraceeOption {

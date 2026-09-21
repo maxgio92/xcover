@@ -59,6 +59,9 @@ func (t *UserTracee) Init(ctx context.Context) error {
 		if !errors.Is(err, ErrNoSymbolTable) {
 			return errors.Wrap(err, "failed to resolve functions")
 		}
+		if t.hasSymFilter() {
+			return errors.Wrap(ErrFilterNeedsSymbols, "failed to resolve functions")
+		}
 		t.logger.Info().Msg("binary is stripped, falling back to binary recovery")
 		entries, err = RecoveryResolver(t.exePath, t.logger)(ctx)
 		if err != nil {

@@ -70,6 +70,12 @@ func SymbolTableResolver(path string, logger log.Logger, include, exclude string
 				logger.Info().Msg("binary is stripped, attempting .gopclntab fallback")
 				entries, err := funcEntriesFromGoPclntab(f, filter, logger)
 				if err != nil {
+					// A filter that matches nothing is not a missing table. Pass
+					// it through so the caller neither falls back to recovery nor
+					// refuses it as ErrFilterNeedsSymbols.
+					if errors.Is(err, ErrNoFunctionSymbols) {
+						return nil, err
+					}
 					return nil, errors.Wrap(ErrNoSymbolTable, err.Error())
 				}
 				return entries, nil

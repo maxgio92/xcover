@@ -202,6 +202,23 @@ functions and their closures but not methods; write `^<?mycrate::` to catch
 methods too. A trait impl for a foreign type renders as
 `<i32 as mycrate::net::MyTrait>::run` and needs the unanchored `mycrate::`.
 
+## `symbol filters need a symbol table; this binary has none`
+
+Printed by `xcover run`, wrapped in `failed to resolve functions` and
+`failed to init tracer` (`pkg/trace/tracee.go`). The daemon exits and
+`xcover wait` reports `xcover is not running`.
+
+**Cause.** The binary has neither `.symtab` nor `.gopclntab`, so xcover would
+fall back to function recovery, which names functions `func_0x<offset>`. An
+`--include` or `--exclude` pattern written for real names cannot match those
+synthetic names, so xcover refuses to run instead of silently ignoring the
+filters. The library-only bind filters (`WithTraceeSymBindInclude`,
+`WithTraceeSymBindExclude`) trigger the same refusal.
+
+**Fix.** Drop `--include` and `--exclude` to trace every recovered function,
+pass `--debug-path` with a debug file that matches the binary, or trace an
+unstripped build.
+
 ## `cannot verify the debug file belongs to the executable` and other build-id errors
 
 Printed by `xcover run --debug-path` (`pkg/trace/resolver_debug.go`). The

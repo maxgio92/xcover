@@ -17,6 +17,9 @@ var (
 	// ErrInvalidPattern is returned when an --include or --exclude symbol
 	// pattern is not a valid regular expression.
 	ErrInvalidPattern = errors.New("invalid symbol pattern")
+	// ErrFilterNeedsSymbols is returned by UserTracee.Init when the recovery
+	// fallback is reached with any name or bind filter set.
+	ErrFilterNeedsSymbols = errors.New("symbol filters need a symbol table; this binary has none")
 
 	// ErrProjectScopeUnsupported is returned by GoProjectResolver when the
 	// binary does not carry the metadata required for project-scoped function

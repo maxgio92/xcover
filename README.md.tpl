@@ -257,6 +257,12 @@ from `.eh_frame` unwind data. Only high-confidence candidates are kept, and they
 are named `func_0x<offset>` because no real name is available. Recall drops
 sharply on optimised builds, so prefer a debug file when you have one.
 
+A pattern written for real symbols cannot match these synthetic names, so
+recovery currently refuses `--include` and `--exclude` (and the library bind
+filters) and the run stops with `symbol filters need a symbol table; this
+binary has none`. To filter a stripped non-Go binary, pass a matching debug
+file with `--debug-path` or trace an unstripped build.
+
 ### 4. Separate debug file
 
 Point `--debug-path` at a debug file that matches the stripped binary, such as

@@ -22,7 +22,9 @@ Either `xcover run --detach` was never started, or the daemon exited before
 list was empty. The daemon removes the PID file on a clean exit, so a stale
 file means it was killed or crashed. A PID file with unparsable content, or
 with a PID of zero or below, gives `invalid PID file /tmp/xcover.pid` from
-both `wait` and `stop` instead.
+both `wait` and `stop` instead. `run` writes the file through a temp file and
+a rename (`WritePID` in `pkg/cmd/common/common.go`), so a `wait` that starts
+right after `run --detach` never reads a half-written or empty file.
 
 **Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
 There is nothing to stop. A stale PID file stays until the next
@@ -111,6 +113,19 @@ Printed by every subcommand (`pkg/cmd/cmd.go`).
 `fatal` and `panic` only.
 
 **Fix.** Pass one of those values.
+
+## `invalid --ringbuf-size "x": use a byte count or a KiB, MiB or GiB suffix` and `invalid ring buffer size N: must be a power of two, a multiple of the P byte page size ...`
+
+Printed by `xcover run` (`pkg/cmd/run/run.go`, `pkg/probe/probe.go`) before
+the daemon starts, so the message reaches the terminal with `--detach` too.
+
+**Cause.** `--ringbuf-size` (default `16MiB`) takes a decimal byte count,
+optionally followed by `KiB`, `MiB` or `GiB`. The first message means the
+value did not parse. The second means it parsed but the kernel would reject
+it: the size must be a power of two, a multiple of the page size, greater
+than zero and at most 2 GiB.
+
+**Fix.** Pass a value such as `8MiB`, `64MiB` or `1GiB`, or omit the flag.
 
 ## `xcover was not built with userspace BPF support; rebuild with -tags userspace`
 
@@ -224,6 +239,19 @@ privileged; a rootless engine cannot grant them, since it runs in a user
 namespace itself. Userspace BPF mode needs neither; see
 [userspace-bpf.md](userspace-bpf.md).
 
+## `failed to load bpf module ... with a N byte events ring buffer: ...; lower --ringbuf-size`
+
+Printed by `xcover run` (`pkg/probe/probe.go`), wrapped in
+`error initializing BPF probe`. With `--detach` it lands in `/tmp/xcover.log`.
+
+**Cause.** The kernel allocates every page of the events ring buffer at load
+and returned `ENOMEM`. The size is the `--ringbuf-size` value after libbpf
+rounding. The hint appears only for `ENOMEM`; other load errors print the
+same message without it.
+
+**Fix.** Rerun with a smaller `--ringbuf-size`, for example `4MiB`, or free
+memory on the host. Raise the container memory limit if one is set.
+
 ## `error attaching probe: error attaching uprobe_multi link for N functions (first cookie 0x...)`
 
 Returned by `xcover run` when `uprobe_multi` refuses a batch of functions
@@ -286,8 +314,11 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
 - Functions the compiler inlined have a symbol but no entry point, so their
   probe never fires.
 - The kernel rejected a `seen_funcs` insert. The map is sized to the traced
-  function count, so this is rare; when it happens `xcover run` logs a warning
-  on exit with the `drops` counter (`bpf/trace.bpf.c`). The counter is the
+  function count, so this is rare; when it happens `xcover run` logs
+  `calls not recorded because the seen_funcs map rejected the insert; the
+  report undercounts coverage, narrow the probe set with --scope or --exclude`
+  on exit with the `drops` counter in the `dropped` field
+  (`pkg/trace/tracer.go`, counter in `bpf/trace.bpf.c`). The counter is the
   number of calls whose event was discarded because the function could not be
   recorded in `seen_funcs`, so it can exceed the number of functions missing
   from the report.

@@ -225,7 +225,10 @@ message.
 The kernel allocates the whole buffer when the BPF object loads. A failed
 load names the requested size and, when the kernel is out of memory,
 suggests lowering it. Each first hit occupies one 16-byte record, so 16 MiB
-holds about one million pending records.
+holds about one million pending records. When the buffer is full the BPF
+program cannot reserve a record. The call is dropped and counted in `drops`,
+and `xcover run` warns on exit with that count, naming the ring buffer and
+`--ringbuf-size`.
 
 ## Symbolization
 
@@ -465,11 +468,14 @@ for `trace_pipe` inspection.
 - **First hit only, per session.** The kernel map dedups per function, so the
   report answers "did it run", not "how often".
 - **Map sizing.** The kernel `seen_funcs` map is sized to the number of traced
-  functions. If the kernel still rejects an insert, the function cannot be
-  recorded in `seen_funcs`, so every call of it discards its event and
-  increments the `drops` counter. `xcover run` warns on exit with that count,
-  which is the number of discarded calls and can exceed the number of missing
-  functions; narrow the probe set with `--scope` or `--exclude` in that case.
+  functions. The `drops` counter records every call the BPF program could not
+  deliver: either the ring buffer was full, so no record could be reserved, or
+  the kernel rejected the `seen_funcs` insert, so the event was discarded.
+  `xcover run` warns on exit with that count. The warning lists both causes
+  and cannot tell them apart, because both paths add to the same counter. The
+  count is the number of dropped calls and can exceed the number of missing
+  functions. If `--ringbuf-size` was lowered below the default, raise it
+  first. Otherwise narrow the probe set with `--scope` or `--exclude`.
 - **One daemon per host.** State files are fixed under `/tmp`.
 - **Kernel 6.6+, Linux only.** On older kernels the attach fails and
   `xcover run` exits with an error before signalling readiness.

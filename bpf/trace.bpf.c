@@ -33,8 +33,9 @@ struct {
     __type(value, u8);          /* Report marker */
 } seen_funcs SEC(".maps");
 
-/* Calls not recorded because the seen_funcs insert failed (map full), one
- * per call. Userspace reads it on exit to warn that the report undercounts. */
+/* Calls not recorded, one per call. Either the ring buffer was full and the
+ * reserve failed, or the seen_funcs insert was rejected (map full). Userspace
+ * reads it on exit to warn that the report undercounts. */
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
@@ -43,6 +44,15 @@ struct {
 } drops SEC(".maps");
 
 long ringbuffer_flags = 0;
+
+/* Count one call the program could not record. Both loss paths add to the
+ * same slot, so userspace reads a single total. */
+static __always_inline void count_drop(void) {
+	u32 zero = 0;
+	u64 *dropped = bpf_map_lookup_elem(&drops, &zero);
+	if (dropped)
+		__sync_fetch_and_add(dropped, 1);
+}
 
 SEC("uprobe/handle_user_function")
 int handle_user_function(struct pt_regs *ctx) {
@@ -58,16 +68,17 @@ int handle_user_function(struct pt_regs *ctx) {
 		return 0;
 	}
 
-	/* A failed reserve is not counted. The 16 MiB ring holds about one
-	 * million 16-byte records (header plus payload). The loader can resize
-	 * it before load. Userspace drains it continuously and each function
-	 * normally emits one record per session, so exhaustion needs about a
-	 * million undrained records, submitted or discarded, per drain. The
-	 * kernel exposes no lost-record counter for ring buffers to reconcile
-	 * against. */
+	/* bpf_ringbuf_reserve returns NULL when the 16-byte record (8-byte
+	 * header plus the 8-byte event) does not fit. A failed reserve therefore
+	 * means the ring was full, and the call is counted as a drop. One 4 KiB
+	 * page holds 255 records; the 16 MiB default holds about one million.
+	 * The loader can resize the ring before load. The kernel exposes no
+	 * lost-record counter for ring buffers, so this count is the only record
+	 * of the loss. Nothing was reserved, so there is nothing to discard. */
 	struct event_t *event = bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
 	if (!event) {
-		xcover_debug("error submitting event to ring buffer for user function with cookie %llu\n", cookie);
+		count_drop();
+		xcover_debug("ring buffer full, dropping event for cookie %llu\n", cookie);
 
 		return 0;
 	}
@@ -77,10 +88,7 @@ int handle_user_function(struct pt_regs *ctx) {
 	 * When the insert fails the function cannot be deduplicated, so count
 	 * the drop and discard the event instead of emitting one per call. */
 	if (bpf_map_update_elem(&seen_funcs, &cookie, &seen, BPF_ANY) < 0) {
-		u32 zero = 0;
-		u64 *dropped = bpf_map_lookup_elem(&drops, &zero);
-		if (dropped)
-			__sync_fetch_and_add(dropped, 1);
+		count_drop();
 		bpf_ringbuf_discard(event, ringbuffer_flags);
 		xcover_debug("seen_funcs insert failed, dropping event for cookie %llu\n", cookie);
 

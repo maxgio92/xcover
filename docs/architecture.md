@@ -137,10 +137,11 @@ which is how the e2e suite provokes the drops warning; release builds compile
 the stub that returns no cap. The
 program reads the attach cookie and returns if the cookie is already in
 `seen_funcs`. Otherwise it reserves an 8-byte event, inserts the cookie and
-submits the event. The insert comes after the reserve so a failed reserve
-does not mark the function as seen. A rejected insert discards the event and
-increments `drops`, which `Probe.Drops` reads on exit. The program only fires
-on function entry; there is no return probe.
+submits the event. The insert comes after the reserve. A failed reserve means
+the ring buffer was full: the program increments `drops` and returns without
+marking the function as seen, so a later call can retry. A rejected insert
+discards the event and increments `drops`. `Probe.Drops` reads the counter on
+exit. The program only fires on function entry; there is no return probe.
 
 `make xcover/bpf` compiles the program with clang `-target bpf` and
 `-D__TARGET_ARCH_<arch>`, where `<arch>` is the libbpf spelling (`x86`,
@@ -160,8 +161,11 @@ until no event has arrived for 150 ms (`drainQuietPeriod`) and writes
 period is a heuristic, not a completion signal; the comment on
 `drainQuietPeriod` in `tracer.go` states what it does not guarantee. After the
 drain, `warnDrops` reads the `drops` counter through `Probe.Drops` and logs a
-warning when it is not zero, whether or not `--report` is set: those calls were
-not recorded, so the report undercounts coverage.
+warning when it is not zero, whether or not `--report` is set. The warning
+names both causes and their remedies: a full ring buffer (raise
+`--ringbuf-size`) or a rejected `seen_funcs` insert (narrow the probe set with
+`--scope` or `--exclude`). Those calls were not recorded, so the report
+undercounts coverage.
 
 The report carries `schema_version`, `xcover_version`, `generated_at`, `kernel`,
 `exe_path`, `pid` (when `--pid` restricted the trace) and `build_id` (the GNU

@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	seenFuncsCapEnv  = "XCOVER_E2E_SEEN_FUNCS_MAX"
-	dropsWarningText = "calls not recorded because the seen_funcs map rejected the insert"
+	seenFuncsCapEnv = "XCOVER_E2E_SEEN_FUNCS_MAX"
+	// dropsWarningText is a substring of the drops warning the daemon logs on
+	// stop when the BPF program could not record every call. Both loss paths
+	// produce the same line, so the ring buffer scenario matches on it too.
+	dropsWarningText = "calls not recorded"
 )
 
 var (

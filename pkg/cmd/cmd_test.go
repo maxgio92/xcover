@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maxgio92/xcover/internal/settings"
+	"github.com/maxgio92/xcover/pkg/cmd/common"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 
 	log "github.com/rs/zerolog"
@@ -121,6 +122,40 @@ func TestCommandInvalidFlag(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	require.Contains(t, output.String(), "unknown flag")
+}
+
+// TestRunErrorInLogTail checks that a failed run leaves its error, and no
+// usage text, in the last lines of the log that wait and stop print.
+func TestRunErrorInLogTail(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "xcover-*.log")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	logger := log.New(log.ConsoleWriter{Out: f, NoColor: true})
+	opts := options.NewOptions(options.WithContext(context.Background()), options.WithLogger(logger))
+	cmd := NewCommand(opts)
+	cmd.SetOut(f)
+	cmd.SetErr(f)
+	cmd.SetArgs([]string{"run", "--path=/bin/true", "--scope=bogus"})
+
+	err = cmd.Execute()
+	require.Error(t, err)
+
+	tail, err := common.LogTail(f.Name(), 20, 64<<10)
+	require.NoError(t, err)
+	var ftl []string
+	for _, line := range tail {
+		if strings.Contains(line, "FTL") {
+			ftl = append(ftl, line)
+		}
+	}
+	require.Len(t, ftl, 1, "tail: %q", tail)
+	require.Contains(t, ftl[0], "run failed")
+	require.Contains(t, ftl[0], "bogus")
+
+	data, err := os.ReadFile(f.Name())
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "Usage:")
 }
 
 func TestCommandLogLevelFlag(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,6 +77,13 @@ func TestAttachFailureExitsBeforeReady(t *testing.T) {
 		t.Fatalf("xcover wait reported ready for a run whose attach must fail:\n%s\n%s", out, readSince(t, logFile, logOffset))
 	}
 	t.Logf("xcover wait failed as expected: %v", err)
+	// wait prints the daemon's log tail; it must carry the cause, logged
+	// before the daemon removed its PID file.
+	for _, want := range []string{"FTL", "run failed", runTracerErrText} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("xcover wait output does not contain %q:\n%s", want, out)
+		}
+	}
 
 	assertLogContains(t, logOffset, attachErrorText)
 	assertLogContains(t, logOffset, runTracerErrText)

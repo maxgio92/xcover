@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/sys/unix"
@@ -49,6 +50,10 @@ type Options struct {
 	status        bool
 	userspaceBPF  bool
 
+	// errLogged is set once Run has logged its own error, so runE does not
+	// log it again.
+	errLogged bool
+
 	*options.Options
 }
 
@@ -63,7 +68,8 @@ func NewCommand(opts *options.Options) *cobra.Command {
 It supports programs compiled to ELF.
 `, CmdName),
 		DisableAutoGenTag: true,
-		RunE:              o.Run,
+		SilenceUsage:      true,
+		RunE:              o.runE,
 	}
 
 	cmd.Flags().StringVarP(&o.comm, "path", "p", "", "Path to the ELF executable")
@@ -91,7 +97,26 @@ It supports programs compiled to ELF.
 	return cmd
 }
 
-func (o *Options) Run(cmd *cobra.Command, _ []string) error {
+// runE logs the errors Run returns before it defers RemovePID: the flag
+// validation, the running-daemon check and every error of the detached
+// parent. The log tail that wait and stop print then holds the cause, since
+// the daemon's stdout and stderr are its log file.
+func (o *Options) runE(cmd *cobra.Command, args []string) error {
+	err := o.Run(cmd, args)
+	if err != nil && !o.errLogged {
+		o.logRunError(err)
+	}
+	return err
+}
+
+// logRunError writes err at fatal level without exiting, so the deferred
+// PID file and BPF cleanup still run.
+func (o *Options) logRunError(err error) {
+	o.Logger.WithLevel(log.FatalLevel).Err(err).Msg("run failed")
+	o.errLogged = true
+}
+
+func (o *Options) Run(cmd *cobra.Command, _ []string) (err error) {
 	if o.detach {
 		return o.daemonize(cmd)
 	}
@@ -107,6 +132,13 @@ func (o *Options) Run(cmd *cobra.Command, _ []string) error {
 
 	o.setup()
 	defer common.RemovePID()
+	// Deferred after RemovePID so it runs first: the error is in the log
+	// before the PID file goes and wait or stop read the tail.
+	defer func() {
+		if err != nil {
+			o.logRunError(err)
+		}
+	}()
 
 	if err := o.preflight(); err != nil {
 		return err

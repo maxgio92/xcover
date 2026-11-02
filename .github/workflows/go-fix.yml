@@ -13,6 +13,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          submodules: recursive
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
@@ -23,28 +25,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang \
-            llvm \
-            libbpf-dev \
-            linux-headers-$(uname -r) \
             gcc \
             make \
             pkg-config \
             libelf-dev \
             zlib1g-dev
 
-      - name: Install bpftool and libbpf
-        run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # Install libbpf first to get newer headers
-          cd /tmp/bpftool/libbpf/src
-          sudo make install
-          sudo ldconfig
-          # Then install bpftool
-          cd /tmp/bpftool/src
-          make
-          sudo make install
+      # go fix has to type-check the package, which needs libbpfgo's cgo
+      # headers. The system/apt libbpf is too old (e.g. missing
+      # BPF_MAP_TYPE_ARENA), so build libbpfgo's own vendored libbpf
+      # instead, same as ci.yml's build/test/vet jobs do via `make xcover`
+      # and `make test-integration`.
+      - name: Build libbpfgo (static)
+        run: make libbpfgo-static
 
       - name: Run go fix
+        env:
+          CGO_CFLAGS: "-I ${{ github.workspace }}/libbpfgo/output"
+          CGO_LDFLAGS: "-lelf -lz ${{ github.workspace }}/libbpfgo/output/libbpf/libbpf.a"
         run: go fix ./...
 
       - name: Open PR if changes

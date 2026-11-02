@@ -22,7 +22,6 @@ should start with the [README](../README.md).
 | `e2e/` | Black-box tests tagged `e2e` that drive the built binary. `e2e/doc.go` carries the feature matrix from every `run` flag, command and failure path to its scenario. |
 | `benchmark/` | Per-call latency benchmark with its own Makefile and C targets. |
 | `demo/` | asciinema demo scripts, one directory per scenario; see `demo/README.md`. |
-| `patches/bpftime/` | Patches applied to the pinned bpftime checkout, each documented in its README. |
 | `docs/docs.go` | Generates the CLI reference and `README.md` from `README.md.tpl`. |
 | `libbpfgo/` | Git submodule providing libbpf and its Go bindings. |
 

@@ -183,9 +183,12 @@ xcover-container-userspace:
 # Prerequisites: cmake >= 3.16, a C++17 compiler, libelf, zlib.
 
 BPFTIME_GIT      := https://github.com/eunomia-bpf/bpftime.git
-# Pinned to 5bf24b21af85 (2026-05-25): includes fix for bpf_link attach_cookie and
-# FEAT_PERF_LINK detection (PR #570). Bump this when pulling in further upstream fixes.
-BPFTIME_COMMIT   := 5bf24b21af85efee0443710c4dd4a34f3b92e0a2
+# Pinned to 1226e299b86c (2026-10-29), the first master commit past v0.9.0
+# that carries every fix xcover used to patch in: handler fd bounds checks
+# (#671), link close cascading to the perf event slot (#672) and the bpftool
+# submodule bump for GCC 14 and 6.15+ BTF builds (#673). Pin the next tagged
+# release once upstream cuts one.
+BPFTIME_COMMIT   := 1226e299b86c664b48d86964e23ea5eb9897b4c5
 BPFTIME_DIR      := bpftime-src
 BPFTIME_BUILD    := $(BPFTIME_DIR)/build
 BPFTIME_LIBS_DST := pkg/bpftime/libs
@@ -200,10 +203,6 @@ bpftime-libs:
 		$(git) clone --recurse-submodules $(BPFTIME_GIT) $(BPFTIME_DIR); \
 		$(git) -C $(BPFTIME_DIR) checkout $(BPFTIME_COMMIT); \
 		$(git) -C $(BPFTIME_DIR) submodule update --init --recursive; \
-		for p in patches/bpftime/*.patch; do \
-			echo "Applying $$p"; \
-			patch -p1 -d $(BPFTIME_DIR) < $$p || exit 1; \
-		done; \
 	fi
 	# Build with the system compiler. -include cstdint works around LLVM 18
 	# headers missing it under newer libstdc++; -include sys/syscall.h works

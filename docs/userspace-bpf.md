@@ -33,8 +33,8 @@ uprobe hits. The mechanism is described in
 ## Prerequisites
 
 Build the dedicated binary. The target clones the pinned bpftime commit,
-applies `patches/bpftime/*.patch`, builds the two shared libraries, copies
-them to `pkg/bpftime/libs/` and compiles xcover with `-tags userspace`:
+builds the two shared libraries, copies them to `pkg/bpftime/libs/` and
+compiles xcover with `-tags userspace`:
 
 ```sh
 make xcover-userspace

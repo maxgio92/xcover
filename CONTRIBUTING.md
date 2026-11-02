@@ -67,7 +67,7 @@ move the submodule to the same commit in the same PR.
 | `make xcover` | Builds libbpf from the submodule, compiles the BPF object, builds the `xcover` binary. Use this first. |
 | `make xcover/bpf` | Compiles only `bpf/trace.bpf.c` into `pkg/probe/output/trace.bpf.o`. Generates `bpf/vmlinux.h` if missing. |
 | `make xcover/frontend` | Builds only the Go binary. Needs the BPF object and libbpf already built, because the object is embedded with `go:embed`. |
-| `make xcover-userspace` | Clones and builds pinned bpftime, applies `patches/bpftime/*.patch`, embeds the two shared libraries and builds `xcover-userspace` with `-tags userspace`. |
+| `make xcover-userspace` | Clones and builds the pinned bpftime commit, embeds the two shared libraries and builds `xcover-userspace` with `-tags userspace`. |
 | `make bpftime-libs` | Only the bpftime step above. |
 | `make xcover-container`, `make xcover-container-userspace` | Same as `make xcover` / `make xcover-userspace` inside the build image. |
 | `make clean` | Removes build output and the bpftime checkout. It also removes the `libbpfgo` working tree, so run `git submodule update --init --recursive` afterwards. |

@@ -176,7 +176,7 @@ func funcSymsFromDWARF(f *elf.File, filter symFilter, logger log.Logger) ([]func
 	// resolveName follows specification/abstract_origin references (bounded) to
 	// find a linkage or plain name.
 	resolveName := func(sp dwarfSubprogram) string {
-		for hops := 0; hops < 8; hops++ {
+		for range 8 {
 			if sp.linkage != "" {
 				return sp.linkage
 			}

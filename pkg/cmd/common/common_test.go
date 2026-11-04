@@ -103,9 +103,7 @@ func TestWritePID_Atomic(t *testing.T) {
 	// empty or partial file.
 	done := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-done:
@@ -122,9 +120,9 @@ func TestWritePID_Atomic(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if err := WritePID(111 + 111*(i%2)); err != nil {
 			t.Errorf("WritePID() error = %v", err)
 			break
@@ -363,7 +361,7 @@ func TestLogTail(t *testing.T) {
 	const wideCount, wideWidth = 20, 4000
 	var wide strings.Builder
 	var wideWant []string
-	for i := 0; i < wideCount; i++ {
+	for i := range wideCount {
 		line := fmt.Sprintf("%0*d", wideWidth-1, i)
 		wide.WriteString(line + "\n")
 		if i >= 4 {
@@ -382,7 +380,7 @@ func TestLogTail(t *testing.T) {
 	const alignedCount = logTailMaxBytes/alignedWidth + 1
 	var aligned strings.Builder
 	var alignedWant []string
-	for i := 0; i < alignedCount; i++ {
+	for i := range alignedCount {
 		line := fmt.Sprintf("%0*d", alignedWidth-1, i)
 		aligned.WriteString(line + "\n")
 		if i >= 1 {

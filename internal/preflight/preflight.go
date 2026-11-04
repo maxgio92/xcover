@@ -193,7 +193,7 @@ var identityUIDMap = [3]uint32{0, 0, math.MaxUint32}
 // identity either. Lines that do not fit the format are an error.
 func isIdentityUIDMap(uidMap string) (bool, error) {
 	var mappings [][3]uint32
-	for _, line := range strings.Split(uidMap, "\n") {
+	for line := range strings.SplitSeq(uidMap, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue

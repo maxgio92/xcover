@@ -243,11 +243,9 @@ func (t *UserTracer) startPipeline(eventsCh <-chan []byte, stop <-chan struct{})
 	t.logger.Debug().Msg("consuming events from ring buffer")
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		t.processEvents(eventsCh, stop)
-	}()
+	})
 
 	return &wg
 }
@@ -338,10 +336,7 @@ func (t *UserTracer) attachProbe(ctx context.Context) error {
 	offsets, cookies := t.tracee.GetFuncProbes()
 
 	for i := 0; i < len(offsets); i += batchSize {
-		end := i + batchSize
-		if end > len(offsets) {
-			end = len(offsets)
-		}
+		end := min(i+batchSize, len(offsets))
 
 		if err := t.probe.Attach(ctx, t.tracee.exePath, offsets[i:end], cookies[i:end]); err != nil {
 			return errors.Wrap(err, "error attaching probe")
@@ -507,7 +502,7 @@ func (t *UserTracer) buildReport() *coverage.CoverageReport {
 	sort.Slice(functions, func(i, j int) bool { return functions[i].Offset < functions[j].Offset })
 
 	ack := make([]string, 0, len(functions))
-	t.ack.Range(func(k, v interface{}) bool {
+	t.ack.Range(func(k, v any) bool {
 		if fun, ok := t.tracee.funcs[k.(cookie)]; ok {
 			ack = append(ack, fun.name)
 		}

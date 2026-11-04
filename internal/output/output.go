@@ -15,10 +15,7 @@ func PrintRight(text string) {
 	}
 
 	// Set padding.
-	padding := width - len(text)
-	if padding < 0 {
-		padding = 0
-	}
+	padding := max(width-len(text), 0)
 
 	fmt.Fprintf(os.Stderr, "\r%s%s", spaces(padding), text)
 }

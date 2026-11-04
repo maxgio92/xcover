@@ -325,8 +325,8 @@ func TestMergeDefaultClock(t *testing.T) {
 func TestMergeFieldPolicy(t *testing.T) {
 	typ := reflect.TypeFor[coverage.CoverageReport]()
 	fields := make(map[string]bool, typ.NumField())
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
+		field := field
 		if !field.IsExported() {
 			continue
 		}

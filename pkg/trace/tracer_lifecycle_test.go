@@ -168,7 +168,7 @@ func TestRun_DrainsBufferedEventsOnCancel(t *testing.T) {
 	// Encoded up front: the goroutine below may outlive the test if the drain
 	// ended early, and require must not be called from it after that.
 	lateEvents := make([][]byte, 0, late)
-	for i := 0; i < late; i++ {
+	for i := range late {
 		lateEvents = append(lateEvents, encodeEvent(t, cookie(lifecycleEntries[i%len(lifecycleEntries)].Offset)))
 	}
 
@@ -191,7 +191,7 @@ func TestRun_DrainsBufferedEventsOnCancel(t *testing.T) {
 
 	// Only the last entry is hit before cancellation so the late events,
 	// which cycle through every entry, are what completes the ack set.
-	for i := 0; i < buffered; i++ {
+	for range buffered {
 		p.events <- encodeEvent(t, cookie(lifecycleEntries[len(lifecycleEntries)-1].Offset))
 	}
 	// Cancel before Run consumes anything so the whole batch goes through the
@@ -243,7 +243,7 @@ func TestDrainEvents_ObservesChannelEmptyBeforeReturn(t *testing.T) {
 	t.Cleanup(func() { drainQuietPeriod = origQuiet })
 
 	events := make(chan []byte, buffered)
-	for i := 0; i < buffered; i++ {
+	for i := range buffered {
 		events <- encodeEvent(t, cookie(lifecycleEntries[i%len(lifecycleEntries)].Offset))
 	}
 

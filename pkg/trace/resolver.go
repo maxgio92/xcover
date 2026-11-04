@@ -6,6 +6,7 @@ import (
 	"debug/gosym"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/maxgio92/resurgo"
 	"github.com/pkg/errors"
@@ -304,19 +305,12 @@ func ValidateSymPatterns(include, exclude string) error {
 // keeps working.
 func (f symFilter) shouldInclude(sym funcSym) bool {
 	if f.bindExclude != nil {
-		for _, b := range f.bindExclude {
-			if elf.ST_BIND(sym.Info) == b {
-				return false
-			}
+		if slices.Contains(f.bindExclude, elf.ST_BIND(sym.Info)) {
+			return false
 		}
 	}
 	if f.bindInclude != nil {
-		for _, b := range f.bindInclude {
-			if elf.ST_BIND(sym.Info) == b {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(f.bindInclude, elf.ST_BIND(sym.Info))
 	}
 	if f.exclude != nil && matchesName(f.exclude, sym) {
 		return false

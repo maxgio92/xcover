@@ -75,7 +75,7 @@ func patchNoteFilesz(t *testing.T, src, dir string, filesz uint64) string {
 	phoff := binary.LittleEndian.Uint64(data[0x20:])
 	phentsize := uint64(binary.LittleEndian.Uint16(data[0x36:]))
 	phnum := uint64(binary.LittleEndian.Uint16(data[0x38:]))
-	for i := uint64(0); i < phnum; i++ {
+	for i := range phnum {
 		ph := data[phoff+i*phentsize:]
 		if elf.ProgType(binary.LittleEndian.Uint32(ph)) != elf.PT_NOTE {
 			continue

@@ -14,7 +14,7 @@ func Hash(s string) uint64 {
 
 func LenSyncMap(m *sync.Map) int {
 	var i int
-	m.Range(func(k, v interface{}) bool {
+	m.Range(func(k, v any) bool {
 		i++
 		return true
 	})

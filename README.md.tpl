@@ -120,18 +120,15 @@ The whole pipeline is described for contributors in
 
 ## Filtering functions
 
-By default xcover traces every function it can resolve in the binary. Three
-mechanisms narrow that set.
+xcover traces every function it resolves in the binary. Three flags narrow
+that set.
 
 ### Include and exclude by name
 
-Both flags take a Go (RE2) regular expression. A pattern matches a function
-when it matches the raw symbol name or, for C++ and Rust binaries, its
-demangled name: `^app::net::` selects a C++ namespace and `^_ZN3app` keeps
-working. Exclude is evaluated first: a function that matches `--exclude` is
-dropped even if it also matches `--include`. RE2 has no negative lookahead, so
-use `--scope` or `--exclude` rather than trying to express "everything but" in
-`--include`.
+Both flags take a Go (RE2) regular expression, matched against the raw symbol
+name and, for C++ and Rust, the demangled name: `^app::net::` and `^_ZN3app`
+both select the same namespace. Exclude wins over include. RE2 has no negative
+lookahead, so express "everything but" with `--exclude` or `--scope`.
 
 ```shell
 xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
@@ -140,32 +137,23 @@ xcover run --path EXE_PATH --include "^app::net::" --exclude 'parse\('
 xcover run --path EXE_PATH --include '^<?mycrate::'
 ```
 
-Names are rendered by
-[github.com/ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle).
-The output is close to `c++filt` but not byte-identical: the library prints
-`operator<<(std::ostream&, Foo const&)` where `c++filt` expands the typedef to
-`std::basic_ostream<char, std::char_traits<char> >&`. C++ overloads keep their
-parameter list (`app::net::parse(int)`), and template instantiations start
-with the return type (`double app::net::twice<double>(double)`), so leave the
-pattern unanchored to catch them. An unanchored pattern runs over the whole
-signature, parameter types included, so `app::net::` also matches a function
-elsewhere that takes an `app::net` type; anchor on the raw name
+Names come from
+[github.com/ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle),
+which is close to `c++filt` but keeps typedefs unexpanded (`std::ostream&`).
+C++ overloads keep their parameter list and template instantiations start
+with the return type, so leave the pattern unanchored to catch them. An
+unanchored pattern also matches parameter types; anchor on the raw name
 (`^_ZN[KVRO]*3app3net`) when that matters.
 
-Rust names differ from `c++filt` output too: the demangler drops the legacy
-hash suffix (`::h5d6b4c8a0f1e2d3b`) and the v0 crate disambiguator
-(`[3c1c0]`), so several monomorphizations can share one demangled name and a
-pattern must leave both out. v0 names also wrap the type a method belongs to
-in angle brackets: an inherent method renders as `<mycrate::net::Conn>::open`
-and a closure inside it as `<mycrate::net::Conn>::open::{closure#0}`, while a
-legacy inherent method renders as `mycrate::net::Conn::open`. Free functions,
-their closures (`mycrate::net::parse::{closure#0}`) and generic
-instantiations (`mycrate::net::twice::<i32>`) keep the `mycrate::` prefix.
-`^mycrate::` therefore misses every v0 method and the closures inside them;
-`^<?mycrate::` catches those too. A trait impl for a type from another crate
-renders as `<i32 as mycrate::net::MyTrait>::run`, which neither anchored
-pattern matches; leave the pattern unanchored (`mycrate::`) to catch it, with
-the same false-positive caveat as for C++.
+For Rust, the demangler drops the legacy hash suffix and the v0 crate
+disambiguator, so monomorphizations share one name. v0 wraps a method's type
+in angle brackets (`<mycrate::net::Conn>::open`, closures inside it
+`<mycrate::net::Conn>::open::{closure#0}`); legacy names do not
+(`mycrate::net::Conn::open`). Free functions, their closures and generic
+instantiations keep the `mycrate::` prefix. `^<?mycrate::` catches all of
+these. A trait impl for a foreign type renders as
+`<i32 as mycrate::net::MyTrait>::run`, which only an unanchored `mycrate::`
+matches.
 
 ### Scope
 
@@ -174,15 +162,13 @@ xcover run --path EXE_PATH --scope binary    # default: all resolved functions
 xcover run --path EXE_PATH --scope project   # Go binaries: only your module
 ```
 
-Project scope reads the Go build information embedded in the binary to find the
-main module path. It keeps `main.*` functions and symbols prefixed by that module
-path, and drops the standard library and third-party dependencies. Include and
-exclude patterns still apply on top of it.
+Project scope reads the main module path from the Go build info in the binary.
+It keeps `main.*` and functions under that path, and drops the standard
+library and dependencies. Include and exclude still apply on top.
 
-Build the Go target as a package or module (`go build -o app .` or
-`go build -o app ./cmd/app`). A single-file build such as `go build main.go`
-has no module metadata; xcover logs a warning and falls back to binary scope.
-Non-Go binaries always use binary scope.
+Build the target as a package (`go build -o app .`). A single-file
+`go build main.go` has no module metadata, so xcover warns and falls back to
+binary scope. Non-Go binaries always use binary scope.
 
 ### Process filter
 
@@ -190,24 +176,19 @@ Non-Go binaries always use binary scope.
 xcover run --path EXE_PATH --pid PID
 ```
 
-`--pid` restricts tracing to one process. The value is a process (thread-group
-leader) PID as seen in xcover's own PID namespace, so a container-local PID
-handed to a host xcover selects a different process. The process must be
-running when the probes attach, otherwise the run fails before readiness is
-signalled. Without `--pid`, every process that executes the binary counts
-toward coverage.
+`--pid` restricts tracing to one process. The value is a thread-group leader
+PID in xcover's own PID namespace, so a container-local PID selects a
+different process on the host. The process must be running when the probes
+attach. Without `--pid`, every process that runs the binary counts.
 
-The kernel `uprobe_multi` filter matches the thread group, so every thread of
-the process is traced. Kernels without upstream commit 46ba0e49b642 (6.6.0 to
-6.6.34, 6.9.0 to 6.9.4, and 6.7 or 6.8 trees without the backport) match one
-thread instead and drop hits from every other thread, which loses most of a Go
-program's hits. xcover checks for that bug when the probes attach and, if it
-finds it, logs a warning naming the kernel release: the report may undercount,
-so use a kernel with the fix (6.6.35, 6.9.5, 6.10 or newer) or drop `--pid`.
-See [docs/troubleshooting.md](docs/troubleshooting.md).
+The filter matches the whole thread group. Kernels without commit 46ba0e49b642
+(6.6.0 to 6.6.34, 6.9.0 to 6.9.4, and 6.7 or 6.8 without the backport) match
+one thread and lose the rest, which is most of a Go program. xcover detects
+this at attach and warns with the kernel release; use 6.6.35, 6.9.5, 6.10 or
+newer, or drop `--pid`. See [docs/troubleshooting.md](docs/troubleshooting.md).
 
-The filter is kernel mode only: `--pid` is refused together with
-`--userspace-bpf`, because bpftime does not enforce the uprobe PID.
+`--pid` is refused with `--userspace-bpf`: bpftime does not enforce the
+uprobe PID.
 
 ### Ring buffer size
 
@@ -215,20 +196,16 @@ The filter is kernel mode only: `--pid` is refused together with
 xcover run --path EXE_PATH --ringbuf-size SIZE
 ```
 
-`--ringbuf-size` sets the size of the ring buffer that carries first hits
-from the BPF program to xcover. The default is `16MiB`. The value is a plain
-byte count or a number with a case-sensitive `KiB`, `MiB` or `GiB` suffix.
-It must be a power of two, a multiple of the page size and at most `2GiB`.
-Any other value is refused before the daemon forks, with the rule in the
-message.
+`--ringbuf-size` sets the buffer that carries first hits from the BPF program
+to xcover. The default is `16MiB`. The value is a byte count or a number with
+a case-sensitive `KiB`, `MiB` or `GiB` suffix. It must be a power of two, a
+multiple of the page size and at most `2GiB`; anything else is refused before
+the daemon forks.
 
-The kernel allocates the whole buffer when the BPF object loads. A failed
-load names the requested size and, when the kernel is out of memory,
-suggests lowering it. Each first hit occupies one 16-byte record, so 16 MiB
-holds about one million pending records. When the buffer is full the BPF
-program cannot reserve a record. The call is dropped and counted in `drops`,
-and `xcover run` warns on exit with that count, naming the ring buffer and
-`--ringbuf-size`.
+The kernel allocates the whole buffer at load. A failed load names the size
+and, when memory is short, suggests lowering it. Each first hit is one 16-byte
+record, so 16 MiB holds about one million. When the buffer is full the call is
+dropped and counted in `drops`, and `xcover run` warns on exit with that count.
 
 ## Symbolization
 
@@ -303,18 +280,15 @@ $ sudo xcover stop
 xcover stopped (PID 1234)
 ```
 
-`wait` polls the socket every 500 ms; tune the limit with `--timeout`. `stop`
-sends `SIGTERM` and waits up to 30 seconds (`--timeout`) for the daemon to write
-the report, then sends `SIGKILL` and exits with an error. A daemon killed with
-`SIGKILL` writes no report.
+`wait` polls the socket every 500 ms; `--timeout` sets the limit. `stop` sends
+`SIGTERM`, waits up to 30 seconds (`--timeout`) for the report, then sends
+`SIGKILL` and exits with an error. A killed daemon writes no report.
 
 If `/tmp/xcover.pid` names a live process, `run --detach` prints
-`Daemon already running`, exits 0 and starts nothing. Run `xcover status` to
-see the PID and `xcover stop` to end that session before starting a new one.
-`run --detach` also exits 0 as soon as the daemon process has started. An
-error a moment later, such as a failed BPF load, lands in `/tmp/xcover.log`.
-`xcover wait` and `xcover stop` print its last 20 lines on stderr when the
-daemon is gone.
+`Daemon already running` and exits 0; stop that session first. `run --detach`
+exits 0 as soon as the daemon starts, so a later error such as a failed BPF
+load lands in `/tmp/xcover.log`. `wait` and `stop` print its last 20 lines on
+stderr when the daemon is gone.
 
 ## Output and logging
 
@@ -384,27 +358,24 @@ to skip the file.
 
 ### Merging reports
 
-`xcover merge` combines reports from separate runs of the same binary, for
-example test shards or retries, into one report:
+`xcover merge` combines reports from runs of the same binary, such as test
+shards or retries, into one:
 
 ```shell
 $ xcover merge -o merged.json shard-1.json shard-2.json
 ```
 
-Functions are matched by `build_id` and file offset, a function counts as hit
-when any input hit it, and `cov_by_func` is recomputed over the union. Inputs
-with different `build_id` values are refused; a report without a `build_id`
-cannot be verified and is refused unless `--allow-missing-build-id` is set, in
-which case the merged `build_id` is empty. Pass `-` to read one report from
-stdin.
+Functions match by `build_id` and file offset. A function counts as hit when
+any input hit it, and `cov_by_func` is recomputed over the union. Inputs with
+different `build_id` values are refused. A report without a `build_id` is
+refused unless `--allow-missing-build-id` is set, which leaves the merged
+`build_id` empty. Pass `-` to read one report from stdin.
 
-Symbol aliases share an offset, and each run keeps one name per offset,
-normally the one its include pattern left. When two inputs with the same
-`build_id` name one offset differently, the merged report keeps the name that
-sorts first in byte order, so the other name leaves `funcs_traced` and
-`funcs_ack`. Without a verified `build_id` the conflict is refused. The `pid`
-field is kept when every input recorded the same `--pid` filter and omitted
-otherwise.
+Symbol aliases share an offset, and each run keeps one name per offset. When
+two inputs name one offset differently, the merge keeps the name that sorts
+first in byte order and drops the other from `funcs_traced` and `funcs_ack`;
+without a verified `build_id` the conflict is refused. `pid` is kept only
+when every input recorded the same `--pid` filter.
 
 ## Use in CI
 
@@ -450,22 +421,18 @@ measures the cost per call on one machine:
 | Already-seen function | 1230 ns | 426 ns |
 | First hit of a function | 2911 ns | 1084 ns |
 
-Numbers from the speaker notes of
-[docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
+Numbers from [docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
 AMD Ryzen 7 7840U, N=100 probes, `benchstat` over 10 rounds. Reproduce with
-`make -C benchmark bench && make -C benchmark bench-compare`; expect different
-absolute values on other hardware.
+`make -C benchmark bench && make -C benchmark bench-compare`.
 
-That is roughly a thousand times slower per probed call. Programs that call
-many small functions in tight loops slow down noticeably; a sub-second command
-tracing 15k functions can take close to a minute. Use `--scope project` or
-`--exclude` to keep the probe set small. xcover suits functional test runs, not
+A probed call is about a thousand times slower than a plain one. Tight loops
+over small functions slow down a lot: a sub-second command tracing 15k
+functions can take close to a minute. Keep the probe set small with
+`--scope project` or `--exclude`. xcover suits functional test runs, not
 latency benchmarks.
 
-The BPF handler's debug logging (`bpf_printk`) is compiled out by default so
-it does not add to the per-call cost. `make xcover BPF_DEBUG=1` rebuilds the
-BPF object with debug logging and embeds it in the binary, turning it back on
-for `trace_pipe` inspection.
+`bpf_printk` is compiled out of the BPF handler by default. `make xcover
+BPF_DEBUG=1` rebuilds the object with it for `trace_pipe` inspection.
 
 ## Limitations
 

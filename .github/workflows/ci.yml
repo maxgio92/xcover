@@ -80,7 +80,7 @@ jobs:
           fi
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: xcover-binary
           path: xcover
@@ -188,7 +188,7 @@ jobs:
           make test-integration GO_TEST_FLAGS="-cover -args -test.gocoverdir=$RUNNER_TEMP/covdata-unit"
 
       - name: Upload unit coverage data
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: covdata-unit
           path: ${{ runner.temp }}/covdata-unit
@@ -273,7 +273,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/covdata-e2e"
 
       - name: Upload e2e coverage data
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: covdata-e2e
           path: ${{ runner.temp }}/covdata-e2e
@@ -311,7 +311,7 @@ jobs:
           go tool covdata textfmt -i=covdata/unit,covdata/e2e -o coverage.txt
 
       - name: Upload merged coverage profile
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage.txt
           path: coverage.txt

@@ -308,7 +308,9 @@ rounding. The hint appears only for `ENOMEM`; other load errors print the
 same message without it.
 
 **Fix.** Rerun with a smaller `--ringbuf-size`, for example `4MiB`, or free
-memory on the host. Raise the container memory limit if one is set.
+memory on the host. Raise the container memory limit if one is set. Each
+first hit occupies one 16-byte record, so the default 16 MiB holds about one
+million pending records.
 
 ## `error attaching probe: error attaching uprobe_multi link for N functions (first cookie 0x...)`
 
@@ -319,8 +321,9 @@ was already polling, or `xcover is not running` if the daemon was gone before
 `wait` started.
 
 **Cause.** The kernel rejected the `uprobe_multi` link. The most common
-reason is a kernel older than 6.6 without a distribution backport. The wrapped
-libbpf error names the actual cause.
+reason is a kernel older than 6.6 without a distribution backport. Attach
+also relies on BPF cookies (5.15) and memcg-based BPF memory accounting
+(5.11). The wrapped libbpf error names the actual cause.
 
 **Fix.** Check `uname -r` and upgrade to 6.6 or newer, or a kernel that
 backports `uprobe_multi`. In `--detach` mode the error is in `/tmp/xcover.log`.

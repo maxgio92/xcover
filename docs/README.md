@@ -34,8 +34,6 @@ Generated from the command help by `make docs`. Do not edit by hand.
 
 - [Architecture](architecture.md): the pipeline from ELF to report, for
   contributors.
-- [bpftime patches](../patches/bpftime/README.md): the fixes applied to the
-  pinned bpftime checkout.
 
 ## Maintainer records
 

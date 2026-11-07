@@ -44,23 +44,26 @@ More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 | Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental); `xcover run` checks the capabilities at start and names what is missing. |
 | Target binary | An ELF executable with function symbols (`.symtab`), a Go `.gopclntab` section, or a separate debug file passed with `--debug-path`. Static or dynamic linking both work. |
 
-A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
-CI runs the end-to-end suite on the `ubuntu-24.04` runner kernel and on Linux
-6.6 and 6.12 in a VM; see the kernel matrix in [CONTRIBUTING.md](CONTRIBUTING.md#kernel-matrix).
+The end-to-end suite runs on Linux 6.6, 6.12 and the Ubuntu 24.04 runner
+kernel; see the kernel matrix in [CONTRIBUTING.md](CONTRIBUTING.md#kernel-matrix).
 
 What xcover does with its privileges:
 
-- Loads one BPF program, whose source is [`bpf/trace.bpf.c`](bpf/trace.bpf.c), and attaches it to the functions of the binary you name.
+- Loads one small BPF program and attaches it to the functions of the binary you name. [docs/architecture.md](docs/architecture.md#3-and-4-load-and-attach) describes the program.
 - Reads the target binary and, with `--debug-path`, the debug file. It does not modify either.
 - Writes `xcover-report.json` in the current directory and `/tmp/xcover.pid`, `/tmp/xcover.log` and `/tmp/xcover.sock`.
 - Makes no network calls.
 
 ## Install
 
-Check [GitHub Releases](https://github.com/maxgio92/xcover/releases) for
-archives named `xcover_<version>_linux_x86_64.tar.gz` and
-`xcover_<version>_linux_arm64.tar.gz`. If the release you need has none,
-build from source:
+Download the archive for your architecture from
+[GitHub Releases](https://github.com/maxgio92/xcover/releases), unpack it and
+put the `xcover` binary on your `PATH`.
+
+### Build from source
+
+Building needs a kernel with BTF (`/sys/kernel/btf/vmlinux`); running xcover
+does not.
 
 ```shell
 git clone --recurse-submodules https://github.com/maxgio92/xcover.git
@@ -105,13 +108,12 @@ The report `xcover-report.json` is written in the directory where you ran
 1. **Resolve functions.** xcover reads the target ELF, lists its functions and
    turns each function address into a file offset. See [Symbolization](#symbolization).
 2. **Attach probes.** It loads one small BPF program and attaches it to every
-   resolved offset through `uprobe_multi` links, up to 65536 offsets per link.
-   Probes are keyed by the executable's inode, so every current or future
-   process running that file is traced.
-3. **Record first hits.** When a probed function runs, the BPF program checks a
-   kernel hash map. The first hit of each function emits one event to a ring
-   buffer; later hits return immediately. xcover only needs to know whether a
-   function ran, not how often.
+   resolved offset through `uprobe_multi` links. Probes are keyed by the
+   executable's inode, so every current or future process running that file
+   is traced.
+3. **Record first hits.** The first time a probed function runs, the BPF
+   program emits one event to a ring buffer; later hits return immediately.
+   xcover only needs to know whether a function ran, not how often.
 4. **Report.** On stop, xcover writes the list of resolved functions, the list of
    functions that ran at least once, and their ratio.
 
@@ -199,18 +201,19 @@ demangled form.
 ### 2. Go `.gopclntab` (stripped Go binaries)
 
 Stripping removes `.symtab` but keeps `.gopclntab`, the Go runtime's
-program-counter table. xcover parses it with the standard library `debug/gosym`
-package, which reads every table format since Go 1.2. This fallback is
-automatic, works with all filters and with project scope, and needs no extra
-flags.
+program-counter table, which xcover reads in every format since Go 1.2. This
+fallback is automatic, works with all filters and with project scope, and
+needs no extra flags.
 
 ### 3. Function recovery (stripped non-Go binaries)
 
 When a binary has neither `.symtab` nor `.gopclntab`, xcover uses
 [resurgo](https://github.com/maxgio92/resurgo) to detect function entry points
-from `.eh_frame` unwind data. Only high-confidence candidates are kept, and they
-are named `func_0x<offset>` because no real name is available. Recall drops
-sharply on optimised builds, so prefer a debug file when you have one.
+from `.eh_frame` unwind data. Only high-confidence candidates are kept, named
+`func_0x<offset>` because no real name is available.
+
+Recall drops sharply on optimised builds, so prefer a debug file when you have
+one.
 
 Recovery refuses `--include`, `--exclude` and `--scope=project`, because
 patterns cannot match synthetic names. To filter a stripped binary, pass
@@ -227,10 +230,12 @@ xcover run --path ./app --debug-path ./app.debug
 ```
 
 Names come from the debug file's `.symtab`, or from DWARF `DW_TAG_subprogram`
-entries when the debug file has no symbol table. Probe offsets are always
-computed against `--path`. The two files must carry the same GNU build-id; pass
-`--no-build-id-check` for toolchains that omit it. Split DWARF (`-gsplit-dwarf`)
-and `dwz` supplementary files are not supported.
+entries when it has no symbol table. Probe offsets are always computed against
+`--path`.
+
+The two files must carry the same GNU build-id; pass `--no-build-id-check` for
+toolchains that omit it. Split DWARF (`-gsplit-dwarf`) and `dwz` supplementary
+files are not supported.
 
 ## Daemon mode
 
@@ -317,9 +322,11 @@ Stdin input and `--allow-missing-build-id` are in [xcover merge](docs/xcover_mer
 
 xcover fits a job that already runs your functional tests. The job needs root
 (GitHub-hosted runners allow `sudo`) and a kernel of 6.6 or newer, which
-`ubuntu-latest` provides. This example assumes `xcover` is already installed on
-the runner (see [Install](#install)), traces the tests and fails when fewer
-than 80% of the functions ran:
+`ubuntu-latest` provides.
+
+This example assumes `xcover` is already installed on the runner (see
+[Install](#install)), traces the tests and fails when fewer than 80% of the
+functions ran:
 
 ```yaml
 jobs:
@@ -341,9 +348,10 @@ jobs:
 ```
 
 `set -e` makes the step fail on the first error, including a `wait` timeout.
+`jq -e` exits 1 when the expression is false, which fails the job.
+
 `xcover stop` writes `xcover-report.json` in the directory where `run` was
-executed, so keep both commands in the same working directory. `jq -e` exits
-1 when the expression is false, which fails the job. Upload
+executed, so keep both commands in the same working directory. Upload
 `/tmp/xcover.log` as an artefact when you need to debug a failed run.
 
 ## Overhead
@@ -397,7 +405,8 @@ trap on every probed call. In the benchmark above this cuts per-call cost by
 about 65% on the already-seen path and 63% on the first-hit path, and it needs
 no `CAP_BPF`.
 
-Build the dedicated binary and preload the bpftime agent into the tracee:
+Release archives do not include this binary. Build it, then preload the
+bpftime agent into the tracee:
 
 ```shell
 $ make xcover-userspace
@@ -409,8 +418,9 @@ $ ./xcover-userspace stop
 
 The tracee must be dynamically linked against glibc and must start after the
 profiler. Statically linked programs, pure Go programs built with
-`CGO_ENABLED=0`, musl programs and setuid programs are not supported. Read
-[the userspace BPF guide](docs/userspace-bpf.md) for the requirements and
+`CGO_ENABLED=0`, musl programs and setuid programs are not supported.
+
+Read [the userspace BPF guide](docs/userspace-bpf.md) for the requirements and
 the full list of limitations.
 
 ## CLI reference
@@ -422,18 +432,15 @@ listed above; see [docs/userspace-bpf.md](docs/userspace-bpf.md).
 
 ## Development
 
-Build prerequisites, the Makefile targets, the test layers, how to regenerate
-this README and the commit conventions are in
-[CONTRIBUTING.md](CONTRIBUTING.md). The internals are described in
-[docs/architecture.md](docs/architecture.md).
+Build prerequisites, the test layers, how the documentation is generated and
+the commit conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). The internals
+are described in [docs/architecture.md](docs/architecture.md).
 
 Common targets:
 
 ```shell
-make xcover             # build libbpf (submodule), the BPF object and the binary
-make test-integration   # unit and integration tests (what CI runs)
-make test-e2e           # end-to-end tests against ./xcover; skip without root (see CONTRIBUTING.md)
-make docs               # regenerate docs/xcover*.md and README.md from README.md.tpl
+make xcover             # build the BPF object and the binary
+make test-integration   # unit and integration tests
+make test-e2e           # end-to-end tests; needs root
+make docs               # regenerate the CLI reference and this README
 ```
-
-`README.md` is generated. Edit `README.md.tpl` and run `make docs`.

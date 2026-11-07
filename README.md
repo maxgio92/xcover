@@ -306,76 +306,38 @@ stderr when the daemon is gone.
 ## Report
 
 By default (`--report`) xcover writes `xcover-report.json` to the working
-directory of the `xcover run` invocation when it stops. An existing file is
-overwritten.
+directory of `xcover run` when it stops, overwriting an existing file. Pass
+`--report=false` to skip it.
 
-```go
-type CoverageReport struct {
-	SchemaVersion int                `json:"schema_version"` // 1
-	FuncsTraced   []string           `json:"funcs_traced"`   // every resolved function, sorted
-	FuncsAck      []string           `json:"funcs_ack"`      // functions that ran at least once, sorted
-	CovByFunc     float64            `json:"cov_by_func"`    // len(funcs_ack) / len(funcs_traced) * 100
-	ExePath       string             `json:"exe_path"`       // the --path argument
-	PID           int                `json:"pid,omitempty"`  // set when --pid restricted the trace
-	BuildID       string             `json:"build_id"`       // GNU build-id of the binary, read when functions were resolved
-	Kernel        string             `json:"kernel"`         // uname -r of the tracing host
-	XcoverVersion string             `json:"xcover_version"`
-	GeneratedAt   string             `json:"generated_at"`   // RFC 3339, UTC
-	Functions     []FunctionCoverage `json:"functions"`      // one entry per probed function, sorted by offset
-}
+| Field | Content |
+|---|---|
+| `schema_version` | Report schema version, currently 1. |
+| `funcs_traced` | Every resolved function, raw symbol names, sorted. |
+| `funcs_ack` | Functions that ran at least once, sorted. |
+| `cov_by_func` | `len(funcs_ack) / len(funcs_traced) * 100`. |
+| `exe_path` | The `--path` argument. |
+| `pid` | The `--pid` filter, when one was set. |
+| `build_id` | GNU build-id of the binary, read when functions were resolved. |
+| `kernel` | `uname -r` of the tracing host. |
+| `xcover_version`, `generated_at` | Producer version and RFC 3339 UTC timestamp. |
+| `functions` | One entry per probed function, sorted by offset. |
 
-type FunctionCoverage struct {
-	Name      string `json:"name"`                // raw symbol name
-	Demangled string `json:"demangled,omitempty"` // C++ or Rust name, only when it differs from name
-	Offset    uint64 `json:"offset"`              // executable file offset where the probe is attached
-	Hit       bool   `json:"hit"`
-}
-```
+Each `functions` entry holds `name` (raw symbol), `demangled` (C++ or Rust
+name, only when it differs), `offset` (file offset of the probe) and `hit`.
 
-Notes on the numbers:
-
-- Coverage is per function. There is no line, branch or call-count information.
-- Without `--pid`, hits are aggregated across every process that ran the
-  binary during the session and the report does not say which process
-  exercised a function. With `--pid`, the `pid` field records the process the
-  trace was restricted to.
-- If any probe fails to attach, `xcover run` exits with an error before
-  signalling readiness and writes no report, so a low number never hides an
-  attach failure. `xcover wait` returns an error in that case; check
-  `/tmp/xcover.log` for the cause.
-- `cov_by_func` is `len(funcs_ack) / len(funcs_traced) * 100`. A recorded
-  cookie that cannot be mapped back to a function is dropped and never counts.
-- `funcs_traced`, `funcs_ack` and `name` hold the raw symbol names; each
-  `functions[]` entry carries `demangled` when it differs from `name`.
-- Lists are sorted and `functions` is ordered by offset, so two reports of the
-  same session differ only in `generated_at` and diff cleanly.
-- `build_id` identifies the exact binary measured. It is captured at start-up,
-  when the functions are resolved, rather than at exit, so a binary rebuilt or
-  removed during the session is still reported under the id it was probed with.
-
-Print the ratio with `jq .cov_by_func xcover-report.json`. Pass `--report=false`
-to skip the file.
+Coverage is per function: no lines, branches or call counts. Without `--pid`,
+hits aggregate across every process that ran the binary. A failed attach
+exits with an error before readiness and writes no report. Print the ratio
+with `jq .cov_by_func xcover-report.json`.
 
 ### Merging reports
 
 `xcover merge` combines reports from runs of the same binary, such as test
-shards or retries, into one:
+shards or retries, into one; a function is hit when any input hit it.
 
 ```shell
 $ xcover merge -o merged.json shard-1.json shard-2.json
 ```
-
-Functions match by `build_id` and file offset. A function counts as hit when
-any input hit it, and `cov_by_func` is recomputed over the union. Inputs with
-different `build_id` values are refused. A report without a `build_id` is
-refused unless `--allow-missing-build-id` is set, which leaves the merged
-`build_id` empty. Pass `-` to read one report from stdin.
-
-Symbol aliases share an offset, and each run keeps one name per offset. When
-two inputs name one offset differently, the merge keeps the name that sorts
-first in byte order and drops the other from `funcs_traced` and `funcs_ack`;
-without a verified `build_id` the conflict is refused. `pid` is kept only
-when every input recorded the same `--pid` filter.
 
 ## Use in CI
 
@@ -412,8 +374,10 @@ executed, so keep both commands in the same working directory. `jq -e` exits
 
 ## Overhead
 
-Every probed call traps into the kernel. The [benchmark](benchmark/README.md)
-measures the cost per call on one machine:
+Every probed call traps into the kernel, about a thousand times slower than a
+plain call, so keep the probe set small with `--scope project` or `--exclude`.
+Cost per call from the [benchmark](benchmark/README.md), numbers from
+[docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
 
 | Path | Kernel uprobes | Userspace BPF |
 |---|---|---|
@@ -421,46 +385,16 @@ measures the cost per call on one machine:
 | Already-seen function | 1230 ns | 426 ns |
 | First hit of a function | 2911 ns | 1084 ns |
 
-Numbers from [docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
-AMD Ryzen 7 7840U, N=100 probes, `benchstat` over 10 rounds. Reproduce with
-`make -C benchmark bench && make -C benchmark bench-compare`.
-
-A probed call is about a thousand times slower than a plain one. Tight loops
-over small functions slow down a lot: a sub-second command tracing 15k
-functions can take close to a minute. Keep the probe set small with
-`--scope project` or `--exclude`. xcover suits functional test runs, not
-latency benchmarks.
-
-`bpf_printk` is compiled out of the BPF handler by default. `make xcover
-BPF_DEBUG=1` rebuilds the object with it for `trace_pipe` inspection.
-
 ## Limitations
 
-- **Inlined functions are invisible.** A uprobe needs an entry point in the
-  text. Functions the compiler inlined never fire, yet they still appear in
-  `funcs_traced` if a symbol exists, which lowers the ratio.
-- **Entry only.** xcover records that a function started. It does not see
-  returns, arguments or call counts.
-- **First hit only, per session.** The kernel map dedups per function, so the
-  report answers "did it run", not "how often".
-- **Map sizing.** The kernel `seen_funcs` map is sized to the number of traced
-  functions. The `drops` counter records every call the BPF program could not
-  deliver: either the ring buffer was full, so no record could be reserved, or
-  the kernel rejected the `seen_funcs` insert, so the event was discarded.
-  `xcover run` warns on exit with that count. The warning lists both causes
-  and cannot tell them apart, because both paths add to the same counter. The
-  count is the number of dropped calls and can exceed the number of missing
-  functions. If `--ringbuf-size` was lowered below the default, raise it
-  first. Otherwise narrow the probe set with `--scope` or `--exclude`.
-- **One daemon per host.** State files are fixed under `/tmp`.
-- **Kernel 6.6+, Linux only.** On older kernels the attach fails and
-  `xcover run` exits with an error before signalling readiness.
-- **Project scope is Go only.** For other binaries and single-file Go builds
-  xcover logs `project scope unavailable, falling back to binary scope` and
-  traces everything. In `--detach` mode the warning is only in
-  `/tmp/xcover.log`; the report does not record which scope was used.
-- **Binary must not change on disk** while a session is running, because probe
-  offsets are computed once at start.
+- **Inlined functions are invisible:** they never fire but still count in `funcs_traced`.
+- **Entry only:** no returns, arguments or call counts.
+- **First hit only, per session:** the report answers "did it run", not "how often".
+- **Drops:** a full ring buffer or a rejected `seen_funcs` insert drops the call; raise `--ringbuf-size` or narrow the probe set.
+- **One daemon per host:** state files are fixed under `/tmp`.
+- **Kernel 6.6+, Linux only:** older kernels fail to attach.
+- **Project scope is Go only:** other binaries fall back to binary scope with a warning.
+- **The binary must not change on disk** during a session: offsets are computed once at start.
 
 Open feature requests and known gaps are tracked in
 [GitHub issues](https://github.com/maxgio92/xcover/issues).

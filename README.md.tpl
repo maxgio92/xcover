@@ -40,8 +40,8 @@ More pages, grouped by task, are indexed in [docs/README.md](docs/README.md).
 | Requirement | Detail |
 |---|---|
 | OS and architecture | Linux on x86_64 or arm64. |
-| Kernel | 6.6 or newer upstream, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 does on 5.14). Attach also relies on BPF cookies (5.15) and memcg-based BPF memory accounting (5.11). `xcover run` warns at start when the release looks older than 6.6; pass `--skip-preflight` to silence the check (it also skips the capability check). |
-| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental). `xcover run` checks the effective capability set at start and fails naming what is missing; the check cannot see user-namespace confinement (rootless containers): it may pass there and the BPF load fails instead, so xcover warns when `/proc/self/uid_map` shows it runs in a user namespace. With `--detach` that warning is printed on the terminal before the daemon starts, not in `/tmp/xcover.log`. |
+| Kernel | 6.6 or newer upstream, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 does on 5.14). `xcover run` warns at start when the release looks older; see [docs/troubleshooting.md](docs/troubleshooting.md). |
+| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`. Run xcover with `sudo` unless you use the [userspace BPF mode](#userspace-bpf-mode-experimental); `xcover run` checks the capabilities at start and names what is missing. |
 | Target binary | An ELF executable with function symbols (`.symtab`), a Go `.gopclntab` section, or a separate debug file passed with `--debug-path`. Static or dynamic linking both work. |
 
 A kernel with BTF (`/sys/kernel/btf/vmlinux`) is needed to build xcover, not to run it.
@@ -137,23 +137,9 @@ xcover run --path EXE_PATH --include "^app::net::" --exclude 'parse\('
 xcover run --path EXE_PATH --include '^<?mycrate::'
 ```
 
-Names come from
-[github.com/ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle),
-which is close to `c++filt` but keeps typedefs unexpanded (`std::ostream&`).
-C++ overloads keep their parameter list and template instantiations start
-with the return type, so leave the pattern unanchored to catch them. An
-unanchored pattern also matches parameter types; anchor on the raw name
-(`^_ZN[KVRO]*3app3net`) when that matters.
-
-For Rust, the demangler drops the legacy hash suffix and the v0 crate
-disambiguator, so monomorphizations share one name. v0 wraps a method's type
-in angle brackets (`<mycrate::net::Conn>::open`, closures inside it
-`<mycrate::net::Conn>::open::{closure#0}`); legacy names do not
-(`mycrate::net::Conn::open`). Free functions, their closures and generic
-instantiations keep the `mycrate::` prefix. `^<?mycrate::` catches all of
-these. A trait impl for a foreign type renders as
-`<i32 as mycrate::net::MyTrait>::run`, which only an unanchored `mycrate::`
-matches.
+C++ names keep their parameter list and Rust v0 methods wrap the type in
+angle brackets, so `^<?mycrate::` and unanchored patterns catch more; see
+[docs/symbol-patterns.md](docs/symbol-patterns.md) for how names render.
 
 ### Scope
 
@@ -181,11 +167,9 @@ PID in xcover's own PID namespace, so a container-local PID selects a
 different process on the host. The process must be running when the probes
 attach. Without `--pid`, every process that runs the binary counts.
 
-The filter matches the whole thread group. Kernels without commit 46ba0e49b642
-(6.6.0 to 6.6.34, 6.9.0 to 6.9.4, and 6.7 or 6.8 without the backport) match
-one thread and lose the rest, which is most of a Go program. xcover detects
-this at attach and warns with the kernel release; use 6.6.35, 6.9.5, 6.10 or
-newer, or drop `--pid`. See [docs/troubleshooting.md](docs/troubleshooting.md).
+Kernels 6.6.0 to 6.6.34 and 6.9.0 to 6.9.4 filter by thread and lose most
+hits; xcover warns at attach. See
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
 `--pid` is refused with `--userspace-bpf`: bpftime does not enforce the
 uprobe PID.
@@ -197,15 +181,9 @@ xcover run --path EXE_PATH --ringbuf-size SIZE
 ```
 
 `--ringbuf-size` sets the buffer that carries first hits from the BPF program
-to xcover. The default is `16MiB`. The value is a byte count or a number with
-a case-sensitive `KiB`, `MiB` or `GiB` suffix. It must be a power of two, a
-multiple of the page size and at most `2GiB`; anything else is refused before
-the daemon forks.
-
-The kernel allocates the whole buffer at load. A failed load names the size
-and, when memory is short, suggests lowering it. Each first hit is one 16-byte
-record, so 16 MiB holds about one million. When the buffer is full the call is
-dropped and counted in `drops`, and `xcover run` warns on exit with that count.
+to xcover: default `16MiB`, a power of two up to `2GiB`, with a `KiB`, `MiB`
+or `GiB` suffix. A full buffer drops calls, counted in `drops`; see
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Symbolization
 
@@ -234,14 +212,9 @@ from `.eh_frame` unwind data. Only high-confidence candidates are kept, and they
 are named `func_0x<offset>` because no real name is available. Recall drops
 sharply on optimised builds, so prefer a debug file when you have one.
 
-A pattern written for real symbols cannot match these synthetic names, so
-recovery refuses `--include` and `--exclude` (and the library bind
-filters) and the run stops with `symbol filters need a symbol table; this
-binary has none`. A Go binary with both `.symtab` and `.gopclntab` removed
-(for example by `strip` followed by `objcopy --remove-section .gopclntab`) but
-readable build info refuses `--scope=project` the same way, because recovery
-cannot tell module functions apart. To filter a stripped binary, pass
-a matching debug file with `--debug-path` or trace an unstripped build.
+Recovery refuses `--include`, `--exclude` and `--scope=project`, because
+patterns cannot match synthetic names. To filter a stripped binary, pass
+`--debug-path` or trace an unstripped build.
 
 ### 4. Separate debug file
 
@@ -326,9 +299,8 @@ Each `functions` entry holds `name` (raw symbol), `demangled` (C++ or Rust
 name, only when it differs), `offset` (file offset of the probe) and `hit`.
 
 Coverage is per function: no lines, branches or call counts. Without `--pid`,
-hits aggregate across every process that ran the binary. A failed attach
-exits with an error before readiness and writes no report. Print the ratio
-with `jq .cov_by_func xcover-report.json`.
+hits aggregate across every process that ran the binary. Print the ratio with
+`jq .cov_by_func xcover-report.json`.
 
 ### Merging reports
 
@@ -338,6 +310,8 @@ shards or retries, into one; a function is hit when any input hit it.
 ```shell
 $ xcover merge -o merged.json shard-1.json shard-2.json
 ```
+
+Stdin input and `--allow-missing-build-id` are in [xcover merge](docs/xcover_merge.md).
 
 ## Use in CI
 
@@ -376,8 +350,9 @@ executed, so keep both commands in the same working directory. `jq -e` exits
 
 Every probed call traps into the kernel, about a thousand times slower than a
 plain call, so keep the probe set small with `--scope project` or `--exclude`.
-Cost per call from the [benchmark](benchmark/README.md), numbers from
-[docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md):
+The [benchmark](benchmark/README.md) measures the cost per call; the numbers
+below are from
+[docs/talks/opensouthcode-2026/slides.md](docs/talks/opensouthcode-2026/slides.md).
 
 | Path | Kernel uprobes | Userspace BPF |
 |---|---|---|
@@ -385,12 +360,15 @@ Cost per call from the [benchmark](benchmark/README.md), numbers from
 | Already-seen function | 1230 ns | 426 ns |
 | First hit of a function | 2911 ns | 1084 ns |
 
+xcover suits functional test runs, not latency benchmarks: a sub-second
+command tracing 15k functions can take close to a minute.
+
 ## Limitations
 
 - **Inlined functions are invisible:** they never fire but still count in `funcs_traced`.
 - **Entry only:** no returns, arguments or call counts.
 - **First hit only, per session:** the report answers "did it run", not "how often".
-- **Drops:** a full ring buffer or a rejected `seen_funcs` insert drops the call; raise `--ringbuf-size` or narrow the probe set.
+- **Drops:** a full ring buffer or a rejected kernel map insert drops the call; see [Coverage is lower than expected](docs/troubleshooting.md#coverage-is-lower-than-expected).
 - **One daemon per host:** state files are fixed under `/tmp`.
 - **Kernel 6.6+, Linux only:** older kernels fail to attach.
 - **Project scope is Go only:** other binaries fall back to binary scope with a warning.

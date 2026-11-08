@@ -2,8 +2,12 @@
 
 How `--include` and `--exclude` patterns meet C++ and Rust names. Both flags
 take a Go (RE2) regular expression, matched against the raw symbol name and
-the demangled name. Names come from
+the demangled name, so `^app::net::` and `^_ZN3app` select the same
+namespace. Exclude wins over include. Names come from
 [github.com/ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle).
+
+RE2 has no negative lookahead, so express "everything but" with `--exclude`
+or `--scope` rather than a lookahead in `--include`.
 
 ## C++
 

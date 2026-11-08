@@ -13,6 +13,8 @@ Pages grouped by what you want to do. Start with the
 
 - [Troubleshooting](troubleshooting.md): every user-facing message, its cause
   and its fix.
+- [Symbolization](symbolization.md): where function names and addresses
+  come from, including stripped binaries and separate debug files.
 - [Symbol patterns](symbol-patterns.md): how `--include` and `--exclude`
   patterns meet demangled C++ and Rust names.
 - [Userspace BPF mode](userspace-bpf.md): run without `CAP_BPF` through

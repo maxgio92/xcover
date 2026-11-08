@@ -40,19 +40,17 @@ More pages, grouped by task: [docs/README.md](docs/README.md).
 | Requirement | Detail |
 |---|---|
 | OS and architecture | Linux on x86_64 or arm64. |
-| Kernel | 6.6 or newer, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 on 5.14). `xcover run` warns when the kernel looks older; see [docs/troubleshooting.md](docs/troubleshooting.md). |
-| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`; `xcover run` names any missing capability at start. Use `sudo` unless you run the [userspace BPF mode](#userspace-bpf-mode-experimental). |
-| Target binary | An ELF executable with a `.symtab`, a Go `.gopclntab` section, or a debug file passed with `--debug-path`. Static or dynamic linking both work. |
+| Kernel | 6.6 or newer, or a distribution kernel that backports `uprobe_multi` (RHEL 9.4 on 5.14); `xcover run` warns when the kernel looks older. |
+| Privileges | Root, or `CAP_BPF` plus `CAP_PERFMON`; `xcover run` names any missing capability at start. |
+| Target binary | An ELF executable with a `.symtab`, a Go `.gopclntab` section, or a debug file passed with `--debug-path`; static or dynamic. |
 
 The end-to-end suite runs on Linux 6.6, 6.12 and the Ubuntu 24.04 runner
 kernel; see the [kernel matrix](CONTRIBUTING.md#kernel-matrix).
 
-With its privileges xcover:
-
-- Loads one small BPF program and attaches it to the functions of the named binary; see [docs/architecture.md](docs/architecture.md#3-and-4-load-and-attach).
-- Reads the target binary and, with `--debug-path`, the debug file; modifies neither.
-- Writes `xcover-report.json` in the current directory, plus `/tmp/xcover.pid`, `/tmp/xcover.log` and `/tmp/xcover.sock`.
-- Makes no network calls.
+With its privileges xcover loads one small BPF program, reads the target and
+debug file without modifying them, writes `xcover-report.json` and the
+`/tmp/xcover.*` state files, and makes no network calls; see
+[docs/architecture.md](docs/architecture.md).
 
 ## Install
 
@@ -121,11 +119,7 @@ xcover traces every function it resolves. Three flags narrow the set.
 ### Include and exclude by name
 
 Both flags take a Go (RE2) regular expression matched against the raw symbol
-name and, for C++ and Rust, the demangled name, so `^app::net::` and `^_ZN3app`
-select the same namespace. Exclude wins over include.
-
-RE2 has no negative lookahead: express "everything but" with `--exclude` or
-`--scope`.
+name and, for C++ and Rust, the demangled name; exclude wins over include.
 
 ```shell
 xcover run --path EXE_PATH --include "^github.com/maxgio92/xcover"
@@ -134,9 +128,8 @@ xcover run --path EXE_PATH --include "^app::net::" --exclude 'parse\('
 xcover run --path EXE_PATH --include '^<?mycrate::'
 ```
 
-C++ names keep their parameter list and Rust v0 methods wrap the type in angle
-brackets, so `^<?mycrate::` and unanchored patterns catch more;
-[docs/symbol-patterns.md](docs/symbol-patterns.md) shows how names render.
+[docs/symbol-patterns.md](docs/symbol-patterns.md) shows how C++ and Rust
+names render and which patterns catch them.
 
 ### Scope
 
@@ -145,13 +138,11 @@ xcover run --path EXE_PATH --scope binary    # default: all resolved functions
 xcover run --path EXE_PATH --scope project   # Go binaries: only your module
 ```
 
-Project scope reads the main module path from the Go build info, keeps `main.*`
-and functions under that path, and drops the standard library and
-dependencies. Include and exclude still apply.
-
-Build the target as a package (`go build -o app .`); a single-file
-`go build main.go` has no module metadata, so xcover warns and uses binary
-scope. Non-Go binaries always use binary scope.
+Project scope keeps `main.*` and the functions under the Go main module path,
+dropping the standard library and dependencies; include and exclude still
+apply. Non-Go binaries and single-file `go build main.go` targets fall back to
+binary scope with a warning; see
+[docs/troubleshooting.md](docs/troubleshooting.md#project-scope-unavailable-falling-back-to-binary-scope).
 
 ### Process filter
 
@@ -159,17 +150,10 @@ scope. Non-Go binaries always use binary scope.
 xcover run --path EXE_PATH --pid PID
 ```
 
-`--pid` traces one process, which must be running when the probes attach;
-without it, every process running the binary counts. The value is a
-thread-group leader PID in xcover's PID namespace, so a container-local PID
-selects a different process on the host.
-
-Kernels 6.6.0 to 6.6.34 and 6.9.0 to 6.9.4 filter by thread and lose most
-hits; xcover warns at attach, see
-[docs/troubleshooting.md](docs/troubleshooting.md).
-
-`--pid` is refused with `--userspace-bpf`: bpftime does not enforce the
-uprobe PID.
+`--pid` traces one running process instead of every process that runs the
+binary; it is refused with `--userspace-bpf`. Kernels 6.6.0 to 6.6.34 and
+6.9.0 to 6.9.4 filter by thread and lose most hits; see
+[docs/troubleshooting.md](docs/troubleshooting.md#coverage-is-lower-than-expected).
 
 ### Ring buffer size
 
@@ -180,12 +164,13 @@ xcover run --path EXE_PATH --ringbuf-size SIZE
 `--ringbuf-size` sets the buffer that carries first hits to xcover: default
 `16MiB`, a power of two up to `2GiB`, with a `KiB`, `MiB` or `GiB` suffix. A
 full buffer drops calls, counted in `drops`; see
-[docs/troubleshooting.md](docs/troubleshooting.md).
+[docs/troubleshooting.md](docs/troubleshooting.md#coverage-is-lower-than-expected).
 
 ## Symbolization
 
 xcover needs a name and an address for each function and takes them from the
-first of these sources that applies.
+first of these sources that applies; [docs/symbolization.md](docs/symbolization.md)
+has the details.
 
 ### 1. ELF symbol table
 
@@ -194,37 +179,26 @@ these names and, for C++ and Rust, their demangled form.
 
 ### 2. Go `.gopclntab` (stripped Go binaries)
 
-Stripping removes `.symtab` but keeps `.gopclntab`, the Go runtime's
-program-counter table, which xcover reads in every format since Go 1.2. The
-fallback is automatic and works with all filters and project scope.
+Stripping removes `.symtab` but keeps `.gopclntab`, which xcover reads in
+every format since Go 1.2. The fallback is automatic and works with all
+filters and project scope.
 
 ### 3. Function recovery (stripped non-Go binaries)
 
 With neither section, xcover uses [resurgo](https://github.com/maxgio92/resurgo)
-to detect function entry points from `.eh_frame` unwind data; only
-high-confidence candidates are kept, named `func_0x<offset>`. Recall drops
-sharply on optimised builds, so prefer a debug file.
-
-Recovery refuses `--include`, `--exclude` and `--scope=project`, since patterns
-cannot match synthetic names; pass `--debug-path` or trace an unstripped build
-instead.
+to detect function entry points from `.eh_frame` unwind data, named
+`func_0x<offset>`. Recovery refuses `--include`, `--exclude` and
+`--scope=project`, since patterns cannot match synthetic names.
 
 ### 4. Separate debug file
 
-Point `--debug-path` at a debug file matching the stripped binary, such as
-`objcopy --only-keep-debug` output or a distribution `-dbg` or debuginfod
-artefact:
+Point `--debug-path` at a debug file that carries the same GNU build-id as the
+stripped binary (or pass `--no-build-id-check`); names come from the debug
+file, probe offsets from `--path`:
 
 ```shell
 xcover run --path ./app --debug-path ./app.debug
 ```
-
-Names come from the debug file's `.symtab`, or its DWARF `DW_TAG_subprogram`
-entries when it has none; probe offsets are always computed against `--path`.
-
-Both files must carry the same GNU build-id; pass `--no-build-id-check` for
-toolchains that omit it. Split DWARF (`-gsplit-dwarf`) and `dwz` supplementary
-files are not supported.
 
 ## Daemon mode
 
@@ -249,13 +223,9 @@ xcover stopped (PID 1234)
 
 `wait` polls the socket every 500 ms, up to `--timeout`. `stop` sends
 `SIGTERM`, waits up to 30 seconds (`--timeout`) for the report, then sends
-`SIGKILL` and exits with an error; a killed daemon writes no report.
-
-If `/tmp/xcover.pid` names a live process, `run --detach` prints
-`Daemon already running` and exits 0; stop that session first. `run --detach`
-also exits 0 as soon as the daemon starts, so later errors such as a failed
-BPF load land in `/tmp/xcover.log`, whose last 20 lines `wait` and `stop`
-print when the daemon is gone.
+`SIGKILL`; a killed daemon writes no report, and
+[docs/troubleshooting.md](docs/troubleshooting.md) covers every daemon
+message.
 
 ## Output and logging
 
@@ -267,8 +237,8 @@ print when the daemon is gone.
 ## Report
 
 `xcover run` writes `xcover-report.json` to its working directory on stop
-(`--report`, default on), overwriting any existing file; `--report=false`
-skips it.
+(`--report`, default on; `--report=false` skips it), overwriting any existing
+file.
 
 | Field | Content |
 |---|---|
@@ -283,11 +253,9 @@ skips it.
 | `xcover_version`, `generated_at` | Producer version and RFC 3339 UTC timestamp. |
 | `functions` | One entry per probed function, sorted by offset. |
 
-Each `functions` entry holds `name` (raw symbol), `demangled` (C++ or Rust
-name, when it differs), `offset` (probe file offset) and `hit`.
-
-Coverage is per function: no lines, branches or call counts. Without `--pid`,
-hits aggregate across every process that ran the binary.
+Each `functions` entry holds `name`, `demangled` (C++ or Rust, when it
+differs), `offset` and `hit`; coverage is per function and, without `--pid`,
+aggregates every process that ran the binary.
 
 ### Merging reports
 
@@ -302,12 +270,10 @@ Stdin input and `--allow-missing-build-id` are in [xcover merge](docs/xcover_mer
 
 ## Use in CI
 
-xcover fits a job that already runs your functional tests. The job needs root
+xcover fits a job that already runs your functional tests; it needs root
 (GitHub-hosted runners allow `sudo`) and a 6.6 or newer kernel, which
-`ubuntu-latest` provides.
-
-This example assumes `xcover` is [installed](#install) on the runner and fails
-below 80% function coverage:
+`ubuntu-latest` provides. This example assumes `xcover` is
+[installed](#install) on the runner and fails below 80% function coverage:
 
 ```yaml
 jobs:
@@ -328,11 +294,8 @@ jobs:
           jq -e '.cov_by_func >= 80' xcover-report.json
 ```
 
-`set -e` fails the step on the first error, including a `wait` timeout;
-`jq -e` exits 1 when the expression is false.
-
-Keep `run` and `stop` in the same working directory, where the report lands.
-Upload `/tmp/xcover.log` as an artefact to debug a failed run.
+Keep `run` and `stop` in the same working directory, where the report lands,
+and upload `/tmp/xcover.log` as an artefact to debug a failed run.
 
 ## Overhead
 
@@ -368,22 +331,22 @@ Feature requests and known gaps: [GitHub issues](https://github.com/maxgio92/xco
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `timeout waiting for profiler readiness` from `xcover wait` | The daemon is still attaching probes, or exited first. | Raise `--timeout`, narrow the probe set with `--scope` or `--exclude`, read `/tmp/xcover.log`. |
+| `timeout waiting for profiler readiness` from `xcover wait` | The daemon is still attaching probes, or exited first. | Raise `--timeout`, narrow the probe set, read `/tmp/xcover.log`. |
 | `Daemon already running` from `xcover run --detach` (exit 0, nothing started) | `/tmp/xcover.pid` names a live process. | `sudo xcover status`, `sudo xcover stop`, start again. |
-| `CAP_BPF and CAP_PERFMON not in the effective set` from `xcover run` | xcover lacks root or `CAP_BPF` plus `CAP_PERFMON`; the preflight check stops before any BPF load. | Run with `sudo`, or `setcap cap_bpf,cap_perfmon+ep /path/to/xcover`. |
-| `error initializing BPF probe` with `permission denied` or `operation not permitted` | Unprivileged BPF load: `--skip-preflight` was set, xcover runs in a user namespace (rootless container) the capability check cannot see, or a seccomp profile or LSM policy denies `bpf(2)`. | Run with `sudo` in the initial user namespace, or grant the two capabilities there; check the container runtime's seccomp profile. |
+| `CAP_BPF and CAP_PERFMON not in the effective set` from `xcover run` | Missing root or `CAP_BPF` plus `CAP_PERFMON`; the run stops before any BPF load. | Run with `sudo`, or `setcap cap_bpf,cap_perfmon+ep /path/to/xcover`. |
+| `error initializing BPF probe` with `permission denied` or `operation not permitted` | `--skip-preflight`, a user namespace (rootless container), or a seccomp or LSM denial of `bpf(2)`. | Run with `sudo` in the initial user namespace; check the container's seccomp profile. |
 
 Other messages: [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Userspace BPF mode (experimental)
 
 xcover can run its BPF program in userspace through
-[bpftime](https://github.com/eunomia-bpf/bpftime), skipping the kernel trap on
-every probed call. In the benchmark above this cuts per-call cost by about 65%
-on the already-seen path and 63% on the first hit, and needs no `CAP_BPF`.
-
-Release archives do not include this binary; build it, then preload the
-bpftime agent into the tracee:
+[bpftime](https://github.com/eunomia-bpf/bpftime), skipping the kernel trap
+on every probed call and needing no `CAP_BPF`; the tracee must be a
+dynamically linked glibc program started after the profiler. Release archives
+do not include this binary, so build it and preload the agent as below;
+[docs/userspace-bpf.md](docs/userspace-bpf.md) lists the requirements and
+limitations.
 
 ```shell
 $ make xcover-userspace
@@ -392,11 +355,6 @@ $ ./xcover-userspace wait
 $ LD_PRELOAD=$(./xcover-userspace agent extract) /path/to/bin test_1
 $ ./xcover-userspace stop
 ```
-
-The tracee must be dynamically linked against glibc and start after the
-profiler; static, musl, setuid and `CGO_ENABLED=0` Go programs are not
-supported. [The userspace BPF guide](docs/userspace-bpf.md) lists the
-requirements and every limitation.
 
 ## CLI reference
 

@@ -91,6 +91,10 @@ script this flow; see [demo/README.md](../demo/README.md).
   starts. A process that is already running cannot be traced.
 - **Dynamically linked glibc binaries only.** See
   [Binary support](#binary-support).
+- **No `--pid`.** bpftime stores the uprobe PID but never enforces it, so
+  `xcover run` refuses `--pid` with `--userspace-bpf`
+  (`--pid is not enforced by bpftime; drop --pid or run without
+  --userspace-bpf`). Every process that preloads the agent is traced.
 - **Self re-exec.** With `--userspace-bpf`, xcover re-executes itself once
   with the syscall server preloaded and `XCOVER_BPFTIME_LOADED=1` set. This
   is invisible in normal use but can confuse process supervisors.

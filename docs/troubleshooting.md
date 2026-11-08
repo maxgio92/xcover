@@ -29,7 +29,7 @@ right after `run --detach` never reads a half-written or empty file.
 **Fix.** Read `/tmp/xcover.log` for the daemon's error and fix that first.
 There is nothing to stop. A stale PID file stays until the next
 `xcover run --detach` overwrites it or you delete it by hand. An invalid PID
-file is replaced the same way. `wait` and `stop` print the last lines of
+file is replaced the same way. `wait` and `stop` print the last 20 lines of
 `/tmp/xcover.log` on stderr before either message, with colour codes
 removed.
 
@@ -43,13 +43,13 @@ Printed by `xcover wait` (`pkg/cmd/wait/wait.go`) when the daemon dies while
 uprobe attach returned an error, so it exited instead of signalling readiness.
 
 **Fix.** Read `/tmp/xcover.log` for the error and see the matching entry in
-this page. `wait` prints the last lines of `/tmp/xcover.log` on stderr
+this page. `wait` prints the last 20 lines of `/tmp/xcover.log` on stderr
 before the error.
 
 ## `timeout waiting for profiler readiness`
 
 Printed by `xcover wait` after `--timeout` (default 2 minutes) elapses
-(`pkg/cmd/wait/wait.go`).
+(`pkg/cmd/wait/wait.go`). `wait` polls the readiness socket every 500 ms.
 
 **Cause.** The daemon is alive but has not signalled readiness. Attaching
 thousands of functions takes time, in particular in userspace BPF mode, which
@@ -58,7 +58,7 @@ symptom.
 
 **Fix.** Raise the limit, for example `xcover wait --timeout 10m`, or narrow
 the probe set with `--scope project`, `--include` or `--exclude`. Check
-`/tmp/xcover.log` for progress or errors. `wait` prints the last lines of
+`/tmp/xcover.log` for progress or errors. `wait` prints the last 20 lines of
 `/tmp/xcover.log` on stderr before the error so recent progress is visible.
 
 ## `Daemon already running`
@@ -166,6 +166,18 @@ place. `xcover run` reads the size of an existing file and names it in the
 error. Stop any running xcover or other bpftime process that uses the
 segment. Then remove the file (`rm /dev/shm/bpftime_maps_shm`, or `bpftimetool
 remove`) before the new value takes effect.
+
+## `--pid is not enforced by bpftime; drop --pid or run without --userspace-bpf`
+
+Printed by `xcover run` (`pkg/cmd/run/run.go`) before the daemon starts, so
+the message reaches the terminal with `--detach` too.
+
+**Cause.** bpftime stores the uprobe PID but never compares it when hooking,
+so a `--pid` filter would silently record hits from every process that
+preloads the agent. xcover refuses the combination.
+
+**Fix.** Drop `--pid` and trace every process that preloads the agent, or run
+in kernel mode without `--userspace-bpf`.
 
 ## `xcover was not built with userspace BPF support; rebuild with -tags userspace`
 
@@ -392,6 +404,8 @@ file` or an earlier error. Stop with `xcover stop` or `Ctrl-C`, never
   (`pkg/probe/probe.go`), so hits from other processes running the binary are
   not counted and the report's `pid` field names the traced process. A target
   that is already gone at attach fails the run instead, with `no such process`.
+  The value is a thread-group leader PID in xcover's own PID namespace, so a
+  container-local PID selects a different process on the host.
 - `--pid` was set on a kernel that filters `uprobe_multi` by thread; see the
   warning section above.
 

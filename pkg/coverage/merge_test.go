@@ -326,7 +326,6 @@ func TestMergeFieldPolicy(t *testing.T) {
 	typ := reflect.TypeFor[coverage.CoverageReport]()
 	fields := make(map[string]bool, typ.NumField())
 	for field := range typ.Fields() {
-		field := field
 		if !field.IsExported() {
 			continue
 		}

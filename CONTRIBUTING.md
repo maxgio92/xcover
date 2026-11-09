@@ -189,8 +189,8 @@ CI runs `gofmt -l .`, `go mod verify`, and `go vet` for the default, `e2e`,
 
 - `docs/docs.go` renders one Markdown page per cobra command into `docs/`,
   named `xcover.md`, `xcover_run.md` and so on.
-- It then substitutes the root command page into `README.md.tpl` at the
-  `{{ .CLI_REFERENCE }}` marker and writes `README.md`.
+- It then writes `README.md` from `README.md.tpl`. The CLI reference is not
+  embedded in the README; the README links to `docs/xcover.md`.
 
 Edit `README.md.tpl`, never `README.md`, and run `make docs` (or
 `make xcover-container` followed by the same target inside the container).

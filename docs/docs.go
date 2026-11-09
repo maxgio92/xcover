@@ -5,10 +5,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
 	"strings"
 
-	"github.com/maxgio92/xcover/internal/settings"
 	"github.com/maxgio92/xcover/pkg/cmd"
 	"github.com/maxgio92/xcover/pkg/cmd/options"
 
@@ -16,10 +14,7 @@ import (
 	"github.com/spf13/cobra/doc"
 )
 
-const (
-	docsDir        = "docs"
-	templateMarker = "{{ .CLI_REFERENCE }}"
-)
+const docsDir = "docs"
 
 // fileTemplateHeader is a format string with one %s for the page title,
 // prepended to every generated page. Empty means no header; set it to
@@ -38,21 +33,14 @@ var (
 		)
 		return fmt.Sprintf(fileTemplateHeader, title)
 	}
-	// Links are written relative to docs/, where the generated pages live.
-	// The root command page is embedded into README.md at the repository
-	// root, so its links are rewritten with a docs/ prefix in main.
+	// Links are written relative to docs/, where every generated page,
+	// the root command included, lives.
 	linkHandler = func(filename string) string {
-		if filename == settings.CmdName+".md" {
-			// This is the root command.
-			return "../README.md"
-		}
 		return filename
 	}
 )
 
 func main() {
-	cmdDocsPath := path.Join(docsDir, settings.CmdName+".md")
-
 	// Generate CLI docs
 	if err := doc.GenMarkdownTreeCustom(
 		cmd.NewCommand(options.NewOptions(
@@ -66,28 +54,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read the original (handwritten) README
+	// The README is written from its template. The CLI reference used to be
+	// substituted here; it now stays under docs/ and the README links to it.
 	readmeBytes, err := os.ReadFile("README.md.tpl")
 	if err != nil {
 		fmt.Println("failed to read README template:", err)
 		os.Exit(1)
 	}
-	readme := string(readmeBytes)
-
-	// Read the CLI generated docs
-	cmdDocsBytes, err := os.ReadFile(cmdDocsPath)
-	if err != nil {
-		fmt.Println("failed to read CLI doc README:", err)
-		os.Exit(1)
-	}
-	// Rewrite subcommand links so they resolve from the repository root.
-	cmdDocs := strings.ReplaceAll(string(cmdDocsBytes), "]("+settings.CmdName+"_", "]("+path.Join(docsDir, settings.CmdName)+"_")
-
-	// Replace the template marker
-	finalReadme := strings.Replace(readme, templateMarker, cmdDocs, 1)
-
-	// Write the final README
-	err = os.WriteFile("README.md", []byte(finalReadme), 0644)
+	err = os.WriteFile("README.md", readmeBytes, 0644)
 	if err != nil {
 		fmt.Println("failed to write final README:", err)
 		os.Exit(1)

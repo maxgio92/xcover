@@ -358,40 +358,9 @@ $ ./xcover-userspace stop
 
 ## CLI reference
 
-## xcover
-
-xcover is a functional test coverage profiler
-
-### Synopsis
-
-
-xcover is a functional test coverage profiler.
-
-Run the 'run' command to run the profiler that will trace all the functions of the tracee program.
-Wait for the profiler to be ready before running your tests, with the 'wait' command.
-Once the profiler is ready to trace all the functions, you can start running your tests.
-At the end of your tests, the profiler can be stopped and a report being collected.
-
-
-### Options
-
-```
-  -h, --help               help for xcover
-      --log-level string   Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
-```
-
-### SEE ALSO
-
-* [xcover merge](docs/xcover_merge.md)	 - Merge coverage reports of the same binary into one
-* [xcover run](docs/xcover_run.md)	 - Run the coverage profiling for a program
-* [xcover status](docs/xcover_status.md)	 - Check the xcover profiler status
-* [xcover stop](docs/xcover_stop.md)	 - Stop the xcover profiler daemon
-* [xcover wait](docs/xcover_wait.md)	 - Wait for the xcover profiler to be ready
-
-
-
-`agent extract` exists only in the userspace build and is not listed above;
-see [docs/userspace-bpf.md](docs/userspace-bpf.md).
+Every command and flag is documented in [docs/xcover.md](docs/xcover.md),
+with one page per subcommand linked from there. `agent extract` exists only
+in the userspace build; see [docs/userspace-bpf.md](docs/userspace-bpf.md).
 
 ## Development
 
@@ -405,5 +374,5 @@ Common targets:
 make xcover             # build the BPF object and the binary
 make test-integration   # unit and integration tests
 make test-e2e           # end-to-end tests; needs root
-make docs               # regenerate the CLI reference and this README
+make docs               # regenerate the CLI reference and the README
 ```

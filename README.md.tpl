@@ -358,10 +358,9 @@ $ ./xcover-userspace stop
 
 ## CLI reference
 
-{{ .CLI_REFERENCE }}
-
-`agent extract` exists only in the userspace build and is not listed above;
-see [docs/userspace-bpf.md](docs/userspace-bpf.md).
+Every command and flag is documented in [docs/xcover.md](docs/xcover.md),
+with one page per subcommand linked from there. `agent extract` exists only
+in the userspace build; see [docs/userspace-bpf.md](docs/userspace-bpf.md).
 
 ## Development
 
@@ -375,5 +374,5 @@ Common targets:
 make xcover             # build the BPF object and the binary
 make test-integration   # unit and integration tests
 make test-e2e           # end-to-end tests; needs root
-make docs               # regenerate the CLI reference and this README
+make docs               # regenerate the CLI reference and the README
 ```

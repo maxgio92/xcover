@@ -22,5 +22,5 @@ xcover wait [flags]
 
 ### SEE ALSO
 
-* [xcover](../README.md)	 - xcover is a functional test coverage profiler
+* [xcover](xcover.md)	 - xcover is a functional test coverage profiler
 

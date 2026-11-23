@@ -16,8 +16,8 @@ At the end of your tests, the profiler can be stopped and a report being collect
 ### Options
 
 ```
-  -h, --help               help for xcover
-      --log-level string   Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
+  -h, --help[=true|false]   help for xcover
+      --log-level string    Log level (trace, debug, info, warn, error, fatal, panic) (default "info")
 ```
 
 ### SEE ALSO

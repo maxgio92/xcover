@@ -19,7 +19,10 @@ permissions:
 jobs:
   goreleaser:
     name: Build and Release
-    runs-on: ubuntu-latest
+    # The arm64 cross packages must match the amd64 versions, and the 26.04
+    # image ships amd64 builds newer than the ports archive, so apt would
+    # downgrade the toolchain. 24.04 keeps the two in step.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code

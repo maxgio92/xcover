@@ -32,9 +32,9 @@ xcover merge [flags] <report.json>...
 ### Options
 
 ```
-      --allow-missing-build-id   Merge reports even when one has an empty build_id; the result has an empty build_id
-  -h, --help                     help for merge
-  -o, --output string            Write the merged report to this file instead of stdout
+      --allow-missing-build-id[=true|false]   Merge reports even when one has an empty build_id; the result has an empty build_id
+  -h, --help[=true|false]                     help for merge
+  -o, --output string                         Write the merged report to this file instead of stdout
 ```
 
 ### Options inherited from parent commands

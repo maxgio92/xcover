@@ -19,7 +19,10 @@ permissions:
 jobs:
   goreleaser:
     name: Build and Release
-    runs-on: ubuntu-latest
+    # The arm64 cross packages must match the amd64 versions, and the 26.04
+    # image ships amd64 builds newer than the ports archive, so apt would
+    # downgrade the toolchain. 24.04 keeps the two in step.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -37,10 +40,11 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
           sudo sed -i 's/^URIs: /Architectures: amd64\nURIs: /' /etc/apt/sources.list.d/ubuntu.sources
-          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources
           Types: deb
           URIs: http://ports.ubuntu.com/ubuntu-ports
-          Suites: noble noble-updates noble-backports noble-security
+          Suites: ${codename} ${codename}-updates ${codename}-backports ${codename}-security
           Components: main restricted universe multiverse
           Architectures: arm64
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
@@ -62,7 +66,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install

@@ -44,7 +44,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install
@@ -172,7 +172,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install
@@ -243,7 +243,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install
@@ -363,7 +363,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install
@@ -432,7 +432,7 @@ jobs:
 
       - name: Install bpftool and libbpf
         run: |
-          git clone --depth 1 --branch v7.3.0 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
+          git clone --depth 1 --branch v7.8.1 --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool
           # Install libbpf first to get newer headers
           cd /tmp/bpftool/libbpf/src
           sudo make install
